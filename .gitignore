@@ -1,0 +1,62 @@
+# Node.js
+node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Redis
+dump.rdb
+
+# Build folders
+dist/
+build/
+
+# VS Code
+.vscode/
+
+# Dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Django media (optional)
+media/
+
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/
+backend/venv/
+
+backend/.env
+backend/config/settings_local.py
+
+# Django
+*.sqlite3
+backend/logs/
+backend/dump.rdb
+backend/cookies.txt
+
+# Media uploads (ignore if these are user-uploaded files)
+backend/media/
+
