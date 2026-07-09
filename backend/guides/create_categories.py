@@ -1,3 +1,4 @@
+#guides/create_categories.py
 from django.core.management.base import BaseCommand
 from guides.models import GuideCategory
 

@@ -1,5 +1,8 @@
+# guides/serializers.py - COMPLETE FIXED VERSION
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from datetime import datetime, timedelta
 from .models import (
     District, GuideCategory, Guide, GuideAvailability, 
     GuideBooking, GuideReview
@@ -7,18 +10,27 @@ from .models import (
 
 User = get_user_model()
 
+# ============================================
+# DISTRICT SERIALIZER
+# ============================================
 class DistrictSerializer(serializers.ModelSerializer):
     class Meta:
         model = District
         fields = ['id', 'name', 'code', 'description', 'image', 'is_active', 'created_at']
 
 
+# ============================================
+# GUIDE CATEGORY SERIALIZER
+# ============================================
 class GuideCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = GuideCategory
         fields = ['id', 'name', 'icon', 'description', 'is_active']
 
 
+# ============================================
+# GUIDE AVAILABILITY SERIALIZER
+# ============================================
 class GuideAvailabilitySerializer(serializers.ModelSerializer):
     is_available = serializers.BooleanField(read_only=True)
     
@@ -27,11 +39,15 @@ class GuideAvailabilitySerializer(serializers.ModelSerializer):
         fields = ['id', 'date', 'start_time', 'end_time', 'is_booked', 'max_bookings', 'current_bookings', 'is_available']
 
 
+# ============================================
+# GUIDE LIST SERIALIZER - WITH AVAILABILITIES
+# ============================================
 class GuideListSerializer(serializers.ModelSerializer):
-    """Simplified serializer for listing guides"""
+    """Simplified serializer for listing guides - INCLUDES availabilities"""
     districts = DistrictSerializer(many=True, read_only=True)
     categories = GuideCategorySerializer(many=True, read_only=True)
     profile_image_url = serializers.SerializerMethodField()
+    availabilities = serializers.SerializerMethodField()  # ✅ ADDED
     
     class Meta:
         model = Guide
@@ -39,15 +55,33 @@ class GuideListSerializer(serializers.ModelSerializer):
             'id', 'full_name', 'profile_image', 'profile_image_url', 'bio', 
             'years_of_experience', 'languages', 'rating', 'total_reviews', 
             'price_per_day', 'price_per_hour', 'districts', 'categories', 
-            'is_available', 'is_verified'
+            'is_available', 'is_verified',
+            'availabilities'  # ✅ ADDED
         ]
     
     def get_profile_image_url(self, obj):
         if obj.profile_image:
             return obj.profile_image.url
         return None
+    
+    def get_availabilities(self, obj):
+        """Get future availability slots for the list view"""
+        # Get slots for next 14 days (only future slots that are not booked)
+        start_date = datetime.now().date()
+        end_date = start_date + timedelta(days=14)
+        
+        slots = obj.availabilities.filter(
+            date__gte=start_date,
+            date__lte=end_date,
+            is_booked=False
+        ).order_by('date', 'start_time')[:10]  # Limit to 10 slots
+        
+        return GuideAvailabilitySerializer(slots, many=True).data
 
 
+# ============================================
+# GUIDE DETAIL SERIALIZER
+# ============================================
 class GuideDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for single guide"""
     districts = DistrictSerializer(many=True, read_only=True)
@@ -72,16 +106,19 @@ class GuideDetailSerializer(serializers.ModelSerializer):
         return None
     
     def get_availabilities(self, obj):
-        # Get next 7 days availability
-        from datetime import datetime, timedelta
+        """Get next 14 days availability for detail view"""
         start_date = datetime.now().date()
-        end_date = start_date + timedelta(days=7)
+        end_date = start_date + timedelta(days=14)
         availabilities = obj.availabilities.filter(
-            date__range=[start_date, end_date]
-        )
+            date__range=[start_date, end_date],
+            is_booked=False
+        ).order_by('date', 'start_time')
         return GuideAvailabilitySerializer(availabilities, many=True).data
 
 
+# ============================================
+# BOOKING SERIALIZERS
+# ============================================
 class BookingCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = GuideBooking
@@ -103,7 +140,6 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("This guide is currently not available")
         
         # Check if date is in the future
-        from datetime import datetime
         if date < datetime.now().date():
             raise serializers.ValidationError("Cannot book for past dates")
         
@@ -141,7 +177,7 @@ class BookingListSerializer(serializers.ModelSerializer):
     class Meta:
         model = GuideBooking
         fields = [
-            'booking_id', 'guide_name', 'guide_image', 'district_name', 
+            'id', 'booking_id', 'guide_name', 'guide_image', 'district_name', 
             'category_name', 'date', 'time', 'duration_hours', 
             'number_of_people', 'total_price', 'status', 'created_at'
         ]
@@ -171,6 +207,9 @@ class BookingUpdateSerializer(serializers.ModelSerializer):
         fields = ['status', 'special_requests']
 
 
+# ============================================
+# REVIEW SERIALIZERS
+# ============================================
 class GuideReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     user_profile_image = serializers.SerializerMethodField()

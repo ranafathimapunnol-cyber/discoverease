@@ -1,25 +1,26 @@
+# guides/management/commands/create_districts.py
 from django.core.management.base import BaseCommand
 from guides.models import District
 
 class Command(BaseCommand):
-    help = 'Create 14 districts'
+    help = 'Create 14 Kerala districts'
 
     def handle(self, *args, **options):
         districts = [
-            {'name': 'Colombo', 'code': 'COL', 'description': 'Commercial capital of Sri Lanka'},
-            {'name': 'Kandy', 'code': 'KAN', 'description': 'Cultural capital with Temple of the Tooth'},
-            {'name': 'Galle', 'code': 'GAL', 'description': 'Historic Dutch fort city'},
-            {'name': 'Jaffna', 'code': 'JAF', 'description': 'Northern cultural hub'},
-            {'name': 'Anuradhapura', 'code': 'ANU', 'description': 'Ancient capital with sacred sites'},
-            {'name': 'Polonnaruwa', 'code': 'POL', 'description': 'Medieval capital with ancient ruins'},
-            {'name': 'Nuwara Eliya', 'code': 'NEL', 'description': 'Hill country with tea plantations'},
-            {'name': 'Ella', 'code': 'ELL', 'description': 'Scenic mountain village'},
-            {'name': 'Sigiriya', 'code': 'SIG', 'description': 'Home to Lion Rock fortress'},
-            {'name': 'Trincomalee', 'code': 'TRI', 'description': 'Coastal city with natural harbor'},
-            {'name': 'Batticaloa', 'code': 'BAT', 'description': 'Eastern coastal city'},
-            {'name': 'Matara', 'code': 'MAT', 'description': 'Southern coastal town'},
-            {'name': 'Ratnapura', 'code': 'RAT', 'description': 'Gem mining city'},
-            {'name': 'Kurunegala', 'code': 'KUR', 'description': 'Central province capital'},
+            {'name': 'Thiruvananthapuram', 'code': 'TVM', 'description': 'Capital city with beaches and temples'},
+            {'name': 'Kollam', 'code': 'KLM', 'description': 'Cashew capital and backwater destination'},
+            {'name': 'Pathanamthitta', 'code': 'PTA', 'description': 'Pilgrim destination with Sabarimala'},
+            {'name': 'Alappuzha', 'code': 'ALP', 'description': 'Venice of the East with backwaters'},
+            {'name': 'Kottayam', 'code': 'KTM', 'description': 'Land of lakes and rubber plantations'},
+            {'name': 'Idukki', 'code': 'IDK', 'description': 'Hill station with tea gardens and dams'},
+            {'name': 'Ernakulam', 'code': 'EKM', 'description': 'Commercial capital with Kochi city'},
+            {'name': 'Thrissur', 'code': 'TSR', 'description': 'Cultural capital with Pooram festival'},
+            {'name': 'Palakkad', 'code': 'PLK', 'description': 'Gateway to Kerala with mountain passes'},
+            {'name': 'Malappuram', 'code': 'MLP', 'description': 'Hill district with rich history'},
+            {'name': 'Kozhikode', 'code': 'CLT', 'description': 'Historic trade center and beaches'},
+            {'name': 'Wayanad', 'code': 'WYD', 'description': 'Forest district with wildlife sanctuaries'},
+            {'name': 'Kannur', 'code': 'KNR', 'description': 'Land of theyyam and beaches'},
+            {'name': 'Kasaragod', 'code': 'KSD', 'description': 'Northernmost district with pristine beaches'},
         ]
         
         for district_data in districts:
@@ -33,4 +34,4 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f'District already exists: {district.name}'))
         
         total = District.objects.count()
-        self.stdout.write(self.style.SUCCESS(f'Total districts: {total}'))
+        self.stdout.write(self.style.SUCCESS(f'Total Kerala districts: {total}'))

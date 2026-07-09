@@ -1,5 +1,10 @@
+# accounts/views.py - CLEANED VERSION (NO staff/admin endpoints)
 import logging
 import requests
+import urllib.parse
+import secrets
+import random
+import string
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,7 +14,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect
-import urllib.parse
+from django.core.mail import send_mail
 from .models import User
 from .serializers import (
     UserSerializer, 
@@ -52,609 +57,1013 @@ class AuthViewSet(viewsets.ModelViewSet):
     # ============================================
     # ✅ CSRF TOKEN
     # ============================================
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='csrf-token')
     def csrf_token(self, request):
         """Get CSRF token"""
-        token = get_token(request)
-        response = Response({'csrf_token': token})
-        response.set_cookie(
-            'csrftoken',
-            token,
-            max_age=60 * 60 * 24 * 7 * 52,
-            httponly=False,
-            samesite='Lax',
-            secure=False,
-        )
-        return response
+        try:
+            token = get_token(request)
+            response = Response({'csrf_token': token})
+            response.set_cookie(
+                'csrftoken',
+                token,
+                max_age=60 * 60 * 24 * 7 * 52,
+                httponly=False,
+                samesite='Lax',
+                secure=False,
+            )
+            return response
+        except Exception as e:
+            logger.error(f"CSRF token error: {e}")
+            return Response({'csrf_token': 'error'}, status=200)
 
     # ============================================
     # ✅ REGISTER
     # ============================================
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='register')
     def register(self, request):
         """Register a new user"""
-        data = request.data.copy()
-        
-        # Set defaults if not provided
-        if not data.get('first_name'):
-            data['first_name'] = ''
-        if not data.get('last_name'):
-            data['last_name'] = ''
-        if not data.get('phone'):
-            data['phone'] = ''
-        if not data.get('role'):
-            data['role'] = 'tourister'
-        
-        # Generate username from email if not provided
-        if not data.get('username'):
-            email = data.get('email', '')
-            data['username'] = email.split('@')[0] if email else 'user'
-        
-        # Handle duplicate username
-        if User.objects.filter(username=data['username']).exists():
-            import random
-            data['username'] = f"{data['username']}_{random.randint(100, 999)}"
-        
-        serializer = RegisterSerializer(data=data)
-        
-        if serializer.is_valid():
-            user = serializer.save()
-            user.is_active = False
-            user.email_verified = False
-            user.save()
+        try:
+            data = request.data.copy()
             
-            # Generate verification token
+            if not data.get('first_name'):
+                data['first_name'] = ''
+            if not data.get('last_name'):
+                data['last_name'] = ''
+            if not data.get('phone'):
+                data['phone'] = ''
+            
+            if not data.get('username'):
+                email = data.get('email', '')
+                data['username'] = email.split('@')[0] if email else 'user'
+            
+            if User.objects.filter(username=data['username']).exists():
+                data['username'] = f"{data['username']}_{random.randint(100, 999)}"
+            
+            serializer = RegisterSerializer(data=data)
+            
+            if serializer.is_valid():
+                user = serializer.save()
+                user.is_active = False
+                user.email_verified = False
+                user.save()
+                
+                token = user.generate_verification_token()
+                verification_link = f"http://localhost:5173/verify-email?token={token}"
+                
+                try:
+                    send_verification_email.delay(user.id, token)
+                except Exception as e:
+                    logger.error(f"Failed to send verification email: {e}")
+                
+                return Response({
+                    'success': True,
+                    'message': 'Registration successful! Please verify your email.',
+                    'email': user.email,
+                    'role': user.get_role(),
+                    'user': UserSerializer(user).data,
+                    'verification_link': verification_link
+                }, status=status.HTTP_201_CREATED)
+            
+            return Response({
+                'success': False,
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Register error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ LOGIN
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='login')
+    def login(self, request):
+        """Login user - FIXED with manual authentication"""
+        try:
+            email = request.data.get('email')
+            password = request.data.get('password')
+            remember_me = request.data.get('remember_me', False)
+
+            print(f"🔐 Login attempt for: {email}")
+
+            if not email or not password:
+                return Response({
+                    'success': False,
+                    'error': 'Email and password required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            user = None
+
+            # METHOD 1: Try authenticate with email (standard Django)
+            user = authenticate(request, username=email, password=password)
+            print(f"🔑 Authenticate result: {user}")
+
+            # METHOD 2: Manual authentication
+            if not user:
+                try:
+                    user_obj = User.objects.get(email=email)
+                    print(f"📧 User found: {user_obj.email}")
+                    print(f"🔑 Password check: {user_obj.check_password(password)}")
+                    
+                    if user_obj.check_password(password):
+                        user = user_obj
+                        print(f"✅ Manual authentication successful for {email}")
+                    else:
+                        print(f"❌ Password check failed for {email}")
+                        return Response({
+                            'success': False,
+                            'error': 'Invalid email or password'
+                        }, status=status.HTTP_401_UNAUTHORIZED)
+                        
+                except User.DoesNotExist:
+                    print(f"❌ User not found: {email}")
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid email or password'
+                    }, status=status.HTTP_401_UNAUTHORIZED)
+                except Exception as e:
+                    print(f"❌ Error during manual auth: {e}")
+                    return Response({
+                        'success': False,
+                        'error': 'Invalid email or password'
+                    }, status=status.HTTP_401_UNAUTHORIZED)
+
+            if not user:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid email or password'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # Check if user is active
+            if not user.is_active:
+                return Response({
+                    'success': False,
+                    'error': 'Account is deactivated'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # Check email verification
+            if hasattr(user, 'email_verified') and not user.email_verified:
+                return Response({
+                    'success': False,
+                    'error': 'Please verify your email first',
+                    'verification_required': True
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # Login the user
+            login(request, user)
+            user.last_login = timezone.now()
+            user.save(update_fields=['last_login'])
+
+            if not remember_me:
+                request.session.set_expiry(0)
+            else:
+                request.session.set_expiry(60 * 60 * 24 * 30)
+
+            # Prepare user data
+            user_data = {
+                'id': user.id,
+                'email': user.email,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'role': user.role if hasattr(user, 'role') else 'tourister'
+            }
+
+            role = user.role if hasattr(user, 'role') else 'tourister'
+            
+            # Dashboard URL based on role
+            dashboard_url = '/'
+            if role == 'admin':
+                dashboard_url = '/admin-dashboard'
+            elif role == 'guide':
+                dashboard_url = '/guide-dashboard'
+            elif role == 'staff':
+                dashboard_url = '/staff-dashboard'
+
+            response_data = {
+                'success': True,
+                'message': 'Login successful',
+                'user': user_data,
+                'role': role,
+                'dashboard_url': dashboard_url,
+                'session_key': request.session.session_key
+            }
+
+            response = Response(response_data)
+            response.set_cookie(
+                'sessionid',
+                request.session.session_key,
+                max_age=request.session.get_expiry_age(),
+                httponly=True,
+                samesite='Lax',
+                secure=False,
+            )
+            
+            print(f"✅ Login successful for: {email} (Role: {role})")
+            return response
+
+        except Exception as e:
+            logger.error(f"Login error: {e}", exc_info=True)
+            print(f"❌ Login error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ TEST LOGIN
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='test-login')
+    def test_login(self, request):
+        """Simple test login that returns user info"""
+        email = request.data.get('email')
+        password = request.data.get('password')
+        
+        print(f"🧪 Test login for: {email}")
+        
+        try:
+            user = User.objects.get(email=email)
+            password_ok = user.check_password(password)
+            
+            return Response({
+                'email': email,
+                'user_exists': True,
+                'password_ok': password_ok,
+                'is_active': user.is_active,
+                'role': user.role,
+                'user_id': user.id,
+            })
+        except User.DoesNotExist:
+            return Response({
+                'email': email,
+                'user_exists': False,
+            })
+        except Exception as e:
+            return Response({
+                'email': email,
+                'error': str(e),
+            })
+
+    # ============================================
+    # ✅ GOOGLE LOGIN
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='google-login')
+    def google_login(self, request):
+        """Get Google OAuth URL for frontend redirect"""
+        try:
+            if not settings.GOOGLE_CLIENT_ID:
+                return Response({
+                    'success': False,
+                    'error': 'Google OAuth not configured'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            redirect_uri = 'http://localhost:5173/auth/google/callback/'
+            
+            google_auth_url = 'https://accounts.google.com/o/oauth2/v2/auth'
+            
+            params = {
+                'client_id': settings.GOOGLE_CLIENT_ID,
+                'redirect_uri': redirect_uri,
+                'response_type': 'code',
+                'scope': 'email profile openid',
+                'access_type': 'online',
+                'prompt': 'select_account',
+            }
+            
+            query_string = urllib.parse.urlencode(params)
+            full_url = f"{google_auth_url}?{query_string}"
+            
+            return Response({
+                'success': True,
+                'auth_url': full_url,
+                'message': 'Redirect to Google OAuth'
+            })
+            
+        except Exception as e:
+            logger.error(f"Google login error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ GOOGLE AUTH (Callback handler)
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='google-auth')
+    def google_auth(self, request):
+        """Handle Google OAuth callback with authorization code"""
+        try:
+            code = request.data.get('code')
+            role = request.data.get('role', 'tourister')
+
+            if not code:
+                return Response({
+                    'success': False,
+                    'error': 'Authorization code required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            code = code.strip()
+            redirect_uri = 'http://localhost:5173/auth/google/callback/'
+            
+            if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+                return Response({
+                    'success': False,
+                    'error': 'Google OAuth credentials not configured'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Exchange authorization code for access token
+            try:
+                token_response = requests.post(
+                    'https://oauth2.googleapis.com/token',
+                    data={
+                        'code': code,
+                        'client_id': settings.GOOGLE_CLIENT_ID,
+                        'client_secret': settings.GOOGLE_CLIENT_SECRET,
+                        'redirect_uri': redirect_uri,
+                        'grant_type': 'authorization_code',
+                    },
+                    timeout=10
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Google token request failed: {e}")
+                return Response({
+                    'success': False,
+                    'error': 'Failed to connect to Google'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if token_response.status_code != 200:
+                logger.error(f"Google token response error: {token_response.text}")
+                return Response({
+                    'success': False,
+                    'error': 'Google authentication failed'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            token_data = token_response.json()
+            access_token = token_data.get('access_token')
+            
+            if not access_token:
+                return Response({
+                    'success': False,
+                    'error': 'No access token received'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get user info from Google
+            try:
+                user_response = requests.get(
+                    'https://www.googleapis.com/oauth2/v2/userinfo',
+                    headers={'Authorization': f'Bearer {access_token}'},
+                    timeout=10
+                )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Google userinfo request failed: {e}")
+                return Response({
+                    'success': False,
+                    'error': 'Failed to get user information'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if user_response.status_code != 200:
+                logger.error(f"Google userinfo error: {user_response.text}")
+                return Response({
+                    'success': False,
+                    'error': 'Failed to get user info from Google'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            google_user = user_response.json()
+            email = google_user.get('email')
+            
+            if not email:
+                return Response({
+                    'success': False,
+                    'error': 'No email provided by Google'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get or create user
+            user, created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'username': email.split('@')[0],
+                    'first_name': google_user.get('given_name', ''),
+                    'last_name': google_user.get('family_name', ''),
+                    'email_verified': True,
+                    'is_active': True,
+                    'role': role,
+                }
+            )
+
+            # Update existing user if needed
+            if not created:
+                if not user.email_verified:
+                    user.email_verified = True
+                if not user.is_active:
+                    user.is_active = True
+                if user.role != role:
+                    user.role = role
+                user.save()
+
+            # Log the user in
+            user.backend = 'django.contrib.auth.backends.ModelBackend'
+            login(request, user)
+            user.last_login = timezone.now()
+            user.save(update_fields=['last_login'])
+            request.session.set_expiry(60 * 60 * 24 * 30)
+
+            response_data = {
+                'success': True,
+                'message': 'Login successful',
+                'user': UserSerializer(user).data,
+                'role': user.get_role(),
+                'dashboard_url': user.get_dashboard_url(),
+                'is_new_user': created,
+                'session_key': request.session.session_key
+            }
+
+            response = Response(response_data)
+            response.set_cookie(
+                'sessionid',
+                request.session.session_key,
+                max_age=request.session.get_expiry_age(),
+                httponly=True,
+                samesite='Lax',
+                secure=False,
+            )
+            return response
+
+        except Exception as e:
+            logger.error(f"Google auth error: {e}", exc_info=True)
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ LOGOUT
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='logout', permission_classes=[IsAuthenticated])
+    def logout(self, request):
+        try:
+            logout(request)
+            response = Response({'success': True, 'message': 'Logged out successfully'})
+            response.delete_cookie('sessionid')
+            return response
+        except Exception as e:
+            logger.error(f"Logout error: {e}")
+            return Response({'success': True, 'message': 'Logged out'})
+
+    # ============================================
+    # ✅ GET CURRENT USER
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='me', permission_classes=[IsAuthenticated])
+    def me(self, request):
+        try:
+            return Response({
+                'success': True,
+                'user': UserSerializer(request.user).data,
+                'role': request.user.get_role()
+            })
+        except Exception as e:
+            logger.error(f"Me error: {e}")
+            return Response({
+                'success': True,
+                'user': {
+                    'id': request.user.id,
+                    'email': request.user.email,
+                    'username': request.user.username,
+                    'first_name': request.user.first_name,
+                    'last_name': request.user.last_name,
+                },
+                'role': 'tourister'
+            })
+
+    # ============================================
+    # ✅ UPDATE PROFILE
+    # ============================================
+    @action(detail=False, methods=['patch'], url_path='update-profile', permission_classes=[IsAuthenticated])
+    def update_profile(self, request):
+        try:
+            serializer = ProfileUpdateSerializer(
+                request.user,
+                data=request.data,
+                partial=True
+            )
+            
+            if serializer.is_valid():
+                user = serializer.save()
+                return Response({
+                    'success': True,
+                    'message': 'Profile updated',
+                    'user': UserSerializer(user).data
+                })
+            
+            return Response({
+                'success': False,
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Update profile error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ VERIFY EMAIL
+    # ============================================
+    @action(detail=False, methods=['get', 'post'], url_path='verify-email')
+    def verify_email(self, request):
+        try:
+            if request.method == 'GET':
+                token = request.query_params.get('token')
+            else:
+                token = request.data.get('token')
+            
+            if not token:
+                return Response({
+                    'success': False,
+                    'error': 'Token required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                user = User.objects.get(email_verification_token=token)
+            except User.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid token'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not user.is_verification_token_valid(token):
+                return Response({
+                    'success': False,
+                    'error': 'Token expired'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not user.email_verified:
+                user.verify_email()
+            
+            user.backend = 'django.contrib.auth.backends.ModelBackend'
+            login(request, user)
+            request.session.set_expiry(60 * 60 * 24 * 30)
+            
+            response_data = {
+                'success': True,
+                'message': 'Email verified successfully',
+                'user': UserSerializer(user).data,
+                'role': user.get_role(),
+                'session_key': request.session.session_key
+            }
+            
+            response = Response(response_data)
+            response.set_cookie(
+                'sessionid',
+                request.session.session_key,
+                max_age=request.session.get_expiry_age(),
+                httponly=True,
+                samesite='Lax',
+                secure=False,
+            )
+            return response
+
+        except Exception as e:
+            logger.error(f"Verify email error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ RESEND VERIFICATION
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='resend-verification')
+    def resend_verification(self, request):
+        try:
+            email = request.data.get('email')
+            
+            if not email:
+                return Response({
+                    'success': False,
+                    'error': 'Email required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'User not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            if user.email_verified:
+                return Response({
+                    'success': False,
+                    'error': 'Email already verified'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
             token = user.generate_verification_token()
-            verification_link = f"http://localhost:8000/api/auth/verify_email/?token={token}"
             
-            # Send verification email
             try:
                 send_verification_email.delay(user.id, token)
             except Exception:
                 pass
             
+            verification_link = f"http://localhost:5173/verify-email?token={token}"
+            
             return Response({
                 'success': True,
-                'message': 'Registration successful! Please verify your email.',
-                'email': user.email,
-                'role': user.get_role(),
-                'user': UserSerializer(user).data,
+                'message': 'Verification email sent successfully',
                 'verification_link': verification_link
-            }, status=status.HTTP_201_CREATED)
-        
-        return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
-    # ✅ LOGIN
-    # ============================================
-    @action(detail=False, methods=['post'])
-    def login(self, request):
-        """Login user"""
-        email = request.data.get('email')
-        password = request.data.get('password')
-        remember_me = request.data.get('remember_me', False)
-
-        if not email or not password:
-            return Response({
-                'success': False,
-                'error': 'Email and password required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        user = authenticate(request, username=email, password=password)
-        
-        if not user:
-            return Response({
-                'success': False,
-                'error': 'Invalid credentials'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-
-        if not user.email_verified:
-            return Response({
-                'success': False,
-                'error': 'Please verify your email first',
-                'verification_required': True
-            }, status=status.HTTP_403_FORBIDDEN)
-
-        login(request, user)
-        user.last_login = timezone.now()
-        user.save(update_fields=['last_login'])
-
-        # Session expiry
-        if not remember_me:
-            request.session.set_expiry(0)
-        else:
-            request.session.set_expiry(60 * 60 * 24 * 30)
-
-        response_data = {
-            'success': True,
-            'message': 'Login successful',
-            'user': UserSerializer(user).data,
-            'role': user.get_role(),
-            'dashboard_url': user.get_dashboard_url(),
-            'session_key': request.session.session_key
-        }
-
-        response = Response(response_data)
-        response.set_cookie(
-            'sessionid',
-            request.session.session_key,
-            max_age=request.session.get_expiry_age(),
-            httponly=True,
-            samesite='Lax',
-            secure=False,
-        )
-        return response
-
-    # ============================================
-    # ✅ GOOGLE LOGIN (Redirect to Google)
-    # ============================================
-    @action(detail=False, methods=['get'])
-    def google_login(self, request):
-        """
-        Redirect to Google OAuth login page
-        GET /api/auth/google_login/
-        """
-        # Check if Google credentials are configured
-        if not settings.GOOGLE_CLIENT_ID:
-            return Response({
-                'success': False,
-                'error': 'Google OAuth not configured'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Build Google OAuth URL
-        google_auth_url = 'https://accounts.google.com/o/oauth2/v2/auth'
-        
-        params = {
-            'client_id': settings.GOOGLE_CLIENT_ID,
-            'redirect_uri': 'http://localhost:5173/auth/google/callback/',
-            'response_type': 'code',
-            'scope': 'email profile openid',
-            'access_type': 'online',
-            'prompt': 'select_account',
-        }
-        
-        query_string = urllib.parse.urlencode(params)
-        full_url = f"{google_auth_url}?{query_string}"
-        
-        logger.info(f"Redirecting to Google: {full_url}")
-        
-        # Return the URL instead of redirecting (for SPA)
-        return Response({
-            'success': True,
-            'auth_url': full_url,
-            'message': 'Redirect to Google OAuth'
-        })
-
-    # ============================================
-    # ✅ GOOGLE AUTH (Callback)
-    # ============================================
-    @action(detail=False, methods=['post'])
-    def google_auth(self, request):
-        """
-        Handle Google OAuth callback
-        POST /api/auth/google_auth/
-        """
-        code = request.data.get('code')
-        role = request.data.get('role', 'tourister')
-
-        if not code:
-            return Response({
-                'success': False,
-                'error': 'Authorization code required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        code = code.strip()
-        redirect_uri = 'http://localhost:5173/auth/google/callback/'
-        
-        if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
-            return Response({
-                'success': False,
-                'error': 'Google OAuth credentials not configured'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Exchange code for access token
-        try:
-            token_response = requests.post(
-                'https://oauth2.googleapis.com/token',
-                data={
-                    'code': code,
-                    'client_id': settings.GOOGLE_CLIENT_ID,
-                    'client_secret': settings.GOOGLE_CLIENT_SECRET,
-                    'redirect_uri': redirect_uri,
-                    'grant_type': 'authorization_code',
-                },
-                timeout=10
-            )
-        except requests.exceptions.RequestException:
-            return Response({
-                'success': False,
-                'error': 'Failed to connect to Google'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if token_response.status_code != 200:
-            return Response({
-                'success': False,
-                'error': 'Google authentication failed'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        token_data = token_response.json()
-        access_token = token_data.get('access_token')
-        
-        if not access_token:
-            return Response({
-                'success': False,
-                'error': 'No access token received'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Get user info from Google
-        try:
-            user_response = requests.get(
-                'https://www.googleapis.com/oauth2/v2/userinfo',
-                headers={'Authorization': f'Bearer {access_token}'},
-                timeout=10
-            )
-        except requests.exceptions.RequestException:
-            return Response({
-                'success': False,
-                'error': 'Failed to get user information'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if user_response.status_code != 200:
-            return Response({
-                'success': False,
-                'error': 'Failed to get user info from Google'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        google_user = user_response.json()
-        email = google_user.get('email')
-        
-        if not email:
-            return Response({
-                'success': False,
-                'error': 'No email provided by Google'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Get or create user
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={
-                'username': email.split('@')[0],
-                'first_name': google_user.get('given_name', ''),
-                'last_name': google_user.get('family_name', ''),
-                'email_verified': True,
-                'is_active': True,
-                'role': role,
-            }
-        )
-
-        if not created:
-            if not user.email_verified:
-                user.email_verified = True
-            if not user.is_active:
-                user.is_active = True
-            if user.role != role:
-                user.role = role
-            user.save()
-
-        # Login the user
-        user.backend = 'django.contrib.auth.backends.ModelBackend'
-        login(request, user)
-        user.last_login = timezone.now()
-        user.save(update_fields=['last_login'])
-        request.session.set_expiry(60 * 60 * 24 * 30)
-
-        response_data = {
-            'success': True,
-            'message': 'Login successful',
-            'user': UserSerializer(user).data,
-            'role': user.get_role(),
-            'dashboard_url': user.get_dashboard_url(),
-            'is_new_user': created,
-            'session_key': request.session.session_key
-        }
-
-        response = Response(response_data)
-        response.set_cookie(
-            'sessionid',
-            request.session.session_key,
-            max_age=request.session.get_expiry_age(),
-            httponly=True,
-            samesite='Lax',
-            secure=False,
-        )
-        return response
-
-    # ============================================
-    # ✅ LOGOUT
-    # ============================================
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
-    def logout(self, request):
-        """Logout user"""
-        logout(request)
-        response = Response({'success': True, 'message': 'Logged out successfully'})
-        response.delete_cookie('sessionid')
-        return response
-
-    # ============================================
-    # ✅ GET CURRENT USER
-    # ============================================
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
-    def me(self, request):
-        """Get current user profile"""
-        return Response({
-            'success': True,
-            'user': UserSerializer(request.user).data,
-            'role': request.user.get_role()
-        })
-
-    # ============================================
-    # ✅ UPDATE PROFILE
-    # ============================================
-    @action(detail=False, methods=['patch'], permission_classes=[IsAuthenticated])
-    def update_profile(self, request):
-        """Update user profile"""
-        serializer = ProfileUpdateSerializer(
-            request.user,
-            data=request.data,
-            partial=True
-        )
-        
-        if serializer.is_valid():
-            user = serializer.save()
-            return Response({
-                'success': True,
-                'message': 'Profile updated',
-                'user': UserSerializer(user).data
             })
-        
-        return Response({
-            'success': False,
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
-    # ✅ VERIFY EMAIL
-    # ============================================
-    @action(detail=False, methods=['get', 'post'])
-    def verify_email(self, request):
-        """Verify email with token"""
-        if request.method == 'GET':
-            token = request.query_params.get('token')
-        else:
-            token = request.data.get('token')
-        
-        if not token:
+        except Exception as e:
+            logger.error(f"Resend verification error: {e}")
             return Response({
                 'success': False,
-                'error': 'Token required'
+                'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Find user with token
-        try:
-            user = User.objects.get(email_verification_token=token)
-        except User.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Invalid token'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Check token validity
-        if not user.is_verification_token_valid(token):
-            return Response({
-                'success': False,
-                'error': 'Token expired'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Verify email
-        if not user.email_verified:
-            user.verify_email()
-        
-        # Login user
-        user.backend = 'django.contrib.auth.backends.ModelBackend'
-        login(request, user)
-        request.session.set_expiry(60 * 60 * 24 * 30)
-        
-        response_data = {
-            'success': True,
-            'message': 'Email verified successfully',
-            'user': UserSerializer(user).data,
-            'role': user.get_role(),
-            'session_key': request.session.session_key
-        }
-        
-        response = Response(response_data)
-        response.set_cookie(
-            'sessionid',
-            request.session.session_key,
-            max_age=request.session.get_expiry_age(),
-            httponly=True,
-            samesite='Lax',
-            secure=False,
-        )
-        return response
-
-    # ============================================
-    # ✅ RESEND VERIFICATION
-    # ============================================
-    @action(detail=False, methods=['post'])
-    def resend_verification(self, request):
-        """Resend verification email"""
-        email = request.data.get('email')
-        
-        if not email:
-            return Response({
-                'success': False,
-                'error': 'Email required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'User not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        if user.email_verified:
-            return Response({
-                'success': False,
-                'error': 'Email already verified'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        token = user.generate_verification_token()
-        
-        try:
-            send_verification_email.delay(user.id, token)
-        except Exception:
-            pass
-        
-        verification_link = f"http://localhost:8000/api/auth/verify_email/?token={token}"
-        
-        return Response({
-            'success': True,
-            'message': 'Verification email sent successfully',
-            'verification_link': verification_link
-        })
 
     # ============================================
     # ✅ UPLOAD PROFILE PICTURE
     # ============================================
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'], url_path='upload-profile-picture', permission_classes=[IsAuthenticated])
     def upload_profile_picture(self, request):
-        """Upload profile picture"""
-        user = request.user
-        
-        if 'profile_picture' not in request.FILES:
+        try:
+            user = request.user
+            
+            if 'profile_picture' not in request.FILES:
+                return Response({
+                    'success': False,
+                    'error': 'No image provided'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            image = request.FILES['profile_picture']
+            
+            if not image.content_type.startswith('image/'):
+                return Response({
+                    'success': False,
+                    'error': 'File must be an image'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if image.size > 5 * 1024 * 1024:
+                return Response({
+                    'success': False,
+                    'error': 'File size must be less than 5MB'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if user.profile_picture_upload:
+                try:
+                    user.profile_picture_upload.delete(save=False)
+                except Exception:
+                    pass
+            
+            user.profile_picture_upload = image
+            user.save()
+            
+            image_url = request.build_absolute_uri(user.profile_picture_upload.url)
+            
+            return Response({
+                'success': True,
+                'message': 'Profile picture uploaded successfully',
+                'profile_picture': image_url
+            })
+        except Exception as e:
+            logger.error(f"Upload profile picture error: {e}")
             return Response({
                 'success': False,
-                'error': 'No image provided'
+                'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        image = request.FILES['profile_picture']
-        
-        if not image.content_type.startswith('image/'):
-            return Response({
-                'success': False,
-                'error': 'File must be an image'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if image.size > 5 * 1024 * 1024:
-            return Response({
-                'success': False,
-                'error': 'File size must be less than 5MB'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Delete old picture
-        if user.profile_picture_upload:
-            try:
-                user.profile_picture_upload.delete(save=False)
-            except Exception:
-                pass
-        
-        user.profile_picture_upload = image
-        user.save()
-        
-        image_url = request.build_absolute_uri(user.profile_picture_upload.url)
-        
-        return Response({
-            'success': True,
-            'message': 'Profile picture uploaded successfully',
-            'profile_picture': image_url
-        })
 
     # ============================================
     # ✅ DELETE PROFILE PICTURE
     # ============================================
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'], url_path='delete-profile-picture', permission_classes=[IsAuthenticated])
     def delete_profile_picture(self, request):
-        """Delete profile picture"""
-        user = request.user
-        
-        if user.profile_picture_upload:
-            try:
-                user.profile_picture_upload.delete(save=False)
-            except Exception:
-                pass
-            user.profile_picture_upload = None
-            user.save()
-        
-        return Response({
-            'success': True,
-            'message': 'Profile picture deleted successfully'
-        })
+        try:
+            user = request.user
+            
+            if user.profile_picture_upload:
+                try:
+                    user.profile_picture_upload.delete(save=False)
+                except Exception:
+                    pass
+                user.profile_picture_upload = None
+                user.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Profile picture deleted successfully'
+            })
+        except Exception as e:
+            logger.error(f"Delete profile picture error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     # ============================================
     # ✅ TRIP STATS
     # ============================================
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], url_path='trip-stats', permission_classes=[IsAuthenticated])
     def trip_stats(self, request):
-        """Get user trip statistics"""
-        user = request.user
-        
         try:
-            from guides.models import GuideBooking
-            total_bookings = GuideBooking.objects.filter(user=user).count()
-            completed_bookings = GuideBooking.objects.filter(
-                user=user, 
-                status='completed'
-            ).count()
-            pending_bookings = GuideBooking.objects.filter(
-                user=user, 
-                status='pending'
-            ).count()
-            confirmed_bookings = GuideBooking.objects.filter(
-                user=user, 
-                status='confirmed'
-            ).count()
-        except ImportError:
+            user = request.user
+            
             total_bookings = 0
             completed_bookings = 0
             pending_bookings = 0
             confirmed_bookings = 0
-        
-        return Response({
-            'success': True,
-            'total_trips': total_bookings,
-            'completed_trips': completed_bookings,
-            'pending_trips': pending_bookings,
-            'confirmed_trips': confirmed_bookings,
-        })
+            
+            try:
+                from guides.models import GuideBooking
+                total_bookings = GuideBooking.objects.filter(user=user).count()
+                completed_bookings = GuideBooking.objects.filter(
+                    user=user, 
+                    status='completed'
+                ).count()
+                pending_bookings = GuideBooking.objects.filter(
+                    user=user, 
+                    status='pending'
+                ).count()
+                confirmed_bookings = GuideBooking.objects.filter(
+                    user=user, 
+                    status='confirmed'
+                ).count()
+            except ImportError:
+                logger.warning("Guides app not installed, returning 0 stats")
+            except Exception as e:
+                logger.error(f"Error fetching bookings: {e}")
+            
+            return Response({
+                'success': True,
+                'total_trips': total_bookings,
+                'completed_trips': completed_bookings,
+                'pending_trips': pending_bookings,
+                'confirmed_trips': confirmed_bookings,
+            })
+            
+        except Exception as e:
+            logger.error(f"Trip stats error: {e}")
+            return Response({
+                'success': True,
+                'total_trips': 0,
+                'completed_trips': 0,
+                'pending_trips': 0,
+                'confirmed_trips': 0,
+            })
 
     # ============================================
     # ✅ DELETE ACCOUNT
     # ============================================
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'], url_path='delete-account', permission_classes=[IsAuthenticated])
     def delete_account(self, request):
-        """Permanently delete user account"""
-        user = request.user
-        password = request.data.get('password')
-        
-        if not password:
+        try:
+            user = request.user
+            password = request.data.get('password')
+            
+            if not password:
+                return Response({
+                    'success': False,
+                    'error': 'Password required for account deletion'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not user.check_password(password):
+                return Response({
+                    'success': False,
+                    'error': 'Invalid password'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            user.is_active = False
+            user.is_deleted = True
+            user.deleted_at = timezone.now()
+            user.email = f"deleted_{user.id}_{user.email}"
+            user.username = f"deleted_user_{user.id}"
+            user.save()
+            
+            logout(request)
+            
+            return Response({
+                'success': True,
+                'message': 'Account deleted successfully'
+            })
+        except Exception as e:
+            logger.error(f"Delete account error: {e}")
             return Response({
                 'success': False,
-                'error': 'Password required for account deletion'
+                'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not user.check_password(password):
+
+    # ============================================
+    # ✅ FORGOT PASSWORD
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='forgot-password')
+    def forgot_password(self, request):
+        try:
+            email = request.data.get('email')
+            
+            if not email:
+                return Response({
+                    'success': False,
+                    'error': 'Email is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                return Response({
+                    'success': True,
+                    'message': 'If an account with this email exists, a reset link has been sent.'
+                })
+            
+            token = secrets.token_urlsafe(32)
+            user.password_reset_token = token
+            user.password_reset_token_created = timezone.now()
+            user.save()
+            
+            try:
+                reset_link = f"http://localhost:5173/reset-password?token={token}"
+                send_mail(
+                    subject='Password Reset - DiscoverEase',
+                    message=f'Click the link to reset your password: {reset_link}',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=True,
+                )
+            except Exception as e:
+                logger.error(f"Failed to send password reset email: {e}")
+            
+            return Response({
+                'success': True,
+                'message': 'If an account with this email exists, a reset link has been sent.'
+            })
+            
+        except Exception as e:
+            logger.error(f"Forgot password error: {e}")
             return Response({
                 'success': False,
-                'error': 'Invalid password'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-        
-        # Soft delete
-        user.is_active = False
-        user.is_deleted = True
-        user.deleted_at = timezone.now()
-        user.email = f"deleted_{user.id}_{user.email}"
-        user.username = f"deleted_user_{user.id}"
-        user.save()
-        
-        logout(request)
-        
-        return Response({
-            'success': True,
-            'message': 'Account deleted successfully'
-        })
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ VERIFY RESET TOKEN
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='verify-reset-token')
+    def verify_reset_token(self, request):
+        try:
+            token = request.data.get('token')
+            
+            if not token:
+                return Response({
+                    'success': False,
+                    'error': 'Token is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                user = User.objects.get(password_reset_token=token)
+            except User.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid or expired token'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if user.password_reset_token_created:
+                expiry = user.password_reset_token_created + timezone.timedelta(hours=24)
+                if timezone.now() > expiry:
+                    return Response({
+                        'success': False,
+                        'error': 'Token has expired'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'success': True,
+                'message': 'Token is valid',
+                'email': user.email
+            })
+            
+        except Exception as e:
+            logger.error(f"Verify reset token error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ RESET PASSWORD
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='reset-password')
+    def reset_password(self, request):
+        try:
+            token = request.data.get('token')
+            password = request.data.get('password')
+            confirm_password = request.data.get('confirm_password')
+            
+            if not token:
+                return Response({
+                    'success': False,
+                    'error': 'Token is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not password:
+                return Response({
+                    'success': False,
+                    'error': 'Password is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if password != confirm_password:
+                return Response({
+                    'success': False,
+                    'error': 'Passwords do not match'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(password) < 8:
+                return Response({
+                    'success': False,
+                    'error': 'Password must be at least 8 characters'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                user = User.objects.get(password_reset_token=token)
+            except User.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid or expired token'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if user.password_reset_token_created:
+                expiry = user.password_reset_token_created + timezone.timedelta(hours=24)
+                if timezone.now() > expiry:
+                    return Response({
+                        'success': False,
+                        'error': 'Token has expired'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            user.set_password(password)
+            user.password_reset_token = None
+            user.password_reset_token_created = None
+            user.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Password reset successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Reset password error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ CHANGE PASSWORD
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='change-password', permission_classes=[IsAuthenticated])
+    def change_password(self, request):
+        try:
+            user = request.user
+            current_password = request.data.get('current_password')
+            new_password = request.data.get('new_password')
+            confirm_new_password = request.data.get('confirm_new_password')
+            
+            if not current_password:
+                return Response({
+                    'success': False,
+                    'error': 'Current password is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not new_password:
+                return Response({
+                    'success': False,
+                    'error': 'New password is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if new_password != confirm_new_password:
+                return Response({
+                    'success': False,
+                    'error': 'New passwords do not match'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(new_password) < 8:
+                return Response({
+                    'success': False,
+                    'error': 'Password must be at least 8 characters'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not user.check_password(current_password):
+                return Response({
+                    'success': False,
+                    'error': 'Current password is incorrect'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            user.set_password(new_password)
+            user.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Password changed successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Change password error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)

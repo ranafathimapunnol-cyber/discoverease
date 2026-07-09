@@ -1,3 +1,5 @@
+# guides/models.py - COMPLETE FIXED VERSION
+
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -5,8 +7,9 @@ from django.utils import timezone
 
 User = get_user_model()
 
+
 class District(models.Model):
-    """14 Districts"""
+    """14 Districts of Kerala"""
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=10, unique=True)
     description = models.TextField(blank=True)
@@ -40,7 +43,7 @@ class GuideCategory(models.Model):
 
 
 class Guide(models.Model):
-    """Guide profile"""
+    """Guide profile - COMPLETE WITH verified_by FIELD"""
     user = models.OneToOneField(
         User, 
         on_delete=models.CASCADE, 
@@ -50,15 +53,17 @@ class Guide(models.Model):
     # Personal Information
     full_name = models.CharField(max_length=200)
     profile_image = models.ImageField(upload_to='guides/', blank=True, null=True)
-    bio = models.TextField()
-    phone_number = models.CharField(max_length=20)
+    bio = models.TextField(blank=True, default='')
+    phone_number = models.CharField(max_length=20, blank=True, default='')
     email = models.EmailField()
     
     # Professional Information
     years_of_experience = models.IntegerField(default=0)
     languages = models.CharField(
         max_length=200, 
-        help_text="Comma separated languages (e.g., English, Sinhala, Tamil)"
+        blank=True,
+        default='',
+        help_text="Comma separated languages (e.g., English, Malayalam, Tamil)"
     )
     rating = models.DecimalField(
         max_digits=3, 
@@ -84,15 +89,17 @@ class Guide(models.Model):
     districts = models.ManyToManyField(
         District, 
         related_name='guides',
+        blank=True,
         help_text="All districts this guide serves"
     )
     categories = models.ManyToManyField(
         GuideCategory, 
         related_name='guides',
+        blank=True,
         help_text="Specialties/categories this guide offers"
     )
     
-    # Availability
+    # Availability & Verification
     is_available = models.BooleanField(
         default=True,
         help_text="Is this guide currently available for bookings?"
@@ -106,12 +113,23 @@ class Guide(models.Model):
         help_text="Is this guide account active?"
     )
     
+    # ✅ ADD THIS FIELD - Who verified this guide
+    verified_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='verified_guides',
+        help_text="Admin/Staff who verified this guide"
+    )
+    
     # Social Links
     facebook = models.URLField(blank=True, null=True)
     instagram = models.URLField(blank=True, null=True)
     twitter = models.URLField(blank=True, null=True)
     website = models.URLField(blank=True, null=True)
     
+    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -223,17 +241,21 @@ class GuideBooking(models.Model):
     )
     district = models.ForeignKey(
         District, 
-        on_delete=models.CASCADE
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='guide_bookings'
     )
     category = models.ForeignKey(
         GuideCategory, 
         on_delete=models.SET_NULL, 
-        null=True
+        null=True,
+        blank=True
     )
     availability = models.ForeignKey(
         GuideAvailability, 
         on_delete=models.SET_NULL, 
-        null=True
+        null=True,
+        blank=True
     )
     
     # Booking details
@@ -241,7 +263,7 @@ class GuideBooking(models.Model):
     time = models.TimeField()
     duration_hours = models.IntegerField(default=2)
     number_of_people = models.IntegerField(default=1)
-    special_requests = models.TextField(blank=True)
+    special_requests = models.TextField(blank=True, default='')
     
     # Pricing
     total_price = models.DecimalField(
@@ -292,7 +314,8 @@ class GuideReview(models.Model):
     )
     user = models.ForeignKey(
         User, 
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        related_name='guide_reviews'
     )
     guide = models.ForeignKey(
         Guide, 
@@ -303,12 +326,13 @@ class GuideReview(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
     comment = models.TextField()
+    is_approved = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
-        unique_together = ['booking', 'user']  # Prevent duplicate reviews
+        unique_together = ['booking', 'user']
 
     def __str__(self):
         return f"{self.user.username} - {self.guide.full_name} - {self.rating}★"

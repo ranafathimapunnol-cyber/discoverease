@@ -1,3 +1,4 @@
+# guides/views.py - COMPLETE FIXED VERSION
 from django.db.models import Q, Avg
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
@@ -50,8 +51,8 @@ class GuideCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['name']
 
 
-class GuideViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for viewing guides"""
+class GuideViewSet(viewsets.ModelViewSet):
+    """Complete Guide ViewSet with Dashboard Endpoints"""
     queryset = Guide.objects.filter(is_active=True, is_verified=True)
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -163,6 +164,239 @@ class GuideViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = GuideReviewSerializer(reviews, many=True)
         return Response(serializer.data)
 
+    # ============================================
+    # ✅ GUIDE DASHBOARD ENDPOINTS - FIXED
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='profile', permission_classes=[IsAuthenticated])
+    def guide_profile(self, request):
+        """Get guide profile for dashboard"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            return Response({
+                'success': True,
+                'profile': {
+                    'id': guide.id,
+                    'full_name': guide.full_name,
+                    'email': guide.email,
+                    'phone': guide.phone_number,
+                    'bio': guide.bio,
+                    'experience_years': guide.years_of_experience,
+                    'languages': guide.languages,
+                    'rating': float(guide.rating),
+                    'total_reviews': guide.total_reviews,
+                    'is_verified': guide.is_verified,
+                    'primary_district': guide.districts.first().name if guide.districts.exists() else None,
+                    'profile_image': guide.profile_image.url if guide.profile_image else None,
+                }
+            })
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='stats', permission_classes=[IsAuthenticated])
+    def guide_stats(self, request):
+        """Get guide dashboard stats"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            
+            bookings = GuideBooking.objects.filter(guide=guide)
+            reviews = GuideReview.objects.filter(guide=guide)
+            
+            stats = {
+                'totalBookings': bookings.count(),
+                'pendingBookings': bookings.filter(status='pending').count(),
+                'confirmedBookings': bookings.filter(status='confirmed').count(),
+                'completedBookings': bookings.filter(status='completed').count(),
+                'totalReviews': reviews.count(),
+                'pendingReviews': 0,
+                'rating': float(guide.rating),
+            }
+            return Response({'success': True, 'stats': stats})
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='bookings', permission_classes=[IsAuthenticated])
+    def guide_bookings(self, request):
+        """Get guide's bookings"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            status_filter = request.query_params.get('status')
+            
+            bookings = GuideBooking.objects.filter(guide=guide)
+            if status_filter:
+                bookings = bookings.filter(status=status_filter)
+            
+            data = []
+            for booking in bookings.order_by('-created_at'):
+                data.append({
+                    'id': booking.id,
+                    'booking_id': booking.booking_id,
+                    'user': {
+                        'username': booking.user.username if booking.user else 'Anonymous',
+                        'email': booking.user.email if booking.user else '',
+                    },
+                    'traveler_email': booking.user.email if booking.user else '',
+                    'district': {
+                        'name': booking.district.name if booking.district else 'N/A'
+                    },
+                    'date': booking.date.isoformat(),
+                    'time': booking.time.strftime('%H:%M'),
+                    'status': booking.status,
+                    'created_at': booking.created_at.isoformat(),
+                })
+            return Response({'success': True, 'bookings': data})
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='availability', permission_classes=[IsAuthenticated])
+    def guide_availability(self, request):
+        """Get guide's availability slots"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            availability = GuideAvailability.objects.filter(guide=guide).order_by('date', 'start_time')
+            
+            data = []
+            for slot in availability:
+                data.append({
+                    'id': slot.id,
+                    'date': slot.date.isoformat(),
+                    'start_time': slot.start_time.strftime('%H:%M'),
+                    'end_time': slot.end_time.strftime('%H:%M'),
+                    'is_booked': slot.is_booked,
+                    'max_bookings': slot.max_bookings,
+                    'current_bookings': slot.current_bookings,
+                })
+            return Response({'success': True, 'availability': data})
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['post'], url_path='availability/add', permission_classes=[IsAuthenticated])
+    def guide_add_availability(self, request):
+        """Add availability slot"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            
+            data = request.data
+            slot = GuideAvailability.objects.create(
+                guide=guide,
+                date=datetime.strptime(data.get('date'), '%Y-%m-%d').date(),
+                start_time=datetime.strptime(data.get('start_time'), '%H:%M').time(),
+                end_time=datetime.strptime(data.get('end_time'), '%H:%M').time(),
+                max_bookings=int(data.get('max_bookings', 1)),
+            )
+            
+            return Response({
+                'success': True,
+                'message': 'Slot added successfully',
+                'slot': {
+                    'id': slot.id,
+                    'date': slot.date.isoformat(),
+                    'start_time': slot.start_time.strftime('%H:%M'),
+                    'end_time': slot.end_time.strftime('%H:%M'),
+                    'max_bookings': slot.max_bookings,
+                    'current_bookings': slot.current_bookings,
+                }
+            })
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=True, methods=['delete'], url_path='availability', permission_classes=[IsAuthenticated])
+    def guide_delete_availability(self, request, pk=None):
+        """Delete availability slot"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            slot = GuideAvailability.objects.get(id=pk, guide=guide)
+            slot.delete()
+            return Response({'success': True, 'message': 'Slot deleted successfully'})
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except GuideAvailability.DoesNotExist:
+            return Response({'success': False, 'error': 'Slot not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='reviews', permission_classes=[IsAuthenticated])
+    def guide_reviews(self, request):
+        """Get reviews for guide"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            
+            reviews = GuideReview.objects.filter(guide=guide)
+            data = []
+            for review in reviews:
+                data.append({
+                    'id': review.id,
+                    'user': {
+                        'username': review.user.username if review.user else 'Anonymous',
+                        'email': review.user.email if review.user else '',
+                    },
+                    'rating': review.rating,
+                    'comment': review.comment,
+                    'review_text': review.comment,
+                    'is_approved': True,
+                    'created_at': review.created_at.isoformat(),
+                })
+            return Response({'success': True, 'reviews': data})
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=True, methods=['post'], url_path='bookings/process', permission_classes=[IsAuthenticated])
+    def guide_process_booking(self, request, pk=None):
+        """Process booking (confirm/reject)"""
+        try:
+            booking = GuideBooking.objects.get(id=pk)
+            
+            if booking.guide.user != request.user:
+                return Response({'error': 'Unauthorized'}, status=403)
+            
+            action = request.data.get('action')
+            if action == 'confirm':
+                booking.status = 'confirmed'
+                booking.save()
+                return Response({'success': True, 'message': 'Booking confirmed'})
+            elif action == 'reject':
+                booking.status = 'rejected'
+                booking.save()
+                return Response({'success': True, 'message': 'Booking rejected'})
+            
+            return Response({'error': 'Invalid action'}, status=400)
+        except GuideBooking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=True, methods=['post'], url_path='bookings/complete', permission_classes=[IsAuthenticated])
+    def guide_complete_booking(self, request, pk=None):
+        """Complete a booking"""
+        try:
+            booking = GuideBooking.objects.get(id=pk)
+            
+            if booking.guide.user != request.user:
+                return Response({'error': 'Unauthorized'}, status=403)
+            
+            if booking.status != 'confirmed':
+                return Response({'error': 'Booking must be confirmed first'}, status=400)
+            
+            booking.status = 'completed'
+            booking.save()
+            return Response({'success': True, 'message': 'Booking completed'})
+        except GuideBooking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
 
 class BookingViewSet(viewsets.ModelViewSet):
     """ViewSet for guide bookings"""
@@ -197,7 +431,7 @@ class BookingViewSet(viewsets.ModelViewSet):
         if price_per_hour == Decimal('0.00'):
             # Fallback to daily price calculation
             price_per_day = booking.guide.price_per_day or Decimal('0.00')
-            price_per_hour = price_per_day / Decimal('8.0')  # Assuming 8 hour day
+            price_per_hour = price_per_day / Decimal('8.0')
         
         total_price = price_per_hour * Decimal(str(booking.duration_hours))
         booking.total_price = total_price

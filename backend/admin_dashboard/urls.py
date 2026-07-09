@@ -1,10 +1,10 @@
-# accounts/urls.py
+# admin_dashboard/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import AuthViewSet
+from .views import AdminViewSet
 
 router = DefaultRouter()
-router.register(r'', AuthViewSet, basename='auth')
+router.register(r'admin', AdminViewSet, basename='admin')
 
 urlpatterns = [
     path('', include(router.urls)),

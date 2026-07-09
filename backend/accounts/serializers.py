@@ -32,15 +32,13 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
     confirm_password = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=User.Role.choices, default=User.Role.TOURISTER)
     email = serializers.EmailField()
-    username = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = User
         fields = [
-            'email', 'username', 'password', 'confirm_password', 
-            'first_name', 'last_name', 'phone', 'role'
+            'email', 'password', 'confirm_password', 
+            'first_name', 'last_name', 'phone'
         ]
         extra_kwargs = {
             'first_name': {'required': False, 'allow_blank': True},
@@ -68,13 +66,21 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('confirm_password')
         
-        if not validated_data.get('username'):
-            validated_data['username'] = validated_data['email'].split('@')[0]
+        # Auto-generate username from email
+        email = validated_data.get('email', '')
+        base_username = email.split('@')[0] if email else 'user'
         
-        username = validated_data['username']
-        if User.objects.filter(username=username).exists():
-            import random
-            validated_data['username'] = f"{username}_{random.randint(100, 999)}"
+        # Handle duplicate username
+        username = base_username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}_{counter}"
+            counter += 1
+        
+        validated_data['username'] = username
+        
+        # Role defaults to 'tourister'
+        validated_data['role'] = User.Role.TOURISTER
         
         user = User.objects.create_user(**validated_data)
         return user

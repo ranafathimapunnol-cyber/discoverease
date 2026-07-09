@@ -14,3 +14,4 @@ django-allauth==64.0.0
 google-auth==2.55.1
 google-auth-oauthlib==1.4.0
 pyjwt==2.8.0
+django-recaptcha==3.0.0
