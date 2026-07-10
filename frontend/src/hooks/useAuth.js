@@ -1,4 +1,3 @@
-// hooks/useAuth.js
 import { useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/api';
 

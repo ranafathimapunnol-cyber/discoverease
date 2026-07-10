@@ -11,8 +11,9 @@ from django.contrib.auth import get_user_model
 import random
 import string
 import logging
+from datetime import datetime, timedelta
 
-from guides.models import Guide, GuideBooking, District, GuideCategory
+from guides.models import Guide, GuideBooking, District, GuideCategory, GuideAvailability
 from suggestions.models import Suggestion
 
 User = get_user_model()
@@ -20,14 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 class StaffViewSet(viewsets.ViewSet):
-    """Staff Dashboard - Complete Working Version"""
+    """Staff Dashboard - Staff can manage guides"""
     permission_classes = [IsAuthenticated]
 
     def _check_staff_access(self, request):
         """Check if user has staff or admin access"""
-        if request.user.role not in ['staff', 'admin'] and not request.user.is_staff:
-            return False
-        return True
+        if hasattr(request.user, 'role') and request.user.role in ['staff', 'admin']:
+            return True
+        if request.user.is_staff or request.user.is_superuser:
+            return True
+        return False
 
     def _log_activity(self, request, action, model_name, object_id='', details=None):
         """Log staff activity"""
@@ -101,7 +104,7 @@ class StaffViewSet(viewsets.ViewSet):
             }})
 
     # ============================================
-    # STAFF GUIDES - COMPLETE
+    # STAFF GUIDES
     # ============================================
     @action(detail=False, methods=['get'], url_path='guides')
     def guides(self, request):
@@ -140,11 +143,11 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # ADD GUIDE - WITH AUTO-VERIFY TOGGLE
+    # ADD GUIDE - FIXED: Each guide gets their own slots
     # ============================================
     @action(detail=False, methods=['post'], url_path='guides/add')
     def add_guide(self, request):
-        """Add a new guide with auto-verify option"""
+        """Add a new guide - each guide gets their own slots"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -155,23 +158,18 @@ class StaffViewSet(viewsets.ViewSet):
             if not email:
                 return Response({'error': 'Email is required'}, status=400)
 
-            # Check if user already exists
             if User.objects.filter(email=email).exists():
                 return Response({'error': 'User with this email already exists'}, status=400)
 
-            # Get auto_verify preference (default: True)
-            auto_verify = data.get('auto_verify', True)
-
-            # Get or generate password
             password = data.get('password')
             if not password:
                 password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
 
-            # Create user
             full_name = data.get('full_name', '')
             first_name = full_name.split()[0] if full_name else ''
             last_name = ' '.join(full_name.split()[1:]) if full_name else ''
 
+            # Create user
             user = User.objects.create_user(
                 email=email,
                 username=email.split('@')[0],
@@ -183,7 +181,7 @@ class StaffViewSet(viewsets.ViewSet):
                 email_verified=True,
             )
 
-            # ✅ Create guide profile - with verified_by if auto_verify is True
+            # Create guide profile
             guide = Guide.objects.create(
                 user=user,
                 full_name=full_name or email.split('@')[0],
@@ -194,47 +192,90 @@ class StaffViewSet(viewsets.ViewSet):
                 languages=data.get('languages', ''),
                 price_per_day=float(data.get('price_per_day', 0)),
                 price_per_hour=float(data.get('price_per_hour', 0)),
-                is_verified=auto_verify,  # ✅ Auto-verify if toggle is ON
+                is_verified=True,
                 is_active=True,
-                verified_by=request.user if auto_verify else None,  # ✅ Only set if auto-verified
+                verified_by=request.user,
             )
 
-            # Add district
-            district_name = data.get('primary_district')
-            if district_name:
-                try:
-                    district = District.objects.get(name=district_name)
-                    guide.districts.add(district)
-                except District.DoesNotExist:
-                    pass
+            print(f"✅ Guide created: {guide.full_name} (ID: {guide.id})")
 
-            # Add categories
-            categories = data.get('categories', [])
-            if categories:
-                for cat_name in categories:
-                    try:
-                        cat = GuideCategory.objects.get(name=cat_name)
-                        guide.categories.add(cat)
-                    except GuideCategory.DoesNotExist:
-                        pass
+            # Handle district
+            district_name = data.get('primary_district')
+            if not district_name:
+                return Response({
+                    'success': False,
+                    'error': 'Please select a district for the guide.'
+                }, status=400)
+
+            try:
+                district = District.objects.get(name__iexact=district_name)
+                guide.districts.add(district)
+                print(f"✅ Added district: {district.name}")
+            except District.DoesNotExist:
+                available = list(District.objects.values_list('name', flat=True))
+                return Response({
+                    'success': False,
+                    'error': f"District '{district_name}' not found. Available: {', '.join(available)}"
+                }, status=400)
+
+            # ✅ IMPORTANT: Clear any existing slots for this guide
+            deleted_count = guide.availabilities.all().delete()
+            print(f"🗑️ Cleared {deleted_count[0]} existing slots for {guide.full_name}")
+
+            # ✅ Add fresh slots - ONLY FOR THIS SPECIFIC GUIDE
+            slots_added = 0
+            for i in range(14):
+                date = datetime.now().date() + timedelta(days=i)
+                
+                # Morning slot
+                slot = GuideAvailability.objects.create(
+                    guide=guide,  # ✅ THIS GUIDE ONLY
+                    date=date,
+                    start_time="09:00",
+                    end_time="13:00",
+                    max_bookings=3,
+                    current_bookings=0,
+                    is_booked=False
+                )
+                slots_added += 1
+                print(f"  ✅ Added morning slot for {date} to guide ID {guide.id}")
+                
+                # Afternoon slot
+                slot2 = GuideAvailability.objects.create(
+                    guide=guide,  # ✅ THIS GUIDE ONLY
+                    date=date,
+                    start_time="14:00",
+                    end_time="18:00",
+                    max_bookings=3,
+                    current_bookings=0,
+                    is_booked=False
+                )
+                slots_added += 1
+                print(f"  ✅ Added afternoon slot for {date} to guide ID {guide.id}")
+
+            print(f"✅ Added {slots_added} total slots for guide: {guide.full_name}")
 
             return Response({
                 'success': True,
-                'message': f'Guide added {"and verified" if auto_verify else ""} successfully!',
+                'message': f'Guide added successfully to {district.name}!',
                 'guide_id': guide.id,
                 'user_id': user.id,
                 'password': password,
                 'is_verified': guide.is_verified,
+                'slots_added': slots_added,
                 'guide': {
                     'id': guide.id,
                     'full_name': guide.full_name,
                     'email': guide.email,
                     'is_verified': guide.is_verified,
+                    'primary_district': guide.districts.first().name if guide.districts.exists() else None,
+                    'total_slots': guide.availabilities.count(),
                 }
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             logger.error(f"Error adding guide: {e}")
+            print(f"❌ ERROR: {str(e)}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
@@ -242,13 +283,12 @@ class StaffViewSet(viewsets.ViewSet):
     # ============================================
     @action(detail=True, methods=['post'], url_path='guides/verify')
     def verify_guide(self, request, pk=None):
-        """Verify a guide (staff/admin only)"""
+        """Verify a guide (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
             guide = get_object_or_404(Guide, id=pk)
-            
             guide.is_verified = True
             guide.verified_by = request.user
             guide.save()
@@ -267,17 +307,16 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # DELETE GUIDE (Soft delete)
+    # DELETE GUIDE
     # ============================================
     @action(detail=True, methods=['delete'], url_path='guides')
     def delete_guide(self, request, pk=None):
-        """Delete a guide (staff/admin only)"""
+        """Delete a guide (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
             guide = get_object_or_404(Guide, id=pk)
-            
             guide.is_active = False
             guide.save()
             
@@ -335,7 +374,7 @@ class StaffViewSet(viewsets.ViewSet):
     # ============================================
     @action(detail=True, methods=['post'], url_path='bookings/update')
     def update_booking(self, request, pk=None):
-        """Update booking status (staff/admin only)"""
+        """Update booking status (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -403,7 +442,7 @@ class StaffViewSet(viewsets.ViewSet):
     # ============================================
     @action(detail=True, methods=['post'], url_path='suggestions/process')
     def process_suggestion(self, request, pk=None):
-        """Process a suggestion (staff/admin only)"""
+        """Process a suggestion (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -489,7 +528,7 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF REVIEWS - FIXED (returns empty if no reviews app)
+    # STAFF REVIEWS
     # ============================================
     @action(detail=False, methods=['get'], url_path='reviews')
     def staff_reviews(self, request):
@@ -498,7 +537,6 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
-            # Try to import from destinations app
             try:
                 from destinations.models import Review
                 reviews = Review.objects.all().order_by('-created_at')
@@ -517,7 +555,6 @@ class StaffViewSet(viewsets.ViewSet):
                     })
                 return Response({'success': True, 'reviews': data})
             except ImportError:
-                # Return empty if destinations app doesn't exist
                 return Response({'success': True, 'reviews': []})
         except Exception as e:
             logger.error(f"Error fetching reviews: {e}")

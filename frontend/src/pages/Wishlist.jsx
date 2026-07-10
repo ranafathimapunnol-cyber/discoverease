@@ -1,4 +1,4 @@
-// pages/Wishlist.jsx
+// src/pages/Wishlist.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,7 +14,6 @@ export default function Wishlist() {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     
-    // Load wishlist from localStorage
     const savedWishlist = localStorage.getItem('wishlist');
     if (savedWishlist) {
       try {
@@ -27,7 +26,6 @@ export default function Wishlist() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ✅ Redirect if not logged in
   useEffect(() => {
     if (!isLoggedIn) {
       navigate('/login', { replace: true });
@@ -40,26 +38,41 @@ export default function Wishlist() {
     localStorage.setItem('wishlist', JSON.stringify(newWishlist));
   };
 
-  // ✅ Enhanced: Handle "Find Guides" - Navigate to Guides with district and category filters
+  // ============================================
+  // FIND GUIDES - Navigates with district filter
+  // ============================================
   const handleFindGuides = (category, location) => {
-    // Extract district from location string
     const locationParts = location?.split(',') || [];
-    const district = locationParts[0]?.trim() || '';
+    // Try to extract district name - could be first part or a specific format
+    let district = locationParts[0]?.trim() || '';
     
-    // Map place categories to guide specialties (for better matching)
+    // If district is not found, try to find a match in the full location string
+    const KERALA_DISTRICTS = [
+      'Thiruvananthapuram', 'Kollam', 'Pathanamthitta', 'Alappuzha', 
+      'Kottayam', 'Idukki', 'Ernakulam', 'Thrissur', 'Palakkad', 
+      'Malappuram', 'Kozhikode', 'Wayanad', 'Kannur', 'Kasaragod'
+    ];
+    
+    // Check if any district name is in the location string
+    const lowerLocation = location?.toLowerCase() || '';
+    for (const d of KERALA_DISTRICTS) {
+      if (lowerLocation.includes(d.toLowerCase())) {
+        district = d;
+        break;
+      }
+    }
+    
+    // Map place categories to guide specialties
     const categoryToSpecialty = {
       'beach': 'beach',
       'beaches': 'beach',
       'hill': 'trekking',
       'hill station': 'trekking',
-      'hill stations': 'trekking',
       'mountain': 'trekking',
       'backwater': 'backwater',
       'backwaters': 'backwater',
       'heritage': 'heritage',
       'wildlife': 'wildlife',
-      'sanctuary': 'wildlife',
-      'national park': 'wildlife',
       'temple': 'heritage',
       'waterfalls': 'nature',
       'nature': 'nature',
@@ -72,10 +85,8 @@ export default function Wishlist() {
       'islands': 'beach',
       'sacred': 'heritage',
       'tea garden': 'nature',
-      'tea plantation': 'nature',
       'plantation': 'nature',
       'spice': 'nature',
-      'spice garden': 'nature',
       'lake': 'nature',
       'river': 'nature',
       'water sports': 'adventure',
@@ -84,33 +95,34 @@ export default function Wishlist() {
       'trekking': 'trekking',
       'hiking': 'trekking',
       'culture': 'culture',
-      'cultural': 'culture',
-      'art': 'culture',
       'shopping': 'shopping',
-      'market': 'shopping',
-      'local market': 'shopping',
       'food': 'food',
       'culinary': 'food',
-      'cuisine': 'food',
       'photography': 'photography',
     };
 
-    // Get the specialty based on category
-    let specialty = categoryToSpecialty[category?.toLowerCase()] || category?.toLowerCase() || 'local tours';
+    const specialty = categoryToSpecialty[category?.toLowerCase()] || category?.toLowerCase() || 'local tours';
     
-    // If we have a district, use it for search
-    const searchQuery = district || location || '';
-    
-    // ✅ Navigate to Guides page with both district and specialty filters
+    // Build URL with district filter
     const params = new URLSearchParams();
+    
+    // ALWAYS include district if found - this will filter guides by district
+    if (district) {
+      params.append('district', district);
+    }
+    
+    // Also add as search term for better matching
     if (district) {
       params.append('search', district);
     }
+    
+    // Add specialty if it's not 'local tours'
     if (specialty && specialty !== 'local tours') {
       params.append('specialty', specialty);
     }
-    // Also pass the location for better searching
-    if (location && !district) {
+    
+    // If we have location but no district, use location as search
+    if (!district && location) {
       params.append('search', location);
     }
     
@@ -217,9 +229,6 @@ export default function Wishlist() {
           transform: scale(1.03);
           box-shadow: 0 6px 24px rgba(199,154,62,0.4);
         }
-        .book-guide-btn:active {
-          transform: scale(0.97);
-        }
         .find-guides-btn {
           background: #0E5C53;
           color: #fff;
@@ -253,7 +262,6 @@ export default function Wishlist() {
               </p>
             </div>
 
-            {/* Book a Guide Button */}
             <button
               onClick={() => navigate('/guides')}
               className="book-guide-btn"
@@ -282,7 +290,6 @@ export default function Wishlist() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
             {wishlist.map((place) => {
-              // Extract district from location
               const locationParts = place.location?.split(',') || [];
               const district = locationParts[0]?.trim() || '';
               
@@ -353,7 +360,7 @@ export default function Wishlist() {
                     
                     {/* Action Buttons */}
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      {/* Find Guides Button - Navigates to Guides with district filter */}
+                      {/* Find Guides Button - Navigates with district filter */}
                       <button
                         onClick={() => handleFindGuides(place.category, place.location)}
                         className="find-guides-btn"

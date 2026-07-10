@@ -1,8 +1,8 @@
-// pages/GoogleCallback.jsx
+// pages/GoogleCallback.jsx - Callback Handler
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
+import { AuthAPI } from '../services/api';
 
 const GoogleCallback = () => {
     const navigate = useNavigate();
@@ -13,90 +13,76 @@ const GoogleCallback = () => {
     const hasProcessed = useRef(false);
 
     useEffect(() => {
+        const code = searchParams.get('code');
+        const errorParam = searchParams.get('error');
+        
+        if (errorParam) {
+            setError(`Google authentication failed: ${errorParam}`);
+            setLoading(false);
+            setTimeout(() => navigate('/login?error=google_auth_failed'), 3000);
+            return;
+        }
+        
+        if (!code) {
+            setError('No authorization code received from Google');
+            setLoading(false);
+            setTimeout(() => navigate('/login?error=no_code'), 3000);
+            return;
+        }
+
         const handleCallback = async () => {
-            // ✅ Prevent multiple submissions
-            if (hasProcessed.current) {
-                console.log('Already processed, skipping...');
-                return;
-            }
+            if (hasProcessed.current) return;
             hasProcessed.current = true;
 
-            const code = searchParams.get('code');
-            const errorParam = searchParams.get('error');
-            
-            console.log('=== Google Callback Debug ===');
-            console.log('Code received:', code ? 'Yes' : 'No');
-            console.log('Code value:', code?.substring(0, 30) + '...');
-            console.log('Error param:', errorParam);
-            
-            // ✅ Check for error from Google
-            if (errorParam) {
-                setError(`Google error: ${errorParam}`);
-                setLoading(false);
-                setTimeout(() => navigate('/login?error=' + encodeURIComponent(errorParam)), 2000);
-                return;
-            }
-            
-            if (!code) {
-                setError('No authorization code received from Google');
-                setLoading(false);
-                setTimeout(() => navigate('/login?error=No+code+received'), 2000);
-                return;
-            }
-
             try {
-                setLoading(true);
+                // ✅ Use AuthAPI.googleCallback from services/api.js
+                const response = await AuthAPI.googleCallback(code);
                 
-                console.log('Sending code to backend...');
-                
-                // ✅ Send code to backend
-                const response = await api.post('/auth/google_auth/', { 
-                    code: code,
-                    role: 'tourister'  // Default role
-                });
-
-                console.log('Backend response:', response.data);
-
-                if (response.data.success) {
-                    const { user, role, session_key, is_new_user } = response.data;
+                if (response && response.success) {
+                    const { user, role: userRole, session_key, dashboard_url } = response;
                     
-                    // ✅ Login user
-                    login(user, session_key);
+                    const userToStore = {
+                        id: user.id,
+                        email: user.email,
+                        username: user.username || user.email?.split('@')[0] || '',
+                        first_name: user.first_name || '',
+                        last_name: user.last_name || '',
+                        role: userRole || 'tourister',
+                        profile_picture: user.profile_picture || null,
+                        email_verified: user.email_verified || false,
+                    };
                     
-                    // ✅ Redirect based on role
-                    if (role === 'guide') {
-                        navigate('/guide-dashboard', { replace: true });
-                    } else if (role === 'admin') {
-                        navigate('/admin-dashboard', { replace: true });
-                    } else if (role === 'staff') {
-                        navigate('/staff-dashboard', { replace: true });
+                    sessionStorage.setItem('user', JSON.stringify(userToStore));
+                    sessionStorage.setItem('role', userRole || 'tourister');
+                    
+                    if (session_key) {
+                        sessionStorage.setItem('session_key', session_key);
+                    }
+                    
+                    const loginResult = login(userToStore, session_key);
+                    
+                    if (loginResult && loginResult.success !== false) {
+                        const roleRoutes = {
+                            'guide': '/guide-dashboard',
+                            'admin': '/admin-dashboard',
+                            'staff': '/staff-dashboard',
+                            'tourister': '/'
+                        };
+                        const redirectUrl = dashboard_url || roleRoutes[userRole] || '/';
+                        navigate(redirectUrl, { replace: true });
                     } else {
-                        navigate('/', { replace: true });
+                        setError('Failed to complete login');
+                        setLoading(false);
                     }
                 } else {
-                    const errorMsg = response.data.error || 'Authentication failed';
-                    setError(errorMsg);
+                    setError(response?.error || 'Authentication failed');
                     setLoading(false);
-                    setTimeout(() => navigate('/login?error=' + encodeURIComponent(errorMsg)), 2000);
                 }
             } catch (err) {
                 console.error('Google callback error:', err);
-                console.error('Error response:', err.response?.data);
-                console.error('Error status:', err.response?.status);
-                
-                let errorMsg = 'Google authentication failed';
-                
-                if (err.response?.data?.error) {
-                    errorMsg = err.response.data.error;
-                } else if (err.response?.data?.message) {
-                    errorMsg = err.response.data.message;
-                } else if (err.message) {
-                    errorMsg = err.message;
-                }
-                
-                setError(errorMsg);
+                const errorMessage = err.response?.data?.error || err.message || 'Authentication failed';
+                setError(errorMessage);
                 setLoading(false);
-                setTimeout(() => navigate('/login?error=' + encodeURIComponent(errorMsg)), 2000);
             }
         };
 
@@ -170,12 +156,12 @@ const GoogleCallback = () => {
                         transition: "all 0.3s ease",
                     }}
                     onMouseEnter={(e) => {
-                        e.target.style.background = "#072E2A";
-                        e.target.style.transform = "scale(1.02)";
+                        e.currentTarget.style.background = "#072E2A";
+                        e.currentTarget.style.transform = "scale(1.02)";
                     }}
                     onMouseLeave={(e) => {
-                        e.target.style.background = "#0E5C53";
-                        e.target.style.transform = "scale(1)";
+                        e.currentTarget.style.background = "#0E5C53";
+                        e.currentTarget.style.transform = "scale(1)";
                     }}
                 >
                     Back to Login

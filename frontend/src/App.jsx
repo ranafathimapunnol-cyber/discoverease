@@ -1,4 +1,4 @@
-// App.jsx
+// App.jsx - COMPLETE FIXED VERSION
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -20,9 +20,13 @@ import AdminDashboard from './pages/AdminDashboard';
 
 import './index.css';
 
+// ============================================
+// PROTECTED ROUTE COMPONENT
+// ============================================
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
-    const { isLoggedIn, user, loading } = useAuth();
+    const { isLoggedIn, role, loading } = useAuth();
 
+    // Show loading spinner while checking auth
     if (loading) {
         return (
             <div
@@ -52,101 +56,164 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
         );
     }
 
+    // Not logged in - redirect to login
     if (!isLoggedIn) {
         return <Navigate to="/login" replace />;
     }
 
-    if (allowedRoles.length > 0 && !allowedRoles.includes(user?.role)) {
-        return <Navigate to="/" replace />;
+    // Check if user has required role
+    if (allowedRoles.length > 0) {
+        const userRole = role || 'tourister';
+        const hasAccess = allowedRoles.some(r => {
+            // Handle role variations
+            if (r === 'staff' && ['staff', 'staff_admin', 'admin'].includes(userRole)) {
+                return true;
+            }
+            if (r === 'admin' && ['admin', 'staff_admin'].includes(userRole)) {
+                return true;
+            }
+            return userRole === r;
+        });
+
+        if (!hasAccess) {
+            // Redirect to appropriate dashboard
+            const redirectMap = {
+                'tourister': '/',
+                'guide': '/guide-dashboard',
+                'staff': '/staff-dashboard',
+                'admin': '/admin-dashboard',
+                'staff_admin': '/staff-dashboard'
+            };
+            return <Navigate to={redirectMap[userRole] || '/'} replace />;
+        }
     }
 
     return children;
 };
 
+// ============================================
+// DASHBOARD REDIRECT COMPONENT
+// ============================================
+const DashboardRedirect = () => {
+    const { role, loading } = useAuth();
+
+    if (loading) {
+        return (
+            <div
+                style={{
+                    minHeight: '100vh',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#FBF6EA',
+                }}>
+                <div
+                    style={{
+                        width: 40,
+                        height: 40,
+                        border: '3px solid #E4C77B',
+                        borderTop: '3px solid transparent',
+                        borderRadius: '50%',
+                        animation: 'spin 0.8s linear infinite',
+                    }}
+                />
+            </div>
+        );
+    }
+
+    const redirectMap = {
+        'tourister': '/',
+        'guide': '/guide-dashboard',
+        'staff': '/staff-dashboard',
+        'staff_admin': '/staff-dashboard',
+        'admin': '/admin-dashboard'
+    };
+    
+    return <Navigate to={redirectMap[role || 'tourister'] || '/'} replace />;
+};
+
+// ============================================
+// LOGOUT COMPONENT
+// ============================================
 const Logout = () => {
     const { logout } = useAuth();
-    logout();
+    React.useEffect(() => {
+        logout();
+    }, [logout]);
     return <Navigate to="/login" replace />;
 };
 
+// ============================================
+// APP COMPONENT
+// ============================================
 function App() {
     return (
         <AuthProvider>
             <Router>
                 <Routes>
-                    {/* Public Routes */}
+                    {/* ========================================== */}
+                    {/* PUBLIC ROUTES - No login required          */}
+                    {/* ========================================== */}
+                    <Route path="/" element={<Home />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/verify-email" element={<VerifyEmail />} />
                     <Route path="/auth/google/callback/" element={<GoogleCallback />} />
                     <Route path="/logout" element={<Logout />} />
+
+                    {/* ========================================== */}
+                    {/* PROTECTED ROUTES - Login required          */}
+                    {/* ========================================== */}
                     
-
-                    {/* Home - Protected */}
-                    <Route
-                        path="/"
-                        element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
-                                <Home />
-                            </ProtectedRoute>
-                        }
-                    />
-
-                    {/* Protected Routes */}
+                    {/* Tourister Routes */}
                     <Route
                         path="/local-insights"
                         element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
+                            <ProtectedRoute allowedRoles={['tourister']}>
                                 <LocalInsights />
                             </ProtectedRoute>
                         }
                     />
-
                     <Route
                         path="/guides"
                         element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
+                            <ProtectedRoute allowedRoles={['tourister', 'guide']}>
                                 <Guides />
                             </ProtectedRoute>
                         }
                     />
-
                     <Route
                         path="/categories"
                         element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
+                            <ProtectedRoute allowedRoles={['tourister']}>
                                 <Categories />
                             </ProtectedRoute>
                         }
                     />
-
                     <Route
                         path="/category/:categoryId"
                         element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
+                            <ProtectedRoute allowedRoles={['tourister']}>
                                 <CategoryDetail />
                             </ProtectedRoute>
                         }
                     />
-
                     <Route
                         path="/ai-trip-planner"
                         element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
+                            <ProtectedRoute allowedRoles={['tourister']}>
                                 <AiTripPlanner />
                             </ProtectedRoute>
                         }
                     />
-
                     <Route
                         path="/wishlist"
                         element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide', 'staff', 'admin']}>
+                            <ProtectedRoute allowedRoles={['tourister']}>
                                 <Wishlist />
                             </ProtectedRoute>
                         }
                     />
-
                     <Route
                         path="/profile"
                         element={
@@ -156,7 +223,11 @@ function App() {
                         }
                     />
 
-                    {/* Role-Specific Dashboards */}
+                    {/* ========================================== */}
+                    {/* ROLE-SPECIFIC DASHBOARDS                  */}
+                    {/* ========================================== */}
+                    
+                    {/* Guide Dashboard */}
                     <Route
                         path="/guide-dashboard"
                         element={
@@ -166,25 +237,41 @@ function App() {
                         }
                     />
 
+                    {/* Staff Dashboard - Also accessible by staff_admin and admin */}
                     <Route
                         path="/staff-dashboard"
                         element={
-                            <ProtectedRoute allowedRoles={['staff']}>
+                            <ProtectedRoute allowedRoles={['staff', 'staff_admin', 'admin']}>
                                 <StaffDashboard />
                             </ProtectedRoute>
                         }
                     />
 
+                    {/* Admin Dashboard */}
                     <Route
                         path="/admin-dashboard"
                         element={
-                            <ProtectedRoute allowedRoles={['admin']}>
+                            <ProtectedRoute allowedRoles={['admin', 'staff_admin']}>
                                 <AdminDashboard />
                             </ProtectedRoute>
                         }
                     />
 
-                    {/* Catch all */}
+                    {/* ========================================== */}
+                    {/* DASHBOARD REDIRECT                        */}
+                    {/* ========================================== */}
+                    <Route
+                        path="/dashboard"
+                        element={
+                            <ProtectedRoute>
+                                <DashboardRedirect />
+                            </ProtectedRoute>
+                        }
+                    />
+
+                    {/* ========================================== */}
+                    {/* CATCH ALL - 404                           */}
+                    {/* ========================================== */}
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
             </Router>

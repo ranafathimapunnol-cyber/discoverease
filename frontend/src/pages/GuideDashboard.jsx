@@ -1,1336 +1,1093 @@
-// pages/GuideDashboard.jsx - COMPLETE WORKING VERSION
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+// src/pages/GuideDashboard.jsx - COMPLETE FIXED VERSION
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
+import { AuthAPI } from '../services/api';
+import {
+  CalendarDays,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  Bell,
+  Star,
+  MessageSquare,
+  UserCheck,
+  PlusCircle,
+  X,
+  Anchor,
+  TrendingUp,
+  MapPin,
+  User,
+  Map,
+  Calendar,
+  Clock as ClockIcon,
+  DollarSign,
+  Phone,
+  Mail,
+  Globe,
+  Award,
+  Edit2,
+  Save,
+} from 'lucide-react';
 
-// ✅ Design tokens
-const T = {
-  ink: '#0B2422',
-  deepTeal: '#072E2A',
-  teal2: '#0B3A34',
+// ============================================
+// DESIGN TOKENS
+// ============================================
+const C = {
+  ink: '#072E2A',
+  inkSoft: '#0B2422',
   cream: '#FBF6EA',
+  paper: '#FFFFFF',
   gold: '#C79A3E',
   goldLight: '#E4C77B',
-  muted: '#5C6E69',
-  muted2: '#8A9A95',
+  coral: '#E2725B',
+  sage: '#5C6E69',
+  mist: '#8A9A95',
+  line: '#E4DEC8',
+  success: '#3F7A5E',
+  successBg: '#E6F0EA',
+  warn: '#B4791F',
+  warnBg: '#FBF0DD',
+  danger: '#B84A3B',
+  dangerBg: '#FBEAE7',
 };
 
-// ✅ KERALA DISTRICTS (14 Districts)
-const KERALA_DISTRICTS = [
-  { id: 1, name: 'Thiruvananthapuram', code: 'TVM' },
-  { id: 2, name: 'Kollam', code: 'KLM' },
-  { id: 3, name: 'Pathanamthitta', code: 'PTA' },
-  { id: 4, name: 'Alappuzha', code: 'ALP' },
-  { id: 5, name: 'Kottayam', code: 'KTM' },
-  { id: 6, name: 'Idukki', code: 'IDK' },
-  { id: 7, name: 'Ernakulam', code: 'EKM' },
-  { id: 8, name: 'Thrissur', code: 'TSR' },
-  { id: 9, name: 'Palakkad', code: 'PLK' },
-  { id: 10, name: 'Malappuram', code: 'MLP' },
-  { id: 11, name: 'Kozhikode', code: 'CLT' },
-  { id: 12, name: 'Wayanad', code: 'WYD' },
-  { id: 13, name: 'Kannur', code: 'KNR' },
-  { id: 14, name: 'Kasaragod', code: 'KSD' },
-];
+const FONT = {
+  display: "'Fraunces', Georgia, serif",
+  body: "'Inter', system-ui, sans-serif",
+  mono: "'IBM Plex Mono', 'Courier New', monospace",
+};
 
-// ✅ Zari divider
-const ZariDivider = ({ color = T.gold, opacity = 0.55 }) => (
-  <svg width="100%" height="10" viewBox="0 0 400 10" preserveAspectRatio="none" style={{ display: 'block' }}>
-    <line x1="0" y1="5" x2="400" y2="5" stroke={color} strokeWidth="0.6" strokeOpacity={opacity * 0.7} />
-    {Array.from({ length: 34 }).map((_, i) => (
-      <rect key={i} x={i * 12 + 4} y="2" width="4.5" height="4.5" fill={color} fillOpacity={opacity} transform={`rotate(45 ${i * 12 + 6.25} 4.25)`} />
-    ))}
+// ============================================
+// PRESENTATIONAL COMPONENTS
+// ============================================
+const RippleDivider = ({ color = C.gold }) => (
+  <svg viewBox="0 0 400 16" preserveAspectRatio="none" style={{ width: '100%', height: 16, display: 'block' }}>
+    <path
+      d="M0 8 C 30 0, 60 16, 100 8 S 160 0, 200 8 S 260 16, 300 8 S 360 0, 400 8"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.5"
+      opacity="0.5"
+    />
   </svg>
 );
 
-// ✅ Helper functions
-const getDistrictName = (districtId) => {
-  const district = KERALA_DISTRICTS.find(d => d.id === districtId);
-  return district ? district.name : null;
+const StatusSeal = ({ status }) => {
+  const map = {
+    pending: { fg: C.warn, bg: C.warnBg, label: 'Pending' },
+    confirmed: { fg: C.success, bg: C.successBg, label: 'Confirmed' },
+    completed: { fg: C.inkSoft, bg: '#EDECE4', label: 'Completed' },
+    cancelled: { fg: C.danger, bg: C.dangerBg, label: 'Cancelled' },
+    rejected: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
+    available: { fg: C.success, bg: C.successBg, label: 'Available' },
+    full: { fg: C.danger, bg: C.dangerBg, label: 'Full' },
+  };
+  const s = map[status] || { fg: C.sage, bg: '#EEEEEE', label: status };
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '3px 10px',
+        borderRadius: 999,
+        fontFamily: FONT.mono,
+        fontSize: 11,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        color: s.fg,
+        background: s.bg,
+        border: `1px solid ${s.fg}22`,
+      }}
+    >
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.fg }} />
+      {s.label}
+    </span>
+  );
 };
 
-// ✅ Local storage helpers
-const readGuideProfiles = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem('guide_profiles') || '{}');
-    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  } catch {
-    return {};
-  }
+const StatCard = ({ label, value, icon: Icon, accent }) => (
+  <div
+    style={{
+      background: C.paper,
+      border: `1px solid ${C.line}`,
+      borderRadius: 10,
+      padding: '18px 20px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      minWidth: 0,
+    }}
+  >
+    <div>
+      <p style={{ fontFamily: FONT.body, fontSize: 12, color: C.sage, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {label}
+      </p>
+      <p style={{ fontFamily: FONT.mono, fontSize: 28, fontWeight: 600, color: C.inkSoft, margin: '4px 0 0' }}>
+        {value}
+      </p>
+    </div>
+    <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${accent}1A`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Icon size={18} color={accent} />
+    </div>
+  </div>
+);
+
+const LedgerTab = ({ label, active, onClick, icon: Icon }) => (
+  <button
+    onClick={onClick}
+    style={{
+      fontFamily: FONT.display,
+      fontStyle: active ? 'italic' : 'normal',
+      fontSize: 14,
+      padding: '10px 20px 8px',
+      marginRight: -1,
+      background: active ? C.paper : 'transparent',
+      color: active ? C.inkSoft : C.sage,
+      border: `1px solid ${active ? C.gold : 'transparent'}`,
+      borderBottom: active ? `1px solid ${C.paper}` : `1px solid ${C.line}`,
+      borderTopLeftRadius: 8,
+      borderTopRightRadius: 8,
+      cursor: 'pointer',
+      position: 'relative',
+      top: active ? 1 : 0,
+      transition: 'color 0.15s ease',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+    }}
+  >
+    {Icon && <Icon size={14} />}
+    {label}
+  </button>
+);
+
+const EmptyState = ({ text }) => (
+  <div style={{ textAlign: 'center', padding: '32px 16px', color: C.sage, fontSize: 13 }}>{text}</div>
+);
+
+const inputStyle = {
+  width: '100%',
+  border: `1px solid ${C.line}`,
+  borderRadius: 8,
+  padding: '8px 10px',
+  fontSize: 13,
+  color: C.inkSoft,
+  marginTop: 4,
+  fontFamily: FONT.mono,
 };
 
-const readGuideAvailabilityMap = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem('guide_availability') || '{}');
-    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  } catch {
-    return {};
-  }
+const FormField = ({ label, children, style }) => (
+  <div style={{ marginBottom: 12, ...style }}>
+    <label style={{ fontSize: 12, color: C.sage }}>{label}</label>
+    {children}
+  </div>
+);
+
+const IconButton = ({ icon: Icon, tone, onClick, busy, label }) => {
+  const tones = { success: C.success, danger: C.danger };
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      title={label}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        borderRadius: 6,
+        border: 'none',
+        background: `${tones[tone]}1A`,
+        color: tones[tone],
+        cursor: 'pointer',
+      }}
+    >
+      {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Icon size={14} />}
+    </button>
+  );
 };
 
-const writeGuideAvailabilityMap = (map) => {
-  localStorage.setItem('guide_availability', JSON.stringify(map));
-};
-
-const readSuggestions = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeSuggestions = (data) => {
-  localStorage.setItem('hidden_gems_suggestions', JSON.stringify(data));
-};
-
-const readBookings = () => {
-  try {
-    const raw = JSON.parse(localStorage.getItem('guide_bookings') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
-};
-
+// ============================================
+// MAIN COMPONENT
+// ============================================
 const GuideDashboard = () => {
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { user: authUser, isLoggedIn, logout } = useAuth();
-  
-  // UI State
-  const [activeTab, setActiveTab] = useState('dashboard');
+
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  
-  // Filter states
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  
-  // Modal states
-  const [showNotesModal, setShowNotesModal] = useState(false);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(null);
-  const [notes, setNotes] = useState('');
-  const [actionType, setActionType] = useState('');
-  
-  // Profile state
-  const [profile, setProfile] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    bio: '',
-    experience_years: 0,
-    specialties: [],
-    phone: '',
-    rating: 4.8,
-    total_reviews: 0,
-    is_verified: false,
-    primary_district: null,
-    additional_districts: [],
-  });
-  
-  // Availability state
-  const [availability, setAvailability] = useState([]);
-  const [showAvailabilityForm, setShowAvailabilityForm] = useState(false);
-  const [availabilityForm, setAvailabilityForm] = useState({
-    date: '',
-    start_time: '',
-    end_time: '',
-    max_slots: 5,
-    bio: '',
-    experience_years: '',
-    specialties: '',
-    phone: '',
-    primary_district: '',
-    additional_districts: [],
-  });
-  
-  // Data states
-  const [suggestions, setSuggestions] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [processingId, setProcessingId] = useState(null);
+
+  const [profile, setProfile] = useState(null);
   const [bookings, setBookings] = useState([]);
-  const [districts, setDistricts] = useState(KERALA_DISTRICTS);
-  const [categories, setCategories] = useState([]);
-  
-  // Stats
-  const [stats, setStats] = useState({
-    bookings: 0,
-    insights: 0,
-    suggestions: 0,
-    pending: 0,
-    in_progress: 0,
-    approved: 0,
-    rejected: 0,
-    implemented: 0,
-    hidden_gems: 0,
-    insight_suggestions: 0,
-    districts_served: 0,
-    availability_slots: 0,
+  const [bookingFilter, setBookingFilter] = useState('pending');
+  const [availability, setAvailability] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [insightData, setInsightData] = useState({
+    popularDistricts: [],
+    peakHours: [],
+    monthlyBookings: [],
+    topDestinations: [],
   });
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    fullName: '',
+    phone: '',
+    bio: '',
+    experience: '',
+    languages: '',
+    specialties: '',
+    pricePerDay: '',
+    pricePerHour: '',
+    facebook: '',
+    instagram: '',
+    website: '',
+  });
+  const [showAddSlot, setShowAddSlot] = useState(false);
+  const [newSlot, setNewSlot] = useState({ date: '', startTime: '', endTime: '', maxBookings: 1 });
+  const [slotSaving, setSlotSaving] = useState(false);
+  const [toast, setToast] = useState(null);
 
-  const user = authUser || JSON.parse(localStorage.getItem('user') || '{}');
-  const guideKey = user?.email || 'guide_demo';
-
-  // ============================================
-  // ✅ EFFECTS
-  // ============================================
-  
-  useEffect(() => {
-    if (!isLoggedIn) {
-      navigate('/login', { replace: true });
-    }
-  }, [isLoggedIn, navigate]);
-
-  useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (isLoggedIn && user?.role === 'guide') {
-      loadDistrictsAndCategories();
-      fetchDashboardData();
-    }
-  }, [isLoggedIn, user]);
-
-  // ============================================
-  // ✅ DATA LOADING
-  // ============================================
-  
-  const loadDistrictsAndCategories = () => {
-    // Set Kerala districts
-    setDistricts(KERALA_DISTRICTS);
-    
-    // Load categories
-    const defaultCategories = [
-      { id: 1, name: 'History', icon: '🏛️' },
-      { id: 2, name: 'Food', icon: '🍜' },
-      { id: 3, name: 'Nature', icon: '🌿' },
-      { id: 4, name: 'Adventure', icon: '🧗' },
-      { id: 5, name: 'Culture', icon: '🎭' },
-      { id: 6, name: 'Wildlife', icon: '🐘' },
-      { id: 7, name: 'Trekking', icon: '⛰️' },
-      { id: 8, name: 'Photography', icon: '📸' },
-      { id: 9, name: 'Backwaters', icon: '🛶' },
-      { id: 10, name: 'Beaches', icon: '🏖️' },
-      { id: 11, name: 'Hill Stations', icon: '🌄' },
-      { id: 12, name: 'Spice Plantations', icon: '🌶️' },
-    ];
-    setCategories(defaultCategories);
-    localStorage.setItem('categories', JSON.stringify(defaultCategories));
+  const showToast = (message) => {
+    setToast({ message });
+    window.clearTimeout(showToast._t);
+    showToast._t = window.setTimeout(() => setToast(null), 2800);
   };
 
-  const fetchDashboardData = async () => {
+  // ============================================
+  // FETCH DATA FROM API - FIXED
+  // ============================================
+  const fetchDashboardData = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
+
     try {
-      // 1. Load profile
-      const profiles = readGuideProfiles();
-      const savedProfile = profiles[guideKey] || {};
-      
-      const mergedProfile = { 
-        ...user, 
-        ...savedProfile,
-        primary_district: savedProfile.primary_district || null,
-        additional_districts: savedProfile.additional_districts || [],
-      };
-      setProfile(mergedProfile);
-      
-      // 2. Set form values
-      setAvailabilityForm(prev => ({
-        ...prev,
-        bio: savedProfile.bio || '',
-        experience_years: savedProfile.experience_years || '',
-        specialties: Array.isArray(savedProfile.specialties) ? savedProfile.specialties.join(', ') : (savedProfile.specialties || ''),
-        phone: savedProfile.phone || '',
-        primary_district: savedProfile.primary_district || '',
-        additional_districts: savedProfile.additional_districts || [],
-      }));
+      // ✅ Fetch profile
+      const profileRes = await AuthAPI.getGuideProfile();
+      if (profileRes?.success && profileRes?.profile) {
+        setProfile(profileRes.profile);
+        setProfileForm({
+          fullName: profileRes.profile.full_name || '',
+          phone: profileRes.profile.phone || '',
+          bio: profileRes.profile.bio || '',
+          experience: profileRes.profile.experience_years || '',
+          languages: profileRes.profile.languages || '',
+          specialties: profileRes.profile.specialties || '',
+          pricePerDay: profileRes.profile.price_per_day || '',
+          pricePerHour: profileRes.profile.price_per_hour || '',
+          facebook: profileRes.profile.facebook || '',
+          instagram: profileRes.profile.instagram || '',
+          website: profileRes.profile.website || '',
+        });
+      }
 
-      // 3. Load suggestions
-      const localSuggestions = readSuggestions();
-      setSuggestions(localSuggestions);
-      
-      // 4. Load availability
-      const availabilityMap = readGuideAvailabilityMap();
-      const myAvailability = availabilityMap[guideKey] || [];
-      setAvailability(myAvailability);
+      // ✅ Fetch bookings
+      const bookingsRes = await AuthAPI.getGuideBookings();
+      if (bookingsRes?.success) {
+        setBookings(bookingsRes.bookings || []);
+      }
 
-      // 5. Load bookings
-      const localBookings = readBookings();
-      setBookings(localBookings);
+      // ✅ Fetch availability
+      const availRes = await AuthAPI.getGuideAvailability();
+      if (availRes?.success) {
+        setAvailability(availRes.availability || []);
+      }
 
-      // 6. Calculate stats
-      const implemented = localSuggestions.filter(s => s.status === 'implemented').length;
-      const pending = localSuggestions.filter(s => s.status === 'pending').length;
-      const in_progress = localSuggestions.filter(s => s.status === 'in_progress').length;
-      const approved = localSuggestions.filter(s => s.status === 'approved').length;
-      const rejected = localSuggestions.filter(s => s.status === 'rejected').length;
-      const hidden_gems = localSuggestions.filter(s => s.type === 'hidden_gem').length;
-      const insight_suggestions = localSuggestions.filter(s => s.type === 'insight').length;
-      const districtsServed = (savedProfile.primary_district ? 1 : 0) + (savedProfile.additional_districts?.length || 0);
+      // ✅ Fetch reviews
+      const reviewsRes = await AuthAPI.getGuideReviews();
+      if (reviewsRes?.success) {
+        setReviews(reviewsRes.reviews || []);
+      }
 
-      setStats({
-        suggestions: localSuggestions.length,
-        insights: implemented,
-        pending: pending,
-        in_progress: in_progress,
-        approved: approved,
-        rejected: rejected,
-        implemented: implemented,
-        hidden_gems: hidden_gems,
-        insight_suggestions: insight_suggestions,
-        bookings: localBookings.length,
-        districts_served: districtsServed,
-        availability_slots: myAvailability.length,
-      });
+      // Generate insights from bookings
+      generateInsightData(bookingsRes?.bookings || []);
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      showToast('Error loading dashboard data');
     } finally {
       setLoading(false);
     }
+  }, [user]);
+
+  const generateInsightData = (guideBookings) => {
+    const districtCount = {};
+    guideBookings.forEach(b => {
+      if (b.district?.name) {
+        const name = b.district.name;
+        districtCount[name] = (districtCount[name] || 0) + 1;
+      }
+    });
+    const popularDistricts = Object.entries(districtCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+
+    const monthCount = {};
+    guideBookings.forEach(b => {
+      if (b.date) {
+        const month = new Date(b.date).toLocaleString('default', { month: 'short' });
+        monthCount[month] = (monthCount[month] || 0) + 1;
+      }
+    });
+    const monthlyBookings = Object.entries(monthCount).map(([month, count]) => ({ month, count }));
+
+    setInsightData({
+      popularDistricts,
+      peakHours: [],
+      monthlyBookings,
+      topDestinations: [],
+    });
   };
 
-  // ============================================
-  // ✅ SUGGESTION HANDLING
-  // ============================================
-  
-  const handleProcessSuggestion = async () => {
-    if (!selectedSuggestion) return;
-    setProcessing(true);
-    
-    try {
-      const localSuggestions = readSuggestions();
-      const updatedSuggestions = localSuggestions.map(s => {
-        if (s.id === selectedSuggestion.id) {
-          let newStatus = s.status;
-          if (actionType === 'approve') newStatus = 'approved';
-          else if (actionType === 'implement') newStatus = 'implemented';
-          else if (actionType === 'in_progress') newStatus = 'in_progress';
-          else if (actionType === 'reject') newStatus = 'rejected';
-          else if (actionType === 'remove') newStatus = 'rejected';
-          
-          return {
-            ...s,
-            status: newStatus,
-            admin_notes: notes || s.admin_notes,
-            processed_at: new Date().toISOString()
-          };
-        }
-        return s;
-      });
-      
-      writeSuggestions(updatedSuggestions);
-      
-      alert(`✅ ${selectedSuggestion.type === 'hidden_gem' ? 'Hidden gem' : 'Insight'} ${actionType}ed successfully!`);
-      setShowNotesModal(false);
-      setSelectedSuggestion(null);
-      setNotes('');
-      setActionType('');
-      fetchDashboardData();
-    } catch (error) {
-      console.error('Error processing suggestion:', error);
-      alert('Failed to process. Please try again.');
-    } finally {
-      setProcessing(false);
+  useEffect(() => {
+    if (user?.role !== 'guide') {
+      navigate('/');
+      return;
     }
-  };
+    fetchDashboardData();
+  }, [user, navigate, fetchDashboardData]);
 
-  const handleProcessClick = (suggestion, action) => {
-    setSelectedSuggestion(suggestion);
-    setActionType(action);
-    setNotes(suggestion.admin_notes || '');
-    setShowNotesModal(true);
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchDashboardData();
+    window.setTimeout(() => {
+      setRefreshing(false);
+      showToast('Dashboard refreshed');
+    }, 300);
   };
 
   // ============================================
-  // ✅ AVAILABILITY HANDLING
+  // DERIVED STATS
   // ============================================
-  
-  const handleAddAvailability = async (e) => {
-    e.preventDefault();
-    setProcessing(true);
-    
-    try {
-      const newSlot = {
-        id: Date.now(),
-        date: availabilityForm.date,
-        start_time: availabilityForm.start_time,
-        end_time: availabilityForm.end_time,
-        max_slots: availabilityForm.max_slots,
-        booked_slots: 0,
-        is_available: true
-      };
+  const stats = useMemo(() => {
+    const pending = bookings.filter((b) => b.status === 'pending').length;
+    const confirmed = bookings.filter((b) => b.status === 'confirmed').length;
+    const completed = bookings.filter((b) => b.status === 'completed').length;
+    const approvedReviews = reviews.filter((r) => r.is_approved);
+    const rating = approvedReviews.length
+      ? (approvedReviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / approvedReviews.length).toFixed(1)
+      : '—';
+    const pendingReviews = reviews.filter((r) => !r.is_approved).length;
+    return { total: bookings.length, pending, confirmed, completed, rating, pendingReviews };
+  }, [bookings, reviews]);
 
-      // Save availability
-      const availabilityMap = readGuideAvailabilityMap();
-      const mySlots = availabilityMap[guideKey] || [];
-      availabilityMap[guideKey] = [...mySlots, newSlot];
-      writeGuideAvailabilityMap(availabilityMap);
-
-      // Save/update profile
-      const profiles = readGuideProfiles();
-      const existing = profiles[guideKey] || {};
-      
-      const specialtiesArray = availabilityForm.specialties
-        ? availabilityForm.specialties.split(',').map(s => s.trim()).filter(Boolean)
-        : (existing.specialties || []);
-      
-      const additionalDistricts = availabilityForm.additional_districts || [];
-      
-      profiles[guideKey] = {
-        ...existing,
-        first_name: user?.first_name || existing.first_name || 'Guide',
-        last_name: user?.last_name || existing.last_name || '',
-        email: user?.email || existing.email || guideKey,
-        bio: availabilityForm.bio || existing.bio || '',
-        experience_years: availabilityForm.experience_years ? Number(availabilityForm.experience_years) : (existing.experience_years || 0),
-        specialties: specialtiesArray,
-        phone: availabilityForm.phone || existing.phone || '',
-        rating: existing.rating || 4.8,
-        total_reviews: existing.total_reviews || 0,
-        is_verified: existing.is_verified !== false,
-        primary_district: availabilityForm.primary_district ? Number(availabilityForm.primary_district) : (existing.primary_district || null),
-        additional_districts: additionalDistricts.map(Number).filter(Boolean),
-        updated_at: new Date().toISOString()
-      };
-      localStorage.setItem('guide_profiles', JSON.stringify(profiles));
-
-      alert('✅ Availability added successfully! You are now visible to travelers.');
-      setShowAvailabilityForm(false);
-      setAvailabilityForm(prev => ({ 
-        ...prev, 
-        date: '', 
-        start_time: '', 
-        end_time: '', 
-        max_slots: 5,
+  const notificationItems = useMemo(() => {
+    const items = bookings
+      .filter((b) => b.status === 'pending')
+      .map((b) => ({ 
+        id: `bk-${b.id}`, 
+        text: `${b.user?.username || 'A traveler'} requested a booking for ${b.district?.name || 'a trip'}`, 
+        tab: 'bookings' 
       }));
-      fetchDashboardData();
-      
-    } catch (error) {
-      console.error('Error adding availability:', error);
-      alert('❌ Failed to add availability');
-    } finally {
-      setProcessing(false);
-    }
-  };
+    const reviewItems = reviews
+      .filter((r) => !r.is_approved)
+      .map((r) => ({ 
+        id: `rv-${r.id}`, 
+        text: `${r.user?.username || 'A traveler'} left a review awaiting approval`, 
+        tab: 'reviews' 
+      }));
+    return [...items, ...reviewItems];
+  }, [bookings, reviews]);
 
-  const handleRemoveAvailability = (slotId) => {
-    if (!window.confirm('Remove this availability slot? Travelers will no longer see it.')) return;
-    
+  const filteredBookings = useMemo(
+    () => (bookingFilter === 'all' ? bookings : bookings.filter((b) => b.status === bookingFilter)),
+    [bookings, bookingFilter]
+  );
+
+  // ============================================
+  // BOOKING ACTIONS - FIXED
+  // ============================================
+// GuideDashboard.jsx - updateBookingStatus function
+
+const updateBookingStatus = async (bookingId, status) => {
+    setProcessingId(bookingId);
     try {
-      const availabilityMap = readGuideAvailabilityMap();
-      const mySlots = availabilityMap[guideKey] || [];
-      availabilityMap[guideKey] = mySlots.filter(s => s.id !== slotId);
-      writeGuideAvailabilityMap(availabilityMap);
-      setAvailability(availabilityMap[guideKey]);
-      fetchDashboardData();
+        // ✅ Map status to correct action values
+        let action = status;
+        if (status === 'confirmed') action = 'confirm';
+        if (status === 'rejected') action = 'reject';
+        if (status === 'completed') action = 'complete';
+        
+        if (action === 'complete') {
+            await AuthAPI.completeBooking(bookingId);
+        } else {
+            await AuthAPI.processBooking(bookingId, action);
+        }
+        await fetchDashboardData();
+        showToast(`Booking ${status === 'confirmed' ? 'confirmed' : status === 'rejected' ? 'declined' : status === 'completed' ? 'marked complete' : 'updated'}`);
     } catch (error) {
-      console.error('Error removing availability:', error);
-      alert('❌ Failed to remove availability');
+        console.error('Error updating booking:', error);
+        showToast(error.response?.data?.error || 'Error updating booking');
+    } finally {
+        setProcessingId(null);
+    }
+};
+
+  // ============================================
+  // AVAILABILITY ACTIONS - FIXED
+  // ============================================
+  const handleAddSlot = async (e) => {
+    e.preventDefault();
+    if (!newSlot.date || !newSlot.startTime || !newSlot.endTime) {
+      showToast('Please fill in all fields');
+      return;
+    }
+    setSlotSaving(true);
+
+    try {
+      const slotData = {
+        date: newSlot.date,
+        start_time: newSlot.startTime,
+        end_time: newSlot.endTime,
+        max_bookings: Number(newSlot.maxBookings) || 1,
+      };
+      
+      console.log('Adding slot:', slotData);
+      
+      const response = await AuthAPI.addAvailabilitySlot(slotData);
+      console.log('Slot response:', response);
+      
+      if (response && response.success) {
+        await fetchDashboardData();
+        setShowAddSlot(false);
+        setNewSlot({ date: '', startTime: '', endTime: '', maxBookings: 1 });
+        showToast('Availability slot added successfully!');
+      } else {
+        showToast(response?.error || 'Failed to add slot');
+      }
+    } catch (error) {
+      console.error('Error adding slot:', error);
+      console.error('Error response:', error.response?.data);
+      showToast(error.response?.data?.error || error.response?.data?.message || 'Error adding slot. Please try again.');
+    } finally {
+      setSlotSaving(false);
+    }
+  };
+
+  const handleDeleteSlot = async (slotId) => {
+    if (!window.confirm('Remove this availability slot?')) return;
+    try {
+      await AuthAPI.deleteAvailabilitySlot(slotId);
+      await fetchDashboardData();
+      showToast('Slot removed');
+    } catch (error) {
+      console.error('Error deleting slot:', error);
+      showToast('Error removing slot');
     }
   };
 
   // ============================================
-  // ✅ FILTER HELPERS
+  // REVIEW ACTIONS - FIXED
   // ============================================
-  
-  const getStatusColor = (status) => {
-    const colors = {
-      'pending': { bg: '#FEF3C7', text: '#D97706' },
-      'in_progress': { bg: '#DBEAFE', text: '#2563EB' },
-      'approved': { bg: '#DCFCE7', text: '#16A34A' },
-      'rejected': { bg: '#FEE2E2', text: '#DC2626' },
-      'implemented': { bg: '#F3E8FF', text: '#7C3AED' }
-    };
-    return colors[status] || { bg: '#F3F4F6', text: '#6B7280' };
-  };
-
-  const getFilteredSuggestions = () => {
-    let filtered = suggestions;
-    if (filterType === 'hidden_gem') {
-      filtered = filtered.filter(s => s.type === 'hidden_gem');
-    } else if (filterType === 'insight') {
-      filtered = filtered.filter(s => s.type === 'insight');
-    }
-    if (filterStatus !== 'all') {
-      filtered = filtered.filter(s => s.status === filterStatus);
-    }
-    return filtered;
-  };
-
-  const filteredSuggestions = getFilteredSuggestions();
-
-  // ============================================
-  // ✅ RENDER HELPERS
-  // ============================================
-  
-  const handleLogout = async () => {
-    logout();
-    navigate('/login', { replace: true });
-  };
-
-  const handleProtectedClick = (path) => {
-    if (!isLoggedIn) {
-      alert('⚠️ Login required to access this page.');
-      navigate('/login');
-    } else {
-      navigate(path);
+  const handleReviewAction = async (reviewId, action) => {
+    try {
+      await AuthAPI.processGuideReview(reviewId, action);
+      await fetchDashboardData();
+      showToast(action === 'approve' ? 'Review approved' : 'Review removed');
+    } catch (error) {
+      showToast('Error processing review');
     }
   };
 
-  const getCategoryName = (categoryId) => {
-    const category = categories.find(c => c.id === categoryId);
-    return category ? category.name : 'Unknown';
+  // ============================================
+  // PROFILE ACTIONS - FIXED
+  // ============================================
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      await AuthAPI.updateProfile({
+        full_name: profileForm.fullName,
+        phone_number: profileForm.phone,
+        bio: profileForm.bio,
+        years_of_experience: parseInt(profileForm.experience) || 0,
+        languages: profileForm.languages,
+        specialties: profileForm.specialties,
+        price_per_day: parseFloat(profileForm.pricePerDay) || 0,
+        price_per_hour: parseFloat(profileForm.pricePerHour) || 0,
+        facebook: profileForm.facebook,
+        instagram: profileForm.instagram,
+        website: profileForm.website,
+      });
+      await fetchDashboardData();
+      setIsEditingProfile(false);
+      showToast('Profile updated successfully!');
+    } catch (error) {
+      showToast('Error updating profile');
+    }
   };
 
-  const getStatusBadge = (status) => {
-    const colors = {
-      'pending': { bg: '#FEF3C7', text: '#D97706' },
-      'confirmed': { bg: '#DCFCE7', text: '#16A34A' },
-      'completed': { bg: '#DBEAFE', text: '#2563EB' },
-      'cancelled': { bg: '#FEE2E2', text: '#DC2626' },
-      'rejected': { bg: '#FEE2E2', text: '#DC2626' }
-    };
-    return colors[status] || { bg: '#F3F4F6', text: '#6B7280' };
-  };
+  const initials = (name) =>
+    !name ? '?' : name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
-  // Access denied for non-guides
-  if (isLoggedIn && user?.role !== 'guide') {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: T.cream }}>
-        <div style={{ textAlign: "center", padding: 40 }}>
-          <div style={{ fontSize: 64, marginBottom: 20 }}>🚫</div>
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 28, color: T.ink }}>Access Denied</h1>
-          <p style={{ color: T.muted, marginBottom: 20 }}>This page is only for registered guides.</p>
-          <button onClick={() => navigate('/')} style={{ padding: "10px 24px", borderRadius: 999, border: "1px solid #C79A3E", background: "transparent", color: "#C79A3E", cursor: "pointer" }}>Go to Home</button>
-        </div>
-      </div>
-    );
-  }
-
+  // ============================================
+  // RENDER
+  // ============================================
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: T.cream }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ width: 40, height: 40, border: `3px solid ${T.gold}`, borderTop: "3px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-          <p style={{ marginTop: 16, color: T.muted }}>Loading guide dashboard...</p>
+      <div style={{ minHeight: '100vh', background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <Loader2 size={36} color={C.gold} style={{ animation: 'spin 1s linear infinite' }} />
+          <p style={{ marginTop: 12, color: C.sage, fontFamily: FONT.body }}>Opening the logbook…</p>
         </div>
       </div>
     );
   }
 
-  // ============================================
-  // ✅ MAIN RENDER
-  // ============================================
-  
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: T.cream, fontFamily: "'Inter', sans-serif" }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-        .gd-display { font-family: 'Fraunces', serif; }
-        .gd-mono { font-family: 'IBM Plex Mono', monospace; }
-        .gd-card:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(7,46,42,0.10); }
-        .gd-card { transition: all 0.25s ease; }
-        .gd-nav-btn:hover { background: rgba(199,154,62,0.1) !important; }
-        .gd-feed-row:hover { background: #F6F1E2; }
-        .gd-input:focus { outline: none; border-color: #C79A3E !important; box-shadow: 0 0 0 3px rgba(199,154,62,0.15); }
-        .filter-chip {
-          padding: 6px 16px;
-          border-radius: 999px;
-          font-size: 12px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          font-family: 'Inter', sans-serif;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-        .filter-chip:hover { transform: translateY(-1px); }
-        .district-chip {
-          padding: 4px 12px;
-          border-radius: 999px;
-          font-size: 11px;
-          font-weight: 500;
-          background: rgba(199,154,62,0.15);
-          color: #0E5C53;
-          display: inline-block;
-          margin: 2px;
-        }
-      `}</style>
+    <div style={{ minHeight: '100vh', background: C.cream, fontFamily: FONT.body }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* ========================================== */}
-      {/* SIDEBAR */}
-      {/* ========================================== */}
-      <div style={{
-        width: 260,
-        background: `linear-gradient(180deg, ${T.deepTeal} 0%, ${T.teal2} 100%)`,
-        color: "#EDE2C4",
-        padding: "24px 0",
-        minHeight: "100vh",
-        position: "fixed",
-        height: "100vh",
-        overflow: "auto",
-        boxShadow: "2px 0 12px rgba(0,0,0,0.1)",
-        display: "flex",
-        flexDirection: "column"
-      }}>
-        <div style={{ padding: "0 24px", marginBottom: 16 }}>
-          <h2 className="gd-display" style={{ fontSize: 22, fontWeight: 'bold', color: T.goldLight, margin: 0 }}>
-            🧭 Discover<span style={{ color: T.gold }}>Ease</span>
-          </h2>
-          <p className="gd-mono" style={{ fontSize: 10, color: 'rgba(237,226,196,0.6)', letterSpacing: '0.2em', textTransform: 'uppercase', margin: '2px 0 0' }}>
-            Guide Portal · Kerala
-          </p>
-        </div>
-
-        <div style={{ padding: "0 24px 16px" }}>
-          <ZariDivider color={T.gold} opacity={0.35} />
-        </div>
-
-        <div style={{ padding: "0 24px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.gold, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 'bold', color: T.deepTeal }}>
-            {profile?.first_name?.charAt(0) || user?.first_name?.charAt(0) || 'G'}
+      {/* HEADER */}
+      <header style={{ background: C.ink, color: C.cream, position: 'sticky', top: 0, zIndex: 40 }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto', padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Anchor size={20} color={C.goldLight} />
+            <h1 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 24, color: C.goldLight, margin: 0 }}>
+              The Logbook
+            </h1>
+            <span style={{ width: 1, height: 20, background: `${C.goldLight}44` }} />
+            <span style={{ fontFamily: FONT.body, fontSize: 14, color: C.cream }}>
+              {profile?.full_name || user?.first_name || 'Guide'}
+            </span>
+            {profile?.is_verified && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#8FD9B6', border: '1px solid #8FD9B655', borderRadius: 999, padding: '2px 8px', fontFamily: FONT.mono }}>
+                <UserCheck size={12} /> Verified
+              </span>
+            )}
           </div>
-          <div>
-            <p style={{ fontSize: 13, fontWeight: 600, color: "#EDE2C4", margin: 0 }}>
-              {profile?.first_name || user?.first_name || 'Guide'}
-            </p>
-            <p style={{ fontSize: 10, color: "rgba(237,226,196,0.6)", margin: 0 }}>
-              {profile?.email || user?.email}
-            </p>
-          </div>
-        </div>
 
-        <div style={{ flex: 1, padding: "0 12px" }}>
-          <p className="gd-mono" style={{ fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'rgba(237,226,196,0.4)', padding: "0 12px", marginBottom: 8 }}>
-            Navigation
-          </p>
-
-          {[
-            { key: 'dashboard', icon: '📊', label: 'Dashboard' },
-            { key: 'hidden_gems', icon: '💎', label: 'Hidden Gems', badge: stats.pending, badgeColor: '#EF4444' },
-            { key: 'insights', icon: '✨', label: 'Insights', badge: stats.insights, badgeColor: '#7C3AED' },
-            { key: 'availability', icon: '🕐', label: 'Availability' },
-            { key: 'bookings', icon: '📅', label: 'Bookings', badge: stats.bookings, badgeColor: '#3B82F6' },
-            { key: 'settings', icon: '⚙️', label: 'Settings' },
-          ].map(item => (
-            <button
-              key={item.key}
-              className="gd-nav-btn"
-              onClick={() => {
-                setActiveTab(item.key);
-                setFilterStatus('all');
-                if (item.key === 'hidden_gems') setFilterType('hidden_gem');
-                else if (item.key === 'insights') setFilterType('insight');
-                else setFilterType('all');
-              }}
-              style={{
-                width: '100%',
-                padding: '10px 16px',
-                borderRadius: 8,
-                border: 'none',
-                background: activeTab === item.key ? 'rgba(199,154,62,0.2)' : 'transparent',
-                color: activeTab === item.key ? T.goldLight : 'rgba(237,226,196,0.7)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                fontSize: 13,
-                transition: 'all 0.3s ease',
-                fontFamily: "'Inter', sans-serif",
-                marginBottom: 2
-              }}
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-              {!!item.badge && (
-                <span style={{ marginLeft: 'auto', background: item.badgeColor, padding: '2px 8px', borderRadius: 999, fontSize: 10, color: 'white' }}>
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: "16px 24px", borderTop: "1px solid rgba(199,154,62,0.2)" }}>
-          <button onClick={handleLogout} style={{ width: '100%', padding: '10px 16px', borderRadius: 8, border: 'none', background: 'transparent', color: '#BE5A34', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span>🚪</span>
-            <span>Logout</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ========================================== */}
-      {/* MAIN CONTENT */}
-      {/* ========================================== */}
-      <div style={{ marginLeft: 260, flex: 1, padding: "32px 40px", background: T.cream, minHeight: "100vh" }}>
-        
-        {/* HEADER */}
-        <div style={{ marginBottom: 24 }}>
-          <p className="gd-mono" style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: T.gold, margin: "0 0 6px" }}>
-            DiscoverEase · Guide Command Center
-          </p>
-          <h1 className="gd-display" style={{ fontSize: 30, fontWeight: 700, color: T.ink, fontStyle: "italic", margin: 0 }}>
-            {activeTab === 'dashboard' && 'Dashboard'}
-            {activeTab === 'hidden_gems' && 'Hidden Gems'}
-            {activeTab === 'insights' && 'Insights'}
-            {activeTab === 'availability' && 'Manage Availability'}
-            {activeTab === 'bookings' && 'My Bookings'}
-            {activeTab === 'settings' && 'Settings'}
-          </h1>
-          <p style={{ color: T.muted, margin: "6px 0 0", fontSize: 14 }}>
-            {activeTab === 'dashboard' && `Welcome back, ${profile?.first_name || 'Guide'}! Here's everything happening across your Kerala tours.`}
-            {activeTab === 'hidden_gems' && `Review hidden gems submitted by travelers. (${stats.hidden_gems} total)`}
-            {activeTab === 'insights' && `Review insight suggestions. (${stats.insight_suggestions} total, ${stats.insights} live)`}
-            {activeTab === 'availability' && `Manage your availability slots. (${stats.availability_slots} active slots)`}
-            {activeTab === 'bookings' && `View all your bookings from travelers. (${stats.bookings} total)`}
-            {activeTab === 'settings' && 'Manage your profile and account settings.'}
-          </p>
-          <div style={{ marginTop: 16, maxWidth: 480 }}>
-            <ZariDivider />
-          </div>
-        </div>
-
-        {/* ========================================== */}
-        {/* DASHBOARD TAB */}
-        {/* ========================================== */}
-        {activeTab === 'dashboard' && (
-          <>
-            {/* Stats Cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
-              {[
-                { label: 'Total Suggestions', value: stats.suggestions, color: T.ink },
-                { label: 'Pending Review', value: stats.pending, color: '#D97706' },
-                { label: 'Live Insights', value: stats.insights, color: '#7C3AED' },
-                { label: 'Kerala Districts', value: stats.districts_served, color: '#C79A3E' },
-              ].map((s, i) => (
-                <div key={i} className="gd-card" style={{ background: "#fff", padding: 20, borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", borderTop: `3px solid ${T.gold}`, textAlign: "center" }}>
-                  <p className="gd-mono" style={{ fontSize: 11, color: T.muted2, margin: 0, textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.label}</p>
-                  <p className="gd-display" style={{ fontSize: 32, fontWeight: 'bold', color: s.color, margin: "6px 0 0" }}>{s.value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Profile Overview */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 32 }}>
-              <div style={{ background: "#fff", padding: 20, borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)" }}>
-                <h3 className="gd-display" style={{ fontSize: 16, fontStyle: "italic", color: T.ink, marginBottom: 12 }}>📍 Primary District</h3>
-                {profile.primary_district ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontSize: 28 }}>📍</span>
-                    <div>
-                      <p style={{ fontSize: 18, fontWeight: 600, color: T.ink, margin: 0 }}>
-                        {getDistrictName(profile.primary_district)}
-                      </p>
-                      <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
-                        Additional: {profile.additional_districts?.length || 0} districts
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <p style={{ color: T.muted2 }}>No primary district set.</p>
-                )}
-              </div>
-
-              <div style={{ background: "#fff", padding: 20, borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)" }}>
-                <h3 className="gd-display" style={{ fontSize: 16, fontStyle: "italic", color: T.ink, marginBottom: 12 }}>🎯 Specialties</h3>
-                {profile.specialties?.length > 0 ? (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {profile.specialties.map((spec, i) => (
-                      <span key={i} className="district-chip">
-                        {getCategoryName(spec) || spec}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ color: T.muted2 }}>No specialties set.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Recent Activity */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-              <div style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", overflow: "hidden" }}>
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(199,154,62,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <h3 className="gd-display" style={{ fontSize: 16, fontStyle: "italic", color: T.ink, margin: 0 }}>💎 Recent Submissions</h3>
-                  <button onClick={() => { setActiveTab('hidden_gems'); setFilterStatus('all'); }} className="gd-mono" style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.gold, background: 'none', border: 'none', cursor: 'pointer' }}>
-                    View all →
-                  </button>
-                </div>
-                {suggestions.length === 0 ? (
-                  <p style={{ color: T.muted2, textAlign: "center", padding: "28px 20px", margin: 0 }}>No suggestions yet.</p>
-                ) : (
-                  suggestions.slice(0, 4).map(s => {
-                    const c = getStatusColor(s.status);
-                    return (
-                      <div key={s.id} className="gd-feed-row" style={{ padding: "12px 20px", borderBottom: "1px solid #F3F1E4", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <p style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {s.type === 'hidden_gem' ? '💎' : '✨'} {s.name || 'Unnamed'}
-                          </p>
-                          <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>
-                            📍 {s.location_info || 'No location'}
-                          </p>
-                        </div>
-                        <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 10, fontWeight: 500, background: c.bg, color: c.text, whiteSpace: "nowrap" }}>
-                          {s.status || 'pending'}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              <div style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", overflow: "hidden" }}>
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(199,154,62,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <h3 className="gd-display" style={{ fontSize: 16, fontStyle: "italic", color: T.ink, margin: 0 }}>📅 Recent Bookings</h3>
-                  <button onClick={() => setActiveTab('bookings')} className="gd-mono" style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.gold, background: 'none', border: 'none', cursor: 'pointer' }}>
-                    View all →
-                  </button>
-                </div>
-                {bookings.length === 0 ? (
-                  <p style={{ color: T.muted2, textAlign: "center", padding: "28px 20px", margin: 0 }}>No bookings yet.</p>
-                ) : (
-                  bookings.slice(0, 4).map(b => {
-                    const statusColor = getStatusBadge(b.status);
-                    return (
-                      <div key={b.id} className="gd-feed-row" style={{ padding: "12px 20px", borderBottom: "1px solid #F3F1E4", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <p style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {b.destination || 'Kerala Tour'}
-                          </p>
-                          <p style={{ fontSize: 11, color: T.muted, margin: "2px 0 0" }}>
-                            📅 {b.date} · 👤 {b.traveler_email || 'Traveler'}
-                          </p>
-                        </div>
-                        <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 10, background: statusColor.bg, color: statusColor.text, whiteSpace: "nowrap" }}>
-                          {b.status || 'pending'}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div style={{ marginTop: 24 }}>
-              <h2 className="gd-display" style={{ fontSize: 18, fontStyle: "italic", color: T.ink, marginBottom: 16 }}>Quick Actions</h2>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-                <button onClick={() => setActiveTab('availability')} className="gd-card" style={{ background: "#fff", padding: "20px", borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", borderLeft: `3px solid ${T.gold}`, textAlign: "center", cursor: "pointer" }}>
-                  <span style={{ fontSize: 28 }}>📍</span>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: T.ink, margin: "8px 0 0" }}>Set District</p>
-                </button>
-                <button onClick={() => { setActiveTab('hidden_gems'); setFilterStatus('all'); }} className="gd-card" style={{ background: "#fff", padding: "20px", borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", borderLeft: `3px solid ${T.gold}`, textAlign: "center", cursor: "pointer" }}>
-                  <span style={{ fontSize: 28 }}>💎</span>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: T.ink, margin: "8px 0 0" }}>Review Gems</p>
-                  {stats.pending > 0 && <span style={{ display: "inline-block", marginTop: 4, padding: "2px 12px", borderRadius: 999, fontSize: 11, background: "#EF4444", color: "#fff" }}>{stats.pending} pending</span>}
-                </button>
-                <button onClick={() => { setActiveTab('insights'); setFilterStatus('all'); }} className="gd-card" style={{ background: "#fff", padding: "20px", borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", borderLeft: `3px solid ${T.gold}`, textAlign: "center", cursor: "pointer" }}>
-                  <span style={{ fontSize: 28 }}>✨</span>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: T.ink, margin: "8px 0 0" }}>Review Insights</p>
-                  {stats.insight_suggestions > 0 && <span style={{ display: "inline-block", marginTop: 4, padding: "2px 12px", borderRadius: 999, fontSize: 11, background: "#7C3AED", color: "#fff" }}>{stats.insight_suggestions} total</span>}
-                </button>
-                <button onClick={() => setActiveTab('bookings')} className="gd-card" style={{ background: "#fff", padding: "20px", borderRadius: 10, border: "1px solid rgba(199,154,62,0.2)", borderLeft: `3px solid ${T.gold}`, textAlign: "center", cursor: "pointer" }}>
-                  <span style={{ fontSize: 28 }}>📅</span>
-                  <p style={{ fontSize: 14, fontWeight: 500, color: T.ink, margin: "8px 0 0" }}>My Bookings</p>
-                  {stats.bookings > 0 && <span style={{ display: "inline-block", marginTop: 4, padding: "2px 12px", borderRadius: 999, fontSize: 11, background: "#3B82F6", color: "#fff" }}>{stats.bookings} bookings</span>}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ========================================== */}
-        {/* HIDDEN GEMS TAB */}
-        {/* ========================================== */}
-        {activeTab === 'hidden_gems' && (
-          <div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", borderBottom: "1px solid rgba(199,154,62,0.2)", paddingBottom: 12 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: "#0B2422", marginRight: "auto" }}>💎 Hidden Gems ({stats.hidden_gems})</h2>
-              {[
-                { key: 'all', label: 'All', count: stats.hidden_gems, color: '#0E5C53' },
-                { key: 'pending', label: 'Pending', count: suggestions.filter(s => s.type === 'hidden_gem' && s.status === 'pending').length, color: '#EAB308' },
-                { key: 'in_progress', label: 'In Progress', count: suggestions.filter(s => s.type === 'hidden_gem' && s.status === 'in_progress').length, color: '#3B82F6' },
-                { key: 'approved', label: 'Approved', count: suggestions.filter(s => s.type === 'hidden_gem' && s.status === 'approved').length, color: '#22C55E' },
-                { key: 'rejected', label: 'Rejected', count: suggestions.filter(s => s.type === 'hidden_gem' && s.status === 'rejected').length, color: '#EF4444' },
-                { key: 'implemented', label: 'Implemented', count: suggestions.filter(s => s.type === 'hidden_gem' && s.status === 'implemented').length, color: '#8B5CF6' },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  className="filter-chip"
-                  onClick={() => setFilterStatus(tab.key)}
-                  style={{
-                    border: filterStatus === tab.key ? `2px solid ${tab.color || '#0E5C53'}` : '1px solid #D1D5DB',
-                    background: filterStatus === tab.key ? (tab.color || '#0E5C53') : 'transparent',
-                    color: filterStatus === tab.key ? '#fff' : '#5C6E69',
-                  }}
-                >
-                  {tab.label}
-                  <span style={{ background: filterStatus === tab.key ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', padding: '0px 6px', borderRadius: 999, fontSize: 10 }}>
-                    {tab.count}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowNotifications((v) => !v)}
+                style={{ background: 'transparent', border: 'none', color: C.goldLight, cursor: 'pointer', position: 'relative', padding: 8, borderRadius: 8 }}
+                aria-label="Notifications"
+              >
+                <Bell size={18} />
+                {notificationItems.length > 0 && (
+                  <span style={{ position: 'absolute', top: 2, right: 2, background: C.coral, color: 'white', fontSize: 10, borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT.mono }}>
+                    {notificationItems.length}
                   </span>
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-              {filteredSuggestions.filter(s => s.type === 'hidden_gem').length === 0 ? (
-                <div style={{ textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 8, border: "1px solid rgba(199,154,62,0.2)" }}>
-                  <p style={{ color: "#8A9A95", margin: 0 }}>No hidden gems found.</p>
-                </div>
-              ) : (
-                filteredSuggestions.filter(s => s.type === 'hidden_gem').map((suggestion) => {
-                  const colors = getStatusColor(suggestion.status);
-                  return (
-                    <div key={suggestion.id} className="gd-card" style={{ background: "#fff", borderRadius: 8, padding: "20px 24px", border: `1px solid ${colors.bg}` }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
-                            <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0B2422", margin: 0 }}>💎 {suggestion.name || 'Unnamed Place'}</h3>
-                            <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 10, fontWeight: 500, background: colors.bg, color: colors.text }}>
-                              {suggestion.status || 'pending'}
-                            </span>
-                          </div>
-                          <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0" }}>📍 {suggestion.location_info || 'No location'}</p>
-                          <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0" }}>👤 {suggestion.user_email || 'Anonymous'}</p>
-                          <p style={{ fontSize: 14, color: "#4A5F5A", margin: "8px 0 0", lineHeight: 1.6 }}>{suggestion.description || 'No description'}</p>
-                          {suggestion.admin_notes && (
-                            <p style={{ fontSize: 12, color: "#0E5C53", marginTop: 8, background: "#F4FAF8", padding: "8px 12px", borderRadius: 4 }}>
-                              📝 Admin: {suggestion.admin_notes}
-                            </p>
-                          )}
-                        </div>
-
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 16, minWidth: 110 }}>
-                          {suggestion.status === 'pending' && (
-                            <>
-                              <button onClick={() => handleProcessClick(suggestion, 'approve')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#22C55E", color: "#fff", fontSize: 11, cursor: "pointer" }}>✅ Approve</button>
-                              <button onClick={() => handleProcessClick(suggestion, 'in_progress')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#3B82F6", color: "#fff", fontSize: 11, cursor: "pointer" }}>🔄 In Progress</button>
-                              <button onClick={() => handleProcessClick(suggestion, 'reject')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#EF4444", color: "#fff", fontSize: 11, cursor: "pointer" }}>❌ Reject</button>
-                            </>
-                          )}
-                          {(suggestion.status === 'approved' || suggestion.status === 'in_progress') && (
-                            <>
-                              <button onClick={() => handleProcessClick(suggestion, 'implement')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#8B5CF6", color: "#fff", fontSize: 11, cursor: "pointer" }}>✨ Implement</button>
-                              <button onClick={() => handleProcessClick(suggestion, 'reject')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#EF4444", color: "#fff", fontSize: 11, cursor: "pointer" }}>❌ Reject</button>
-                            </>
-                          )}
-                          {suggestion.status === 'rejected' && <span style={{ fontSize: 12, color: "#EF4444", textAlign: "center" }}>❌ Rejected</span>}
-                          {suggestion.status === 'implemented' && (
-                            <button onClick={() => handleProcessClick(suggestion, 'remove')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#EF4444", color: "#fff", fontSize: 11, cursor: "pointer" }}>❌ Remove</button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================== */}
-        {/* INSIGHTS TAB */}
-        {/* ========================================== */}
-        {activeTab === 'insights' && (
-          <div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", borderBottom: "1px solid rgba(199,154,62,0.2)", paddingBottom: 12 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: "#0B2422", marginRight: "auto" }}>✨ Insights ({stats.insight_suggestions})</h2>
-              {[
-                { key: 'all', label: 'All', count: stats.insight_suggestions, color: '#0E5C53' },
-                { key: 'pending', label: 'Pending', count: suggestions.filter(s => s.type === 'insight' && s.status === 'pending').length, color: '#EAB308' },
-                { key: 'in_progress', label: 'In Progress', count: suggestions.filter(s => s.type === 'insight' && s.status === 'in_progress').length, color: '#3B82F6' },
-                { key: 'approved', label: 'Approved', count: suggestions.filter(s => s.type === 'insight' && s.status === 'approved').length, color: '#22C55E' },
-                { key: 'rejected', label: 'Rejected', count: suggestions.filter(s => s.type === 'insight' && s.status === 'rejected').length, color: '#EF4444' },
-                { key: 'implemented', label: 'Implemented', count: suggestions.filter(s => s.type === 'insight' && s.status === 'implemented').length, color: '#8B5CF6' },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  className="filter-chip"
-                  onClick={() => setFilterStatus(tab.key)}
-                  style={{
-                    border: filterStatus === tab.key ? `2px solid ${tab.color || '#0E5C53'}` : '1px solid #D1D5DB',
-                    background: filterStatus === tab.key ? (tab.color || '#0E5C53') : 'transparent',
-                    color: filterStatus === tab.key ? '#fff' : '#5C6E69',
-                  }}
-                >
-                  {tab.label}
-                  <span style={{ background: filterStatus === tab.key ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', padding: '0px 6px', borderRadius: 999, fontSize: 10 }}>
-                    {tab.count}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-              {filteredSuggestions.filter(s => s.type === 'insight').length === 0 ? (
-                <div style={{ textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 8, border: "1px solid rgba(199,154,62,0.2)" }}>
-                  <p style={{ color: "#8A9A95", margin: 0 }}>No insights found.</p>
-                </div>
-              ) : (
-                filteredSuggestions.filter(s => s.type === 'insight').map((suggestion) => {
-                  const colors = getStatusColor(suggestion.status);
-                  return (
-                    <div key={suggestion.id} className="gd-card" style={{ background: "#fff", borderRadius: 8, padding: "20px 24px", border: `1px solid ${colors.bg}` }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
-                            <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0B2422", margin: 0 }}>✨ {suggestion.name || 'Unnamed'}</h3>
-                            <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 10, fontWeight: 500, background: colors.bg, color: colors.text }}>
-                              {suggestion.status || 'pending'}
-                            </span>
-                          </div>
-                          <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0" }}>📍 {suggestion.location_info || 'No location'}</p>
-                          <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0" }}>👤 {suggestion.user_email || 'Anonymous'}</p>
-                          <p style={{ fontSize: 14, color: "#4A5F5A", margin: "8px 0 0", lineHeight: 1.6 }}>{suggestion.description || 'No description'}</p>
-                          {suggestion.admin_notes && (
-                            <p style={{ fontSize: 12, color: "#0E5C53", marginTop: 8, background: "#F4FAF8", padding: "8px 12px", borderRadius: 4 }}>
-                              📝 Admin: {suggestion.admin_notes}
-                            </p>
-                          )}
-                        </div>
-
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 16, minWidth: 110 }}>
-                          {suggestion.status === 'pending' && (
-                            <>
-                              <button onClick={() => handleProcessClick(suggestion, 'approve')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#22C55E", color: "#fff", fontSize: 11, cursor: "pointer" }}>✅ Approve</button>
-                              <button onClick={() => handleProcessClick(suggestion, 'in_progress')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#3B82F6", color: "#fff", fontSize: 11, cursor: "pointer" }}>🔄 In Progress</button>
-                              <button onClick={() => handleProcessClick(suggestion, 'reject')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#EF4444", color: "#fff", fontSize: 11, cursor: "pointer" }}>❌ Reject</button>
-                            </>
-                          )}
-                          {(suggestion.status === 'approved' || suggestion.status === 'in_progress') && (
-                            <>
-                              <button onClick={() => handleProcessClick(suggestion, 'implement')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#8B5CF6", color: "#fff", fontSize: 11, cursor: "pointer" }}>✨ Implement</button>
-                              <button onClick={() => handleProcessClick(suggestion, 'reject')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#EF4444", color: "#fff", fontSize: 11, cursor: "pointer" }}>❌ Reject</button>
-                            </>
-                          )}
-                          {suggestion.status === 'rejected' && <span style={{ fontSize: 12, color: "#EF4444", textAlign: "center" }}>❌ Rejected</span>}
-                          {suggestion.status === 'implemented' && (
-                            <button onClick={() => handleProcessClick(suggestion, 'remove')} style={{ padding: "6px 12px", borderRadius: 4, border: "none", background: "#EF4444", color: "#fff", fontSize: 11, cursor: "pointer" }}>❌ Remove</button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================== */}
-        {/* AVAILABILITY TAB */}
-        {/* ========================================== */}
-        {activeTab === 'availability' && (
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: "#0B2422" }}>🕐 Manage Availability</h2>
-              <button onClick={() => setShowAvailabilityForm(!showAvailabilityForm)} style={{ padding: "10px 24px", borderRadius: 999, border: "none", background: "#0E5C53", color: "#fff", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                <span>+</span> Add Availability
+                )}
               </button>
-            </div>
-
-            {showAvailabilityForm && (
-              <div style={{ background: "#fff", padding: 24, borderRadius: 8, border: "1px solid rgba(199,154,62,0.2)", marginBottom: 20 }}>
-                <form onSubmit={handleAddAvailability}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: "#0E5C53", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                    Your Guide Profile
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Experience (years)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="60"
-                        value={availabilityForm.experience_years}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, experience_years: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Phone</label>
-                      <input
-                        type="text"
-                        placeholder="+91 98765 43210"
-                        value={availabilityForm.phone}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, phone: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
-                    </div>
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Specialties (comma separated)</label>
-                      <input
-                        type="text"
-                        placeholder="e.g., trekking, wildlife, photography"
-                        value={availabilityForm.specialties}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, specialties: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
-                    </div>
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Bio</label>
-                      <textarea
-                        rows="2"
-                        placeholder="Tell travelers about yourself..."
-                        value={availabilityForm.bio}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, bio: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, resize: "vertical" }}
-                      />
-                    </div>
+              {showNotifications && (
+                <div style={{ position: 'absolute', right: 0, marginTop: 8, width: 300, background: C.paper, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', border: `1px solid ${C.line}`, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.line}`, fontFamily: FONT.display, fontStyle: 'italic', color: C.inkSoft, fontSize: 14 }}>
+                    What needs your attention
                   </div>
-
-                  <p style={{ fontSize: 12, fontWeight: 600, color: "#0E5C53", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                    📍 Kerala Districts
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Primary District *</label>
-                      <select
-                        value={availabilityForm.primary_district}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, primary_district: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                        required
-                      >
-                        <option value="">Select district</option>
-                        {districts.map(d => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Additional Districts</label>
-                      <select
-                        multiple
-                        value={availabilityForm.additional_districts}
-                        onChange={(e) => {
-                          const options = Array.from(e.target.selectedOptions, option => parseInt(option.value));
-                          setAvailabilityForm({ ...availabilityForm, additional_districts: options });
+                  {notificationItems.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: 'center', color: C.sage, fontSize: 13 }}>Nothing pending — well kept log.</div>
+                  ) : (
+                    notificationItems.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => {
+                          setActiveTab(n.tab);
+                          setShowNotifications(false);
                         }}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, minHeight: 80 }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', borderBottom: `1px solid ${C.line}`, background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, color: C.inkSoft }}
                       >
-                        {districts
-                          .filter(d => d.id !== parseInt(availabilityForm.primary_district))
-                          .map(d => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                      </select>
-                      <p style={{ fontSize: 11, color: T.muted2, marginTop: 4 }}>Hold Ctrl/Cmd to select multiple</p>
-                    </div>
-                  </div>
+                        {n.text}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
 
-                  <p style={{ fontSize: 12, fontWeight: 600, color: "#0E5C53", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-                    Availability Slot
-                  </p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: `1px solid ${C.gold}66`, color: C.goldLight, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
+            >
+              <RefreshCw size={14} style={refreshing ? { animation: 'spin 1s linear infinite' } : undefined} />
+              Refresh
+            </button>
+            <button onClick={logout} style={{ background: 'transparent', border: 'none', color: C.goldLight, cursor: 'pointer', fontSize: 13, padding: '7px 4px' }}>
+              Logout
+            </button>
+          </div>
+        </div>
+        <RippleDivider color={`${C.gold}55`} />
+      </header>
+
+      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '24px' }}>
+        {/* STATS */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
+          <StatCard label="Total Bookings" value={stats.total} icon={CalendarDays} accent={C.inkSoft} />
+          <StatCard label="Pending" value={stats.pending} icon={Clock} accent={C.warn} />
+          <StatCard label="Rating" value={stats.rating} icon={Star} accent={C.gold} />
+          <StatCard label="Reviews to approve" value={stats.pendingReviews} icon={MessageSquare} accent={C.danger} />
+        </div>
+
+        {/* TABS */}
+        <div style={{ display: 'flex', borderBottom: `1px solid ${C.line}`, marginBottom: 20, overflowX: 'auto', flexWrap: 'nowrap' }}>
+          <LedgerTab label="Overview" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} icon={Anchor} />
+          <LedgerTab label="Bookings" active={activeTab === 'bookings'} onClick={() => setActiveTab('bookings')} icon={CalendarDays} />
+          <LedgerTab label="Availability" active={activeTab === 'availability'} onClick={() => setActiveTab('availability')} icon={Clock} />
+          <LedgerTab label="Reviews" active={activeTab === 'reviews'} onClick={() => setActiveTab('reviews')} icon={Star} />
+          <LedgerTab label="Insights" active={activeTab === 'insights'} onClick={() => setActiveTab('insights')} icon={TrendingUp} />
+          <LedgerTab label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} icon={User} />
+        </div>
+
+        {/* OVERVIEW TAB */}
+        {activeTab === 'overview' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: '0 0 4px' }}>Recent bookings</h3>
+              <p style={{ fontSize: 12, color: C.sage, margin: '0 0 14px' }}>Latest requests from travelers</p>
+              {bookings.slice(0, 5).length === 0 ? (
+                <EmptyState text="No bookings yet — they'll land here the moment a traveler books you." />
+              ) : (
+                bookings.slice(0, 5).map((b) => (
+                  <div key={b.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
                     <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Date *</label>
-                      <input
-                        type="date"
-                        required
-                        value={availabilityForm.date}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, date: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
+                      <p style={{ margin: 0, fontSize: 14, color: C.inkSoft, fontWeight: 500 }}>{b.user?.username || b.traveler_email || 'Anonymous'}</p>
+                      <p style={{ margin: '2px 0 0', fontSize: 12, color: C.sage, fontFamily: FONT.mono }}>
+                        {b.district?.name || 'N/A'} · {b.date ? new Date(b.date).toLocaleDateString() : '—'}
+                      </p>
                     </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Start Time *</label>
-                      <input
-                        type="time"
-                        required
-                        value={availabilityForm.start_time}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, start_time: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>End Time *</label>
-                      <input
-                        type="time"
-                        required
-                        value={availabilityForm.end_time}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, end_time: e.target.value })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#0B2422" }}>Max Slots</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="20"
-                        value={availabilityForm.max_slots}
-                        onChange={(e) => setAvailabilityForm({ ...availabilityForm, max_slots: parseInt(e.target.value) || 1 })}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13 }}
-                      />
-                    </div>
+                    <StatusSeal status={b.status} />
                   </div>
-                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                    <button type="submit" disabled={processing} style={{ padding: "8px 24px", borderRadius: 999, border: "none", background: processing ? "#9CA3AF" : "#0E5C53", color: "#fff", cursor: processing ? "not-allowed" : "pointer" }}>
-                      {processing ? 'Saving...' : 'Save Availability'}
-                    </button>
-                    <button type="button" onClick={() => setShowAvailabilityForm(false)} style={{ padding: "8px 24px", borderRadius: 999, border: "1px solid #D1D5DB", background: "transparent", color: "#5C6E69", cursor: "pointer" }}>
-                      Cancel
-                    </button>
-                  </div>
-                </form>
+                ))
+              )}
+            </div>
+
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: '0 0 4px' }}>Open slots</h3>
+              <p style={{ fontSize: 12, color: C.sage, margin: '0 0 14px' }}>Your upcoming availability</p>
+              {availability.filter((s) => !s.is_booked).length === 0 ? (
+                <EmptyState text="No open slots. Add availability so travelers can book you." />
+              ) : (
+                availability
+                  .filter((s) => !s.is_booked)
+                  .slice(0, 5)
+                  .map((s) => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
+                      <p style={{ margin: 0, fontSize: 14, color: C.inkSoft, fontFamily: FONT.mono }}>
+                        {new Date(s.date).toLocaleDateString()} · {s.start_time}–{s.end_time}
+                      </p>
+                      <span style={{ fontSize: 12, color: C.sage }}>{s.current_bookings || 0}/{s.max_bookings} booked</span>
+                    </div>
+                  ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* BOOKINGS TAB */}
+        {activeTab === 'bookings' && (
+          <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: 0 }}>Booking requests</h3>
+              <select
+                value={bookingFilter}
+                onChange={(e) => setBookingFilter(e.target.value)}
+                style={{ border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 10px', fontSize: 13, color: C.inkSoft, background: C.cream }}
+              >
+                <option value="all">All</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            {filteredBookings.length === 0 ? (
+              <EmptyState text="No bookings match this filter." />
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: C.sage, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <th style={{ padding: '6px 8px' }}>Traveler</th>
+                      <th style={{ padding: '6px 8px' }}>District</th>
+                      <th style={{ padding: '6px 8px' }}>Date</th>
+                      <th style={{ padding: '6px 8px' }}>Status</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredBookings.map((b) => (
+                      <tr key={b.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                        <td style={{ padding: '10px 8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: '50%', background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontFamily: FONT.mono, color: C.inkSoft, border: `1px solid ${C.line}` }}>
+                              {initials(b.user?.username || b.traveler_email)}
+                            </div>
+                            <span style={{ color: C.inkSoft }}>{b.user?.username || b.traveler_email || 'Anonymous'}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 8px', color: C.inkSoft }}>{b.district?.name || 'N/A'}</td>
+                        <td style={{ padding: '10px 8px', color: C.inkSoft, fontFamily: FONT.mono }}>{b.date ? new Date(b.date).toLocaleDateString() : '—'}</td>
+                        <td style={{ padding: '10px 8px' }}><StatusSeal status={b.status} /></td>
+                        <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: 6 }}>
+                            {b.status === 'pending' && (
+                              <>
+                                <IconButton icon={CheckCircle2} tone="success" busy={processingId === b.id} onClick={() => updateBookingStatus(b.id, 'confirmed')} label="Confirm" />
+                                <IconButton icon={XCircle} tone="danger" busy={processingId === b.id} onClick={() => updateBookingStatus(b.id, 'rejected')} label="Decline" />
+                              </>
+                            )}
+                            {b.status === 'confirmed' && (
+                              <button
+                                onClick={() => handleComplete(b.id)}
+                                disabled={processingId === b.id}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.success, color: 'white', border: 'none', borderRadius: 6, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}
+                              >
+                                <CheckCircle2 size={13} /> Complete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
+          </div>
+        )}
 
-            <div style={{ background: "#fff", padding: "20px", borderRadius: 8, border: "1px solid rgba(199,154,62,0.15)" }}>
-              {availability.length === 0 ? (
-                <p style={{ color: "#8A9A95", textAlign: "center", padding: "20px 0" }}>No availability set. Add your available slots above.</p>
-              ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-                  {availability.map((slot) => (
-                    <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "#F9FAFB", borderRadius: 8, border: "1px solid #F3F4F6" }}>
-                      <div>
-                        <span style={{ fontWeight: 500, color: "#0B2422" }}>📅 {slot.date}</span>
-                        <span style={{ marginLeft: 16, color: "#5C6E69", fontSize: 13 }}>⏰ {slot.start_time} - {slot.end_time}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ padding: "2px 12px", borderRadius: 999, fontSize: 12, background: slot.is_available !== false ? '#DCFCE7' : '#FEE2E2', color: slot.is_available !== false ? '#16A34A' : '#DC2626' }}>
-                          {slot.is_available !== false ? `${slot.max_slots - (slot.booked_slots || 0)} slots left` : 'Booked'}
-                        </span>
-                        <button
-                          onClick={() => handleRemoveAvailability(slot.id)}
-                          style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid #EF4444", background: "transparent", color: "#EF4444", fontSize: 11, cursor: "pointer" }}
-                        >
-                          ❌ Remove
-                        </button>
-                      </div>
+        {/* AVAILABILITY TAB */}
+        {activeTab === 'availability' && (
+          <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: 0 }}>Availability</h3>
+              <button
+                onClick={() => setShowAddSlot(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.ink, color: C.goldLight, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}
+              >
+                <PlusCircle size={15} /> Add slot
+              </button>
+            </div>
+
+            {availability.length === 0 ? (
+              <EmptyState text="No availability added yet. Add a slot so travelers can book time with you." />
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: C.sage, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <th style={{ padding: '6px 8px' }}>Date</th>
+                      <th style={{ padding: '6px 8px' }}>Time</th>
+                      <th style={{ padding: '6px 8px' }}>Booked</th>
+                      <th style={{ padding: '6px 8px' }}>Status</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {availability.map((s) => {
+                      const full = s.is_booked || (s.current_bookings || 0) >= (s.max_bookings || 1);
+                      return (
+                        <tr key={s.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                          <td style={{ padding: '10px 8px', fontFamily: FONT.mono, color: C.inkSoft }}>{new Date(s.date).toLocaleDateString()}</td>
+                          <td style={{ padding: '10px 8px', fontFamily: FONT.mono, color: C.inkSoft }}>{s.start_time}–{s.end_time}</td>
+                          <td style={{ padding: '10px 8px', color: C.inkSoft }}>{s.current_bookings || 0} / {s.max_bookings}</td>
+                          <td style={{ padding: '10px 8px' }}>
+                            {full ? <StatusSeal status="full" /> : <StatusSeal status="available" />}
+                          </td>
+                          <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                            <button
+                              onClick={() => handleDeleteSlot(s.id)}
+                              style={{ background: 'transparent', border: 'none', color: C.danger, cursor: 'pointer', padding: 6 }}
+                              aria-label="Delete slot"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* REVIEWS TAB */}
+        {activeTab === 'reviews' && (
+          <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+            <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: '0 0 4px' }}>Reviews</h3>
+            <p style={{ fontSize: 12, color: C.sage, margin: '0 0 14px' }}>Approve reviews before they appear on your profile</p>
+
+            {reviews.length === 0 ? (
+              <EmptyState text="No reviews yet." />
+            ) : (
+              reviews.map((r) => (
+                <div key={r.id} style={{ padding: '14px 0', borderBottom: `1px solid ${C.line}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14, color: C.inkSoft, fontWeight: 500 }}>{r.user?.username || 'Anonymous'}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: C.gold, fontSize: 12 }}>
+                        <Star size={12} fill={C.gold} /> {r.rating}
+                      </span>
                     </div>
-                  ))}
+                    {r.is_approved ? (
+                      <StatusSeal status="confirmed" />
+                    ) : (
+                      <div style={{ display: 'inline-flex', gap: 6 }}>
+                        <IconButton icon={CheckCircle2} tone="success" onClick={() => handleReviewAction(r.id, 'approve')} label="Approve" />
+                        <IconButton icon={XCircle} tone="danger" onClick={() => handleReviewAction(r.id, 'reject')} label="Remove" />
+                      </div>
+                    )}
+                  </div>
+                  <p style={{ margin: '6px 0 0', fontSize: 13, color: C.sage }}>{r.comment || r.review_text || 'No comment left.'}</p>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* INSIGHTS TAB */}
+        {activeTab === 'insights' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 16, color: C.inkSoft, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <MapPin size={18} color={C.gold} /> Popular Districts
+              </h3>
+              {insightData.popularDistricts.length === 0 ? (
+                <p style={{ color: C.sage, fontSize: 13 }}>No data yet. Start booking to see insights!</p>
+              ) : (
+                insightData.popularDistricts.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: `1px solid ${C.line}44` }}>
+                    <span style={{ fontFamily: FONT.mono, fontSize: 13, color: C.inkSoft, minWidth: 20 }}>{i + 1}.</span>
+                    <span style={{ flex: 1, fontSize: 13, color: C.inkSoft }}>{item.name}</span>
+                    <span style={{ fontSize: 12, color: C.sage }}>{item.count} bookings</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 20 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 16, color: C.inkSoft, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CalendarDays size={18} color={C.gold} /> Monthly Trend
+              </h3>
+              {insightData.monthlyBookings.length === 0 ? (
+                <p style={{ color: C.sage, fontSize: 13 }}>No data yet.</p>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 120 }}>
+                  {insightData.monthlyBookings.map((item, i) => {
+                    const max = Math.max(...insightData.monthlyBookings.map(m => m.count));
+                    const height = max > 0 ? (item.count / max) * 100 : 0;
+                    return (
+                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <div style={{ width: '100%', height: `${Math.max(height, 4)}%`, minHeight: 4, background: C.gold, borderRadius: '4px 4px 0 0' }} />
+                        <span style={{ fontSize: 10, color: C.sage, marginTop: 4 }}>{item.month}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* ========================================== */}
-        {/* BOOKINGS TAB */}
-        {/* ========================================== */}
-        {activeTab === 'bookings' && (
-          <div style={{ background: "#fff", padding: "24px", borderRadius: 8, border: "1px solid rgba(199,154,62,0.15)" }}>
-            <h2 style={{ fontSize: 18, fontWeight: 600, color: "#0B2422", marginBottom: 16 }}>📅 My Bookings ({stats.bookings})</h2>
-            {bookings.length === 0 ? (
-              <p style={{ color: "#8A9A95", textAlign: "center", padding: "20px 0" }}>No bookings yet.</p>
+        {/* PROFILE TAB */}
+        {activeTab === 'profile' && (
+          <div style={{ background: C.paper, border: `1px solid ${C.line}`, borderRadius: 10, padding: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <User size={20} color={C.gold} /> Guide Profile
+              </h3>
+              <button
+                onClick={() => setIsEditingProfile(!isEditingProfile)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: isEditingProfile ? C.success : C.ink, color: isEditingProfile ? 'white' : C.goldLight, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer' }}
+              >
+                {isEditingProfile ? <Save size={15} /> : <Edit2 size={15} />}
+                {isEditingProfile ? 'Save Changes' : 'Edit Profile'}
+              </button>
+            </div>
+
+            {isEditingProfile ? (
+              <form onSubmit={handleProfileUpdate}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Full Name</label>
+                    <input type="text" value={profileForm.fullName} onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Phone</label>
+                    <input type="text" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Bio</label>
+                    <textarea value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Experience (years)</label>
+                    <input type="text" value={profileForm.experience} onChange={(e) => setProfileForm({ ...profileForm, experience: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Languages</label>
+                    <input type="text" value={profileForm.languages} onChange={(e) => setProfileForm({ ...profileForm, languages: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Specialties</label>
+                    <input type="text" value={profileForm.specialties} onChange={(e) => setProfileForm({ ...profileForm, specialties: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Price per Day</label>
+                    <input type="text" value={profileForm.pricePerDay} onChange={(e) => setProfileForm({ ...profileForm, pricePerDay: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Price per Hour</label>
+                    <input type="text" value={profileForm.pricePerHour} onChange={(e) => setProfileForm({ ...profileForm, pricePerHour: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Facebook</label>
+                    <input type="text" value={profileForm.facebook} onChange={(e) => setProfileForm({ ...profileForm, facebook: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Instagram</label>
+                    <input type="text" value={profileForm.instagram} onChange={(e) => setProfileForm({ ...profileForm, instagram: e.target.value })} style={inputStyle} />
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ fontSize: 12, color: C.sage, display: 'block', marginBottom: 4 }}>Website</label>
+                    <input type="text" value={profileForm.website} onChange={(e) => setProfileForm({ ...profileForm, website: e.target.value })} style={inputStyle} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <button type="submit" style={{ background: C.ink, color: C.goldLight, border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }}>
+                    Save Profile
+                  </button>
+                  <button type="button" onClick={() => setIsEditingProfile(false)} style={{ background: 'transparent', border: `1px solid ${C.line}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer', color: C.sage }}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-                {bookings.map((booking) => {
-                  const statusColor = getStatusBadge(booking.status);
-                  return (
-                    <div key={booking.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "#F9FAFB", borderRadius: 8, border: "1px solid #F3F4F6" }}>
-                      <div>
-                        <p style={{ fontWeight: 500, color: "#0B2422", margin: 0 }}>{booking.destination || 'Kerala Tour'}</p>
-                        <p style={{ fontSize: 12, color: "#5C6E69", margin: "4px 0 0" }}>
-                          👤 {booking.traveler_email || 'Traveler'} • 📅 {booking.date} • ⏰ {booking.time}
-                          {booking.district && <span style={{ marginLeft: 8 }}>📍 {booking.district}</span>}
-                        </p>
-                      </div>
-                      <span style={{
-                        padding: "2px 12px",
-                        borderRadius: 999,
-                        fontSize: 12,
-                        background: statusColor.bg,
-                        color: statusColor.text
-                      }}>
-                        {booking.status || 'pending'}
-                      </span>
-                    </div>
-                  );
-                })}
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 20px' }}>
+                <div style={{ width: 80, height: 80, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 'bold', color: '#fff', gridRow: '1 / 5' }}>
+                  {initials(profile?.full_name || user?.first_name)}
+                </div>
+                <div><strong style={{ color: C.inkSoft }}>{profile?.full_name || user?.first_name}</strong></div>
+                <div style={{ color: C.sage }}>{profile?.is_verified ? '✅ Verified' : '⏳ Not verified'}</div>
+                <div style={{ gridColumn: '2' }}>
+                  {profile?.bio && <p style={{ margin: '4px 0', color: C.inkSoft }}>{profile.bio}</p>}
+                </div>
+                
+                <hr style={{ gridColumn: '1 / -1', border: 'none', borderTop: `1px solid ${C.line}`, margin: '8px 0' }} />
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.sage }}>
+                  <Mail size={14} /> Email:
+                </div>
+                <div style={{ color: C.inkSoft }}>{user?.email}</div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.sage }}>
+                  <Phone size={14} /> Phone:
+                </div>
+                <div style={{ color: C.inkSoft }}>{profile?.phone || 'Not set'}</div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.sage }}>
+                  <ClockIcon size={14} /> Experience:
+                </div>
+                <div style={{ color: C.inkSoft }}>{profile?.experience_years || 'Not set'} years</div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.sage }}>
+                  <Globe size={14} /> Languages:
+                </div>
+                <div style={{ color: C.inkSoft }}>{profile?.languages || 'Not set'}</div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.sage }}>
+                  <Award size={14} /> Specialties:
+                </div>
+                <div style={{ color: C.inkSoft }}>{profile?.specialties || 'Not set'}</div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.sage }}>
+                  <DollarSign size={14} /> Pricing:
+                </div>
+                <div style={{ color: C.inkSoft }}>
+                  {profile?.price_per_day ? `₹${profile.price_per_day}/day` : ''}
+                  {profile?.price_per_day && profile?.price_per_hour ? ' · ' : ''}
+                  {profile?.price_per_hour ? `₹${profile.price_per_hour}/hour` : 'Not set'}
+                </div>
               </div>
             )}
           </div>
         )}
-
-        {/* ========================================== */}
-        {/* SETTINGS TAB */}
-        {/* ========================================== */}
-        {activeTab === 'settings' && (
-          <div>
-            <div style={{ background: "#fff", padding: "24px", borderRadius: 8, border: "1px solid rgba(199,154,62,0.15)", maxWidth: 600 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 600, color: "#0B2422", marginBottom: 24 }}>Profile Settings</h2>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#0B2422", marginBottom: 4 }}>First Name</label>
-                <input type="text" value={profile?.first_name || ''} style={{ width: "100%", padding: "10px 14px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, background: "#F9FAFB" }} readOnly />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#0B2422", marginBottom: 4 }}>Email</label>
-                <input type="email" value={profile?.email || ''} style={{ width: "100%", padding: "10px 14px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, background: "#F9FAFB" }} disabled />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#0B2422", marginBottom: 4 }}>Primary District</label>
-                <div style={{ padding: "10px 14px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, background: "#F9FAFB", color: "#0E5C53" }}>
-                  {profile?.primary_district ? getDistrictName(profile.primary_district) : 'Not set'}
-                </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#0B2422", marginBottom: 4 }}>Additional Districts</label>
-                <div style={{ padding: "10px 14px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, background: "#F9FAFB", color: "#0E5C53" }}>
-                  {profile?.additional_districts?.length > 0 
-                    ? profile.additional_districts.map(id => getDistrictName(id)).join(', ')
-                    : 'None'}
-                </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#0B2422", marginBottom: 4 }}>Experience</label>
-                <div style={{ padding: "10px 14px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, background: "#F9FAFB", color: "#0E5C53" }}>
-                  {profile?.experience_years ? `${profile.experience_years} years` : 'Not set'}
-                </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#0B2422", marginBottom: 4 }}>Role</label>
-                <div style={{ padding: "10px 14px", borderRadius: 4, border: "1px solid #D1D5DB", fontSize: 13, background: "#F9FAFB", color: "#0E5C53" }}>⭐ Guide</div>
-              </div>
-              <button onClick={() => setActiveTab('availability')} style={{ padding: "10px 24px", borderRadius: 999, border: "none", background: "#0E5C53", color: "#fff", fontSize: 13, cursor: "pointer" }}>
-                Edit Profile in Availability
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* ========================================== */}
-      {/* PROCESS MODAL */}
-      {/* ========================================== */}
-      {showNotesModal && selectedSuggestion && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => setShowNotesModal(false)}>
-          <div style={{ background: "#FBF6EA", borderRadius: 12, padding: 32, maxWidth: 560, width: "100%", maxHeight: "90vh", overflowY: "auto", border: "1px solid rgba(199,154,62,0.3)" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h2 style={{ fontSize: 24, color: "#0B2422", margin: 0, fontFamily: "'Fraunces', serif", fontStyle: "italic" }}>
-                {actionType === 'approve' ? '✅ Approve' :
-                 actionType === 'implement' ? '✨ Implement' :
-                 actionType === 'in_progress' ? '🔄 Mark In Progress' :
-                 actionType === 'remove' ? '❌ Remove' :
-                 '❌ Reject'}
-              </h2>
-              <button onClick={() => setShowNotesModal(false)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#5C6E69" }}>×</button>
-            </div>
-            <p style={{ fontSize: 14, color: "#5C6E69", marginBottom: 4 }}><strong>Place:</strong> {selectedSuggestion.name || 'Unnamed'}</p>
-            <p style={{ fontSize: 14, color: "#5C6E69", marginBottom: 16 }}><strong>Location:</strong> {selectedSuggestion.location_info || 'No location'}</p>
-            <p style={{ fontSize: 13, color: "#5C6E69", marginBottom: 16 }}>
-              <strong>Type:</strong> {selectedSuggestion.type === 'hidden_gem' ? '💎 Hidden Gem' : '✨ Insight'}
-            </p>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Admin Notes</label>
-              <textarea rows="3" placeholder="Add notes about this decision..." style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff", resize: "vertical", fontFamily: "'Inter', sans-serif" }} value={notes} onChange={(e) => setNotes(e.target.value)} />
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={handleProcessSuggestion} disabled={processing} style={{ flex: 1, padding: "10px 20px", borderRadius: 999, border: "none", background: processing ? "#9CA3AF" : "#0E5C53", color: "#fff", fontSize: 12, letterSpacing: "0.15em", textTransform: "uppercase", cursor: processing ? "not-allowed" : "pointer", opacity: processing ? 0.6 : 1 }}>
-                {processing ? 'Processing...' : 'Confirm'}
-              </button>
-              <button onClick={() => setShowNotesModal(false)} style={{ flex: 1, padding: "10px 20px", borderRadius: 999, border: "1px solid #D1D5DB", background: "transparent", color: "#5C6E69", fontSize: 12, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}>
-                Cancel
+      {/* ADD SLOT MODAL */}
+      {showAddSlot && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(7,46,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: C.paper, borderRadius: 12, padding: 24, width: 360, maxWidth: '90vw' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 18, color: C.inkSoft, margin: 0 }}>Add availability</h3>
+              <button onClick={() => setShowAddSlot(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: C.sage }}>
+                <X size={18} />
               </button>
             </div>
+            <form onSubmit={handleAddSlot}>
+              <FormField label="Date">
+                <input 
+                  type="date" 
+                  required 
+                  value={newSlot.date} 
+                  onChange={(e) => setNewSlot({ ...newSlot, date: e.target.value })} 
+                  style={inputStyle} 
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </FormField>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <FormField label="Start time" style={{ flex: 1 }}>
+                  <input type="time" required value={newSlot.startTime} onChange={(e) => setNewSlot({ ...newSlot, startTime: e.target.value })} style={inputStyle} />
+                </FormField>
+                <FormField label="End time" style={{ flex: 1 }}>
+                  <input type="time" required value={newSlot.endTime} onChange={(e) => setNewSlot({ ...newSlot, endTime: e.target.value })} style={inputStyle} />
+                </FormField>
+              </div>
+              <FormField label="Max bookings">
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={newSlot.maxBookings}
+                  onChange={(e) => setNewSlot({ ...newSlot, maxBookings: parseInt(e.target.value, 10) || 1 })}
+                  style={inputStyle}
+                />
+              </FormField>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+                <button type="button" onClick={() => setShowAddSlot(false)} style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, cursor: 'pointer', fontSize: 13 }}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={slotSaving} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: C.ink, color: C.goldLight, cursor: 'pointer', fontSize: 13 }}>
+                  {slotSaving ? 'Adding…' : 'Add slot'}
+                </button>
+              </div>
+            </form>
           </div>
+        </div>
+      )}
+
+      {/* TOAST */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: C.ink,
+            color: C.goldLight,
+            padding: '10px 18px',
+            borderRadius: 8,
+            fontSize: 13,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+            zIndex: 60,
+          }}
+        >
+          {toast.message}
         </div>
       )}
     </div>

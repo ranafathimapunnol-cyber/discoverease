@@ -1,4 +1,4 @@
-// pages/Profile.jsx - FIXED VERSION
+// pages/Profile.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,7 +30,7 @@ const Profile = () => {
   const [profilePicture, setProfilePicture] = useState(null);
   const fileInputRef = useRef(null);
 
-  // ✅ Update edit data when user changes
+  // Update edit data when user changes
   useEffect(() => {
     if (user) {
       setEditData({
@@ -42,21 +42,16 @@ const Profile = () => {
         bio: user.bio || ''
       });
       
-      // ✅ Load profile picture from localStorage or user object
       loadProfilePicture();
     }
   }, [user]);
 
-  // ✅ Load profile picture
   const loadProfilePicture = () => {
-    // Try to get from localStorage first
     const savedPicture = localStorage.getItem('profile_picture');
     if (savedPicture) {
       setProfilePicture(savedPicture);
       return;
     }
-    
-    // Then try from user object
     if (user?.profile_picture_upload) {
       setProfilePicture(user.profile_picture_upload);
     } else if (user?.profile_picture) {
@@ -66,7 +61,7 @@ const Profile = () => {
     }
   };
 
-  // ✅ Fetch trip stats
+  // ✅ FIXED: Fetch trip stats with correct endpoint
   useEffect(() => {
     if (isLoggedIn) {
       fetchTripStats();
@@ -79,16 +74,17 @@ const Profile = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ✅ Redirect if not logged in
+  // Redirect if not logged in
   useEffect(() => {
     if (!isLoading && !isLoggedIn) {
       navigate('/login', { replace: true });
     }
   }, [isLoading, isLoggedIn, navigate]);
 
+  // ✅ FIXED: Use hyphen in URL path
   const fetchTripStats = async () => {
     try {
-      const response = await api.get('/auth/trip_stats/');
+      const response = await api.get('/auth/trip-stats/');
       if (response.data.success) {
         setTripStats({
           total_trips: response.data.total_trips || 0,
@@ -107,7 +103,6 @@ const Profile = () => {
     }
   };
 
-  // ✅ Handle protected link clicks
   const handleProtectedClick = (path) => {
     if (!isLoggedIn) {
       alert('⚠️ Login required to access this page. Please login first.');
@@ -123,11 +118,10 @@ const Profile = () => {
 
   const handleSaveProfile = async () => {
     try {
-      const response = await api.patch('/auth/update_profile/', editData);
+      const response = await api.patch('/auth/update-profile/', editData);
       if (response.data.success) {
         alert('✅ Profile updated successfully!');
         setIsEditing(false);
-        // Refresh user data
         window.location.reload();
       } else {
         alert('❌ ' + (response.data.error || 'Failed to update profile'));
@@ -152,18 +146,15 @@ const Profile = () => {
     }
   };
 
-  // ✅ Handle profile picture upload
   const handleProfilePictureUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       alert('❌ File size must be less than 5MB');
       return;
     }
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       alert('❌ Please upload an image file');
       return;
@@ -172,28 +163,24 @@ const Profile = () => {
     setUploading(true);
     
     try {
-      // ✅ Convert to base64 and save to localStorage
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result;
-        // Save to localStorage
         localStorage.setItem('profile_picture', base64String);
         setProfilePicture(base64String);
         setUploading(false);
         alert('✅ Profile picture updated successfully!');
         
-        // Update user object in localStorage
         const userData = JSON.parse(localStorage.getItem('user') || '{}');
         userData.profile_picture_upload = base64String;
         localStorage.setItem('user', JSON.stringify(userData));
       };
       reader.readAsDataURL(file);
       
-      // Also try API upload if available
       try {
         const formData = new FormData();
         formData.append('profile_picture', file);
-        await api.post('/auth/upload_profile_picture/', formData, {
+        await api.post('/auth/upload-profile-picture/', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
       } catch (apiError) {
@@ -207,26 +194,22 @@ const Profile = () => {
     }
   };
 
-  // ✅ Handle delete profile picture
   const handleDeleteProfilePicture = async () => {
     if (!window.confirm('Are you sure you want to delete your profile picture?')) {
       return;
     }
 
     try {
-      // Remove from localStorage
       localStorage.removeItem('profile_picture');
       setProfilePicture(null);
       
-      // Update user object in localStorage
       const userData = JSON.parse(localStorage.getItem('user') || '{}');
       delete userData.profile_picture_upload;
       delete userData.profile_picture;
       localStorage.setItem('user', JSON.stringify(userData));
       
-      // Try API delete if available
       try {
-        await api.post('/auth/delete_profile_picture/');
+        await api.post('/auth/delete-profile-picture/');
       } catch (apiError) {
         console.warn('API delete failed, using localStorage only:', apiError);
       }
@@ -238,7 +221,6 @@ const Profile = () => {
     }
   };
 
-  // ✅ Handle delete account
   const handleDeleteAccount = async () => {
     if (!deletePassword) {
       alert('Please enter your password to confirm deletion.');
@@ -251,7 +233,7 @@ const Profile = () => {
 
     setDeleteLoading(true);
     try {
-      const response = await api.post('/auth/delete_account/', {
+      const response = await api.post('/auth/delete-account/', {
         password: deletePassword
       });
       
@@ -279,7 +261,7 @@ const Profile = () => {
     }
   };
 
-  // ✅ Show loading state
+  // Show loading state
   if (isLoading) {
     return (
       <div style={{ 
@@ -306,7 +288,6 @@ const Profile = () => {
     );
   }
 
-  // ✅ If not logged in, don't render
   if (!isLoggedIn || !user) {
     return null;
   }
@@ -419,11 +400,10 @@ const Profile = () => {
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 20px 0" }}>
         {/* Passport card */}
         <div style={{ position: "relative", background: "#fff", borderRadius: 4, border: "1px solid rgba(199,154,62,0.35)", padding: "36px 28px", overflow: "hidden" }}>
-          {/* perforation edge */}
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, backgroundImage: "linear-gradient(to right, rgba(199,154,62,0.5) 50%, transparent 50%)", backgroundSize: "10px 1px" }} />
 
           <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
-            {/* ✅ Profile Picture with upload option - FIXED */}
+            {/* Profile Picture */}
             <div className="pf-profile-pic" style={{ position: "relative", width: 96, height: 96, flexShrink: 0 }}>
               <div 
                 style={{ 
@@ -466,7 +446,6 @@ const Profile = () => {
                 )}
               </div>
               
-              {/* Overlay for upload */}
               <div className="pf-overlay" style={{
                 position: "absolute",
                 inset: 0,
@@ -511,7 +490,6 @@ const Profile = () => {
                 </div>
               )}
               
-              {/* Delete profile picture button */}
               {(profilePicture || user?.profile_picture_upload || user?.profile_picture) && (
                 <button
                   onClick={(e) => {
@@ -540,7 +518,6 @@ const Profile = () => {
                 </button>
               )}
               
-              {/* verified stamp */}
               <svg className="pf-stamp" width="34" height="34" viewBox="0 0 100 100" style={{ position: "absolute", bottom: -8, right: -8 }}>
                 <circle cx="50" cy="50" r="46" fill="#FBF6EA" stroke="#C79A3E" strokeWidth="2" />
                 <path id="pf-circle-path" d="M50,10 a40,40 0 1,1 -0.1,0" fill="none" />
@@ -560,7 +537,6 @@ const Profile = () => {
               </span>
             </div>
 
-            {/* Edit/Save buttons */}
             {!isEditing ? (
               <button
                 onClick={() => setIsEditing(true)}
@@ -632,7 +608,7 @@ const Profile = () => {
             )}
           </div>
 
-          {/* ✅ Trip Stats */}
+          {/* Trip Stats */}
           <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
             <div style={{ background: "#F4FAF8", borderRadius: 4, padding: "12px 16px", textAlign: "center", border: "1px solid rgba(14,92,83,0.1)" }}>
               <p style={{ fontSize: 24, fontWeight: 700, color: "#0E5C53", margin: 0 }}>{tripStats.total_trips}</p>
@@ -790,9 +766,8 @@ const Profile = () => {
             </div>
           )}
 
-          {/* ✅ Action Buttons */}
+          {/* Action Buttons */}
           <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-            {/* Logout button */}
             <button
               onClick={handleLogout}
               className="pf-font-mono"
@@ -820,7 +795,6 @@ const Profile = () => {
               🚪 Logout
             </button>
 
-            {/* Delete Account button */}
             <button
               onClick={() => setShowDeleteModal(true)}
               className="pf-font-mono pf-delete-btn"
@@ -843,7 +817,7 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* ✅ Delete Account Modal */}
+      {/* Delete Account Modal */}
       {showDeleteModal && (
         <div style={{
           position: "fixed",

@@ -1,44 +1,14 @@
-// components/ProtectedRoute.jsx
-import React, { useEffect, useState, useRef } from 'react';
+// components/ProtectedRoute.jsx - COMPLETE FIXED VERSION
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
+  const { isLoggedIn, role, loading } = useAuth();
   const location = useLocation();
-  const { isLoggedIn, role, isLoading } = useAuth();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState(null);
-  const [checking, setChecking] = useState(true);
-  const hasRedirected = useRef(false);
 
-  useEffect(() => {
-    // ✅ Prevent multiple redirects
-    if (hasRedirected.current) return;
-    
-    if (!isLoading) {
-      const loggedIn = isLoggedIn || !!localStorage.getItem('auth_token');
-      const userRoleFromStorage = role || localStorage.getItem('role') || 'tourister';
-      
-      console.log('ProtectedRoute - Check:', { 
-        isLoggedIn: loggedIn, 
-        role: userRoleFromStorage,
-        allowedRoles,
-        isLoading 
-      });
-      
-      setIsAuthenticated(loggedIn);
-      setUserRole(userRoleFromStorage);
-      setChecking(false);
-      
-      // ✅ If not authenticated and not loading, mark as redirected
-      if (!loggedIn) {
-        hasRedirected.current = true;
-      }
-    }
-  }, [isLoading, isLoggedIn, role, allowedRoles]);
-
-  // ✅ Show loading
-  if (isLoading || checking) {
+  // Show loading while checking auth
+  if (loading) {
     return (
       <div style={{ 
         minHeight: "100vh", 
@@ -64,19 +34,20 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     );
   }
 
-  if (!isAuthenticated) {
-    console.log('Not authenticated, redirecting to login');
+  // Not logged in - redirect to login
+  if (!isLoggedIn) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // ✅ Check role
-  if (allowedRoles.length > 0 && !allowedRoles.includes(userRole)) {
-    console.log('Role not allowed:', userRole, 'Allowed:', allowedRoles);
-    const dashboard = userRole === 'admin' ? '/admin-dashboard' :
-                     userRole === 'guide' ? '/guide-dashboard' :
-                     userRole === 'staff' ? '/staff-dashboard' :
-                     '/';
-    return <Navigate to={dashboard} replace />;
+  // Check if user has allowed role
+  if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    const dashboards = {
+      'admin': '/admin-dashboard',
+      'staff': '/staff-dashboard',
+      'guide': '/guide-dashboard',
+      'tourister': '/',
+    };
+    return <Navigate to={dashboards[role] || '/'} replace />;
   }
 
   return children;

@@ -1,4 +1,5 @@
 # guides/views.py - COMPLETE FIXED VERSION
+
 from django.db.models import Q, Avg
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
@@ -8,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticate
 from django_filters.rest_framework import DjangoFilterBackend
 from datetime import datetime, timedelta
 from decimal import Decimal
+import logging
 from .models import (
     District, GuideCategory, Guide, GuideAvailability, 
     GuideBooking, GuideReview
@@ -19,6 +21,8 @@ from .serializers import (
     BookingDetailSerializer, BookingUpdateSerializer,
     GuideReviewSerializer, GuideReviewCreateSerializer
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DistrictViewSet(viewsets.ReadOnlyModelViewSet):
@@ -69,7 +73,6 @@ class GuideViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # Filter by availability for specific date
         date = self.request.query_params.get('date')
         if date:
             available_guides = GuideAvailability.objects.filter(
@@ -78,17 +81,14 @@ class GuideViewSet(viewsets.ModelViewSet):
             ).values_list('guide_id', flat=True)
             queryset = queryset.filter(id__in=available_guides)
         
-        # Filter by district
         district_id = self.request.query_params.get('district')
         if district_id:
             queryset = queryset.filter(districts__id=district_id)
         
-        # Filter by category
         category_id = self.request.query_params.get('category')
         if category_id:
             queryset = queryset.filter(categories__id=category_id)
         
-        # Filter by price range
         min_price = self.request.query_params.get('min_price')
         max_price = self.request.query_params.get('max_price')
         if min_price:
@@ -96,7 +96,6 @@ class GuideViewSet(viewsets.ModelViewSet):
         if max_price:
             queryset = queryset.filter(price_per_day__lte=max_price)
         
-        # Filter by language
         language = self.request.query_params.get('language')
         if language:
             queryset = queryset.filter(languages__icontains=language)
@@ -147,7 +146,6 @@ class GuideViewSet(viewsets.ModelViewSet):
             ).values_list('guide_id', flat=True)
             queryset = queryset.filter(id__in=available_guides)
         
-        # Pagination
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -156,16 +154,8 @@ class GuideViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['get'])
-    def reviews(self, request, pk=None):
-        """Get all reviews for a specific guide"""
-        guide = self.get_object()
-        reviews = guide.reviews.all()
-        serializer = GuideReviewSerializer(reviews, many=True)
-        return Response(serializer.data)
-
     # ============================================
-    # ✅ GUIDE DASHBOARD ENDPOINTS - FIXED
+    # ✅ GUIDE DASHBOARD ENDPOINTS
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='profile', permission_classes=[IsAuthenticated])
@@ -188,6 +178,9 @@ class GuideViewSet(viewsets.ModelViewSet):
                     'is_verified': guide.is_verified,
                     'primary_district': guide.districts.first().name if guide.districts.exists() else None,
                     'profile_image': guide.profile_image.url if guide.profile_image else None,
+                    'price_per_day': float(guide.price_per_day),
+                    'price_per_hour': float(guide.price_per_hour),
+                    'specialties': [c.name for c in guide.categories.all()],
                 }
             })
         except Guide.DoesNotExist:
@@ -210,7 +203,7 @@ class GuideViewSet(viewsets.ModelViewSet):
                 'confirmedBookings': bookings.filter(status='confirmed').count(),
                 'completedBookings': bookings.filter(status='completed').count(),
                 'totalReviews': reviews.count(),
-                'pendingReviews': 0,
+                'pendingReviews': reviews.filter(is_approved=False).count(),
                 'rating': float(guide.rating),
             }
             return Response({'success': True, 'stats': stats})
@@ -240,6 +233,7 @@ class GuideViewSet(viewsets.ModelViewSet):
                         'email': booking.user.email if booking.user else '',
                     },
                     'traveler_email': booking.user.email if booking.user else '',
+                    'guide_name': booking.guide.full_name if booking.guide else 'Unknown',
                     'district': {
                         'name': booking.district.name if booking.district else 'N/A'
                     },
@@ -256,7 +250,7 @@ class GuideViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='availability', permission_classes=[IsAuthenticated])
     def guide_availability(self, request):
-        """Get guide's availability slots"""
+        """Get guide's availability slots - ONLY for this guide"""
         try:
             guide = Guide.objects.get(user=request.user)
             availability = GuideAvailability.objects.filter(guide=guide).order_by('date', 'start_time')
@@ -280,17 +274,37 @@ class GuideViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='availability/add', permission_classes=[IsAuthenticated])
     def guide_add_availability(self, request):
-        """Add availability slot"""
+        """Add availability slot - ONLY for this guide"""
         try:
             guide = Guide.objects.get(user=request.user)
             
             data = request.data
+            date = datetime.strptime(data.get('date'), '%Y-%m-%d').date()
+            start_time = datetime.strptime(data.get('start_time'), '%H:%M').time()
+            end_time = datetime.strptime(data.get('end_time'), '%H:%M').time()
+            
+            # Check if slot already exists for THIS guide
+            existing = GuideAvailability.objects.filter(
+                guide=guide,
+                date=date,
+                start_time=start_time
+            ).first()
+            
+            if existing:
+                return Response({
+                    'success': False,
+                    'error': 'Slot already exists for this date and time'
+                }, status=400)
+            
+            # Create slot for THIS guide only
             slot = GuideAvailability.objects.create(
                 guide=guide,
-                date=datetime.strptime(data.get('date'), '%Y-%m-%d').date(),
-                start_time=datetime.strptime(data.get('start_time'), '%H:%M').time(),
-                end_time=datetime.strptime(data.get('end_time'), '%H:%M').time(),
+                date=date,
+                start_time=start_time,
+                end_time=end_time,
                 max_bookings=int(data.get('max_bookings', 1)),
+                current_bookings=0,
+                is_booked=False
             )
             
             return Response({
@@ -310,28 +324,56 @@ class GuideViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'success': False, 'error': str(e)}, status=400)
 
+    # ✅ FIXED: Delete availability - only if not booked
     @action(detail=True, methods=['delete'], url_path='availability', permission_classes=[IsAuthenticated])
     def guide_delete_availability(self, request, pk=None):
-        """Delete availability slot"""
+        """Delete availability slot - ONLY if not booked"""
         try:
             guide = Guide.objects.get(user=request.user)
             slot = GuideAvailability.objects.get(id=pk, guide=guide)
+            
+            # Check if slot has any bookings
+            if slot.current_bookings > 0:
+                return Response({
+                    'success': False,
+                    'error': f'Cannot delete this slot. It has {slot.current_bookings} booking(s).'
+                }, status=400)
+            
+            # Check if slot is booked
+            if slot.is_booked:
+                return Response({
+                    'success': False,
+                    'error': 'Cannot delete a booked slot'
+                }, status=400)
+            
             slot.delete()
-            return Response({'success': True, 'message': 'Slot deleted successfully'})
+            return Response({
+                'success': True, 
+                'message': 'Slot deleted successfully'
+            })
+            
         except Guide.DoesNotExist:
             return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
         except GuideAvailability.DoesNotExist:
             return Response({'success': False, 'error': 'Slot not found'}, status=404)
         except Exception as e:
+            logger.error(f"Error deleting availability: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     @action(detail=False, methods=['get'], url_path='reviews', permission_classes=[IsAuthenticated])
     def guide_reviews(self, request):
-        """Get reviews for guide"""
+        """Get reviews for the currently logged-in guide"""
         try:
-            guide = Guide.objects.get(user=request.user)
+            try:
+                guide = Guide.objects.get(user=request.user)
+            except Guide.DoesNotExist:
+                return Response({
+                    'success': True,
+                    'reviews': [],
+                    'message': 'User is not a guide'
+                })
             
-            reviews = GuideReview.objects.filter(guide=guide)
+            reviews = GuideReview.objects.filter(guide=guide).order_by('-created_at')
             data = []
             for review in reviews:
                 data.append({
@@ -343,59 +385,16 @@ class GuideViewSet(viewsets.ModelViewSet):
                     'rating': review.rating,
                     'comment': review.comment,
                     'review_text': review.comment,
-                    'is_approved': True,
+                    'is_approved': review.is_approved,
                     'created_at': review.created_at.isoformat(),
                 })
             return Response({'success': True, 'reviews': data})
-        except Guide.DoesNotExist:
-            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    @action(detail=True, methods=['post'], url_path='bookings/process', permission_classes=[IsAuthenticated])
-    def guide_process_booking(self, request, pk=None):
-        """Process booking (confirm/reject)"""
-        try:
-            booking = GuideBooking.objects.get(id=pk)
-            
-            if booking.guide.user != request.user:
-                return Response({'error': 'Unauthorized'}, status=403)
-            
-            action = request.data.get('action')
-            if action == 'confirm':
-                booking.status = 'confirmed'
-                booking.save()
-                return Response({'success': True, 'message': 'Booking confirmed'})
-            elif action == 'reject':
-                booking.status = 'rejected'
-                booking.save()
-                return Response({'success': True, 'message': 'Booking rejected'})
-            
-            return Response({'error': 'Invalid action'}, status=400)
-        except GuideBooking.DoesNotExist:
-            return Response({'error': 'Booking not found'}, status=404)
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    @action(detail=True, methods=['post'], url_path='bookings/complete', permission_classes=[IsAuthenticated])
-    def guide_complete_booking(self, request, pk=None):
-        """Complete a booking"""
-        try:
-            booking = GuideBooking.objects.get(id=pk)
-            
-            if booking.guide.user != request.user:
-                return Response({'error': 'Unauthorized'}, status=403)
-            
-            if booking.status != 'confirmed':
-                return Response({'error': 'Booking must be confirmed first'}, status=400)
-            
-            booking.status = 'completed'
-            booking.save()
-            return Response({'success': True, 'message': 'Booking completed'})
-        except GuideBooking.DoesNotExist:
-            return Response({'error': 'Booking not found'}, status=404)
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
+            return Response({
+                'success': True,
+                'reviews': [],
+                'error': str(e)
+            })
 
 
 class BookingViewSet(viewsets.ModelViewSet):
@@ -429,7 +428,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         # Calculate total price
         price_per_hour = booking.guide.price_per_hour or Decimal('0.00')
         if price_per_hour == Decimal('0.00'):
-            # Fallback to daily price calculation
             price_per_day = booking.guide.price_per_day or Decimal('0.00')
             price_per_hour = price_per_day / Decimal('8.0')
         
@@ -450,6 +448,162 @@ class BookingViewSet(viewsets.ModelViewSet):
             availability.save()
             booking.availability = availability
             booking.save()
+
+    # ✅ FIXED: Process booking (confirm/reject/complete)
+    @action(detail=True, methods=['post'], url_path='process')
+    def process_booking(self, request, pk=None):
+        """Process booking (confirm/reject/complete)"""
+        try:
+            booking = self.get_object()
+            
+            # Check if this booking belongs to the logged-in guide
+            if booking.guide.user != request.user and not request.user.is_staff:
+                return Response({
+                    'success': False,
+                    'error': 'Unauthorized - This booking does not belong to you'
+                }, status=403)
+            
+            action = request.data.get('action')
+            
+            # ✅ Validate action
+            if not action:
+                return Response({
+                    'success': False,
+                    'error': 'Action is required. Use confirm, reject, or complete'
+                }, status=400)
+            
+            # ✅ Process based on action
+            if action == 'confirm':
+                if booking.status != 'pending':
+                    return Response({
+                        'success': False,
+                        'error': f'Cannot confirm booking with status: {booking.status}'
+                    }, status=400)
+                booking.status = 'confirmed'
+                booking.save()
+                return Response({
+                    'success': True, 
+                    'message': 'Booking confirmed successfully',
+                    'status': booking.status
+                })
+                
+            elif action == 'reject':
+                if booking.status != 'pending':
+                    return Response({
+                        'success': False,
+                        'error': f'Cannot reject booking with status: {booking.status}'
+                    }, status=400)
+                booking.status = 'rejected'
+                booking.save()
+                return Response({
+                    'success': True, 
+                    'message': 'Booking rejected successfully',
+                    'status': booking.status
+                })
+                
+            elif action == 'complete':
+                if booking.status != 'confirmed':
+                    return Response({
+                        'success': False,
+                        'error': f'Cannot complete booking with status: {booking.status}'
+                    }, status=400)
+                booking.status = 'completed'
+                booking.save()
+                return Response({
+                    'success': True, 
+                    'message': 'Booking completed successfully',
+                    'status': booking.status
+                })
+            
+            # Invalid action
+            return Response({
+                'success': False,
+                'error': f'Invalid action: {action}. Use confirm, reject, or complete'
+            }, status=400)
+            
+        except Exception as e:
+            logger.error(f"Error processing booking: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=400)
+
+    # ✅ FIXED: Complete booking
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete_booking(self, request, pk=None):
+        """Complete a booking"""
+        try:
+            booking = self.get_object()
+            
+            if booking.guide.user != request.user and not request.user.is_staff:
+                return Response({
+                    'success': False,
+                    'error': 'Unauthorized'
+                }, status=403)
+            
+            if booking.status != 'confirmed':
+                return Response({
+                    'success': False,
+                    'error': f'Cannot complete booking with status: {booking.status}'
+                }, status=400)
+            
+            booking.status = 'completed'
+            booking.save()
+            return Response({
+                'success': True, 
+                'message': 'Booking completed successfully',
+                'status': booking.status
+            })
+            
+        except Exception as e:
+            logger.error(f"Error completing booking: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=400)
+
+    # ✅ FIXED: Cancel booking
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel_booking(self, request, pk=None):
+        """Cancel a booking"""
+        try:
+            booking = self.get_object()
+            
+            if booking.user != request.user and booking.guide.user != request.user and not request.user.is_staff:
+                return Response({
+                    'success': False,
+                    'error': 'Unauthorized'
+                }, status=403)
+            
+            if booking.status == 'completed':
+                return Response({
+                    'success': False,
+                    'error': 'Cannot cancel completed booking'
+                }, status=400)
+            
+            booking.status = 'cancelled'
+            booking.save()
+            
+            # Free up availability
+            availability = booking.availability
+            if availability:
+                availability.current_bookings -= 1
+                if availability.is_booked and availability.current_bookings < availability.max_bookings:
+                    availability.is_booked = False
+                availability.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Booking cancelled successfully',
+                'status': booking.status
+            })
+            
+        except Exception as e:
+            logger.error(f"Error cancelling booking: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=400)
 
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):
@@ -588,7 +742,6 @@ class BookingViewSet(viewsets.ModelViewSet):
                 booking=booking
             )
             
-            # Update guide rating
             guide = booking.guide
             avg_rating = guide.reviews.aggregate(Avg('rating'))['rating__avg']
             guide.rating = avg_rating or 0

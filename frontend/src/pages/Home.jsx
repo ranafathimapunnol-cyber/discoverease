@@ -1,9 +1,7 @@
-// pages/Home.jsx
+// pages/Home.jsx - FIXED (removed price references)
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-// ✅ Remove api import - not needed
-// import api from '../services/api';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -29,11 +27,9 @@ export default function Home() {
     setSuggestionData({ ...suggestionData, [e.target.name]: e.target.value });
   };
 
-  // ✅ FIXED: Direct localStorage save - no API call
   const handleSuggestionSubmit = async (e) => {
     e.preventDefault();
     
-    // Check if user is logged in
     if (!isLoggedIn) {
       alert('⚠️ Please login to suggest a hidden gem.');
       navigate('/login');
@@ -41,7 +37,6 @@ export default function Home() {
     }
     
     try {
-      // ✅ Save directly to localStorage
       const existingSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
       const newSuggestion = {
         id: Date.now(),
@@ -73,7 +68,6 @@ export default function Home() {
     }
   };
 
-  // ✅ Handle protected link clicks
   const handleProtectedClick = (path) => {
     if (!isLoggedIn) {
       alert('⚠️ Login required to access this page. Please login first.');
@@ -83,13 +77,12 @@ export default function Home() {
     navigate(path);
   };
 
-  // ✅ Handle logout
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  // ✅ Category icon set — line icons, no emoji
+  // ✅ Category icon set
   function CategoryIcon({ type }) {
     const common = { width: 34, height: 34, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", className: "text-[#0E5C53] group-hover:text-[#E4C77B] transition-colors" };
     const icons = {
@@ -105,7 +98,7 @@ export default function Home() {
     return icons[type] || <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
   }
 
-  // ✅ Feature icon set for "Why Choose DiscoverEase?" — line icons, no emoji
+  // ✅ Feature icon set
   function FeatureIcon({ type }) {
     const common = { width: 28, height: 28, viewBox: "0 0 24 24", fill: "none", stroke: "#C79A3E", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
     const icons = {
@@ -119,7 +112,7 @@ export default function Home() {
     return icons[type] || <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
   }
 
-  // ✅ explorePlaces
+  // ✅ explorePlaces - FIXED (removed price)
   const explorePlaces = [
     {
       id: 1,
@@ -129,7 +122,6 @@ export default function Home() {
       description: "Rolling hills covered in emerald tea plantations with misty mornings",
       rating: 4.9,
       reviews: 234,
-     
     },
     {
       id: 2,
@@ -139,7 +131,6 @@ export default function Home() {
       description: "Serene houseboat rides through palm-fringed canals and villages",
       rating: 4.8,
       reviews: 189,
-
     },
     {
       id: 3,
@@ -149,88 +140,29 @@ export default function Home() {
       description: "Majestic waterfall often called the Niagara of India",
       rating: 4.7,
       reviews: 156,
-
     }
   ];
 
-  // ✅ Categories — line icons now drawn by CategoryIcon, keyed off `key`
+  // ✅ Categories
   const topCategories = [
-    { 
-      key: "beaches", 
-      label: "Beaches", 
-      image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80",
-      count: "55+",
-    },
-    { 
-      key: "backwaters", 
-      label: "Backwaters", 
-      image: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=400&q=80",
-      count: "30+",
-    },
-    { 
-      key: "waterfall", 
-      label: "Waterfalls", 
-      image: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=400&q=80",
-      count: "50+",
-    },
-    { 
-      key: "hillstations", 
-      label: "Hill Stations", 
-      image: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=400&q=80",
-      count: "35+",
-    },
-    { 
-      key: "wildlife", 
-      label: "Wildlife", 
-      image: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=400&q=80",
-      count: "28+",
-    },
-    { 
-      key: "heritage", 
-      label: "Heritage & Forts", 
-      image: "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=400&q=80",
-      count: "30+",
-    },
-    { 
-      key: "junglesafari", 
-      label: "Jungle Safaris", 
-      image: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=400&q=80",
-      count: "18+",
-    },
-    { 
-      key: "houseboats", 
-      label: "Houseboats", 
-      image: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?w=400&q=80",
-      count: "20+",
-    }
+    { key: "beaches", label: "Beaches", image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80", count: "55+" },
+    { key: "backwaters", label: "Backwaters", image: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=400&q=80", count: "30+" },
+    { key: "waterfall", label: "Waterfalls", image: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=400&q=80", count: "50+" },
+    { key: "hillstations", label: "Hill Stations", image: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=400&q=80", count: "35+" },
+    { key: "wildlife", label: "Wildlife", image: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=400&q=80", count: "28+" },
+    { key: "heritage", label: "Heritage & Forts", image: "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=400&q=80", count: "30+" },
+    { key: "junglesafari", label: "Jungle Safaris", image: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=400&q=80", count: "18+" },
+    { key: "houseboats", label: "Houseboats", image: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?w=400&q=80", count: "20+" }
   ];
 
-  // ✅ Features for "Why Choose DiscoverEase?" — line icons now drawn by FeatureIcon, keyed off `title`
+  // ✅ Features
   const whyChooseUs = [
-    {
-      title: "Hidden Destinations",
-      description: "Discover off-the-beaten-path locations that most tourists never see"
-    },
-    {
-      title: "Local Guides",
-      description: "Connect with knowledgeable locals who share authentic experiences"
-    },
-    {
-      title: "AI Trip Planner",
-      description: "Personalize itineraries based on your interests, budget & time"
-    },
-    {
-      title: "Local Insights",
-      description: "Get insider tips and recommendations from fellow travelers"
-    },
-    {
-      title: "Verified Reviews",
-      description: "Real traveler reviews to help you make informed decisions"
-    },
-    {
-      title: "Sustainable Travel",
-      description: "Eco-friendly travel options that respect nature and local communities"
-    }
+    { title: "Hidden Destinations", description: "Discover off-the-beaten-path locations that most tourists never see" },
+    { title: "Local Guides", description: "Connect with knowledgeable locals who share authentic experiences" },
+    { title: "AI Trip Planner", description: "Personalize itineraries based on your interests, budget & time" },
+    { title: "Local Insights", description: "Get insider tips and recommendations from fellow travelers" },
+    { title: "Verified Reviews", description: "Real traveler reviews to help you make informed decisions" },
+    { title: "Sustainable Travel", description: "Eco-friendly travel options that respect nature and local communities" }
   ];
 
   const travelerTips = [
@@ -240,7 +172,6 @@ export default function Home() {
     { icon: "🤝", tip: "Respect nature and leave no trace." },
   ];
 
-  // Gold "zari" hairline rule
   const ZariRule = ({ className = "" }) => (
     <div className={`flex items-center gap-1.5 ${className}`} aria-hidden="true">
       <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#C79A3E] to-[#C79A3E]" />
@@ -249,7 +180,6 @@ export default function Home() {
     </div>
   );
 
-  // Backwater ripple divider
   const RippleDivider = ({ flip = false, fill = "#FBF6EA" }) => (
     <div className={`w-full overflow-hidden leading-none ${flip ? 'rotate-180' : ''}`} aria-hidden="true">
       <svg viewBox="0 0 1200 60" preserveAspectRatio="none" className="w-full h-[46px] md:h-[60px]">
@@ -259,7 +189,7 @@ export default function Home() {
     </div>
   );
 
-  // ✅ BottomNav
+  // ✅ BottomNav - All protected links use handleProtectedClick
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -443,7 +373,6 @@ export default function Home() {
                   <p className="text-[#EDE2C4]/90 text-sm mt-2 max-w-md">{explorePlaces[0].description}</p>
                   <div className="flex items-center justify-between mt-4">
                     <span className="font-mono text-xs text-[#EDE2C4]/70">{explorePlaces[0].reviews} reviews</span>
-                    <span className="font-mono text-sm text-[#E4C77B] border border-dashed border-[#E4C77B]/60 rounded-full px-4 py-1">{explorePlaces[0].price}</span>
                   </div>
                 </div>
               </div>
@@ -462,7 +391,6 @@ export default function Home() {
                   <p className="text-[#5C6E69] text-xs mt-1 line-clamp-2">{place.description}</p>
                   <div className="flex items-center justify-between mt-3">
                     <span className="text-[11px] font-mono text-[#0E5C53] flex items-center gap-1"><span className="text-[#C79A3E]">★</span>{place.rating} · {place.reviews}</span>
-                    <span className="font-mono text-xs text-[#BE5A34]">{place.price}</span>
                   </div>
                 </div>
               </div>

@@ -56,7 +56,7 @@ class GuideListSerializer(serializers.ModelSerializer):
             'years_of_experience', 'languages', 'rating', 'total_reviews', 
             'price_per_day', 'price_per_hour', 'districts', 'categories', 
             'is_available', 'is_verified',
-            'availabilities'  # ✅ ADDED
+            'availabilities'  # ✅ ADDED - This is what Guides.jsx needs
         ]
     
     def get_profile_image_url(self, obj):
@@ -132,18 +132,15 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         date = data['date']
         time = data['time']
         
-        # Check if guide exists and is active
         if not guide.is_active:
             raise serializers.ValidationError("This guide is not active")
         
         if not guide.is_available:
             raise serializers.ValidationError("This guide is currently not available")
         
-        # Check if date is in the future
         if date < datetime.now().date():
             raise serializers.ValidationError("Cannot book for past dates")
         
-        # Check availability slot
         availability = GuideAvailability.objects.filter(
             guide=guide,
             date=date,
@@ -156,11 +153,9 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         if not availability.is_available():
             raise serializers.ValidationError("This time slot is already booked")
         
-        # Check if district matches
         if not guide.districts.filter(id=data['district'].id).exists():
             raise serializers.ValidationError("Guide does not serve this district")
         
-        # Check if category matches
         if data.get('category') and not guide.categories.filter(id=data['category'].id).exists():
             raise serializers.ValidationError("Guide does not offer this category")
         

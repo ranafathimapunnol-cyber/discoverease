@@ -1,4 +1,4 @@
-// pages/Register.jsx
+// src/pages/Register.jsx - FINAL VERSION
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -7,13 +7,11 @@ const Register = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: '',
-    username: '',
     password: '',
     confirm_password: '',
     first_name: '',
     last_name: '',
     phone: '',
-    role: 'tourister'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +20,6 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
-    // Check if already logged in
     const user = sessionStorage.getItem('user');
     if (user && user !== 'null' && user !== 'undefined') {
       navigate('/');
@@ -39,7 +36,6 @@ const Register = () => {
     setSuccess('');
     setLoading(true);
 
-    // ✅ Validation
     if (formData.password !== formData.confirm_password) {
       setError('Passwords do not match');
       setLoading(false);
@@ -53,45 +49,31 @@ const Register = () => {
     }
 
     try {
-      console.log('📤 Sending registration data:', formData);
+      const response = await api.post('/auth/register/', {
+        email: formData.email,
+        password: formData.password,
+        confirm_password: formData.confirm_password,
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        phone: formData.phone,
+        // No username - backend auto-generates
+        // No role - backend defaults to 'tourister'
+      });
       
-      const response = await api.post('/auth/register/', formData);
-      
-      console.log('✅ Registration response:', response.data);
+      console.log('Registration response:', response.data);
 
       if (response.data.success) {
-        const userRole = response.data.role || 'tourister';
-        const userData = response.data.user || { role: userRole };
-        
-        // ✅ Store the role in sessionStorage
-        sessionStorage.setItem('pending_verification_role', userRole);
-        sessionStorage.setItem('pending_verification_email', formData.email);
-        
-        setSuccess(`✅ Registration successful! Please check your email to verify your account.`);
-        
-        // ✅ Show role-specific message
-        if (userRole === 'guide') {
-          setSuccess(`✅ Registration successful! You registered as a Guide. Please verify your email to access the Guide Dashboard.`);
-        } else if (userRole === 'admin') {
-          setSuccess(`✅ Registration successful! You registered as an Admin. Please verify your email to access the Admin Dashboard.`);
-        } else if (userRole === 'staff') {
-          setSuccess(`✅ Registration successful! You registered as Staff. Please verify your email to access the Staff Dashboard.`);
-        } else {
-          setSuccess(`✅ Registration successful! Please check your email to verify your account.`);
-        }
+        setSuccess('✅ Registration successful! Please check your email to verify your account.');
         
         setFormData({
           email: '',
-          username: '',
           password: '',
           confirm_password: '',
           first_name: '',
           last_name: '',
           phone: '',
-          role: 'tourister'
         });
         
-        // ✅ Redirect to login after 3 seconds
         setTimeout(() => {
           navigate('/login');
         }, 3000);
@@ -107,8 +89,7 @@ const Register = () => {
         }
       }
     } catch (err) {
-      console.error('❌ Registration error:', err);
-      console.error('Error response:', err.response?.data);
+      console.error('Registration error:', err);
       
       if (err.response?.data?.errors) {
         const errorMessages = [];
@@ -147,7 +128,6 @@ const Register = () => {
         position: "relative",
         overflow: "hidden"
       }}>
-        {/* Decorative accent */}
         <div style={{
           position: "absolute",
           top: 0,
@@ -157,7 +137,6 @@ const Register = () => {
           background: "linear-gradient(90deg, #C79A3E, #E4C77B, #C79A3E)",
         }} />
 
-        {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <Link to="/" style={{ textDecoration: "none", display: "inline-block" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
@@ -189,7 +168,6 @@ const Register = () => {
           </Link>
         </div>
 
-        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <h1 style={{
             fontSize: 28,
@@ -209,9 +187,15 @@ const Register = () => {
           }}>
             Join DiscoverEase and explore Kerala
           </p>
+          <p style={{
+            color: "#9CA3AF",
+            fontSize: 13,
+            margin: "8px 0 0 0"
+          }}>
+            All users start as Touristers. Staff and Admin accounts are created by administrators.
+          </p>
         </div>
 
-        {/* Success/Error Messages */}
         {success && (
           <div style={{
             padding: "14px 16px",
@@ -248,7 +232,6 @@ const Register = () => {
           </div>
         )}
 
-        {/* Registration Form */}
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: "block", marginBottom: 6, color: "#374151", fontSize: 14, fontWeight: 500 }}>
@@ -262,38 +245,6 @@ const Register = () => {
               placeholder="you@example.com"
               required
               autoComplete="email"
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                borderRadius: 8,
-                border: "1px solid #D1D5DB",
-                fontSize: 14,
-                background: "#FAFAFA",
-                fontFamily: "'Inter', sans-serif",
-                transition: "all 0.3s ease"
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = "#C79A3E";
-                e.target.style.background = "#FFFFFF";
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = "#D1D5DB";
-                e.target.style.background = "#FAFAFA";
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", marginBottom: 6, color: "#374151", fontSize: 14, fontWeight: 500 }}>
-              Username
-            </label>
-            <input
-              type="text"
-              name="username"
-              value={formData.username}
-              onChange={handleChange}
-              placeholder="Choose a username"
-              autoComplete="username"
               style={{
                 width: "100%",
                 padding: "10px 14px",
@@ -410,33 +361,6 @@ const Register = () => {
                 e.target.style.background = "#FAFAFA";
               }}
             />
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", marginBottom: 6, color: "#374151", fontSize: 14, fontWeight: 500 }}>
-              Role
-            </label>
-            <select
-              name="role"
-              value={formData.role}
-              onChange={handleChange}
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                borderRadius: 8,
-                border: "1px solid #D1D5DB",
-                fontSize: 14,
-                background: "#FAFAFA",
-                fontFamily: "'Inter', sans-serif",
-                color: "#0B2422",
-                cursor: "pointer"
-              }}
-            >
-              <option value="tourister">Tourister</option>
-              <option value="guide">Guide</option>
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
           </div>
 
           <div style={{ marginBottom: 16 }}>
@@ -578,7 +502,6 @@ const Register = () => {
           </button>
         </form>
 
-        {/* Footer */}
         <div style={{ textAlign: "center", marginTop: 24 }}>
           <p style={{ color: "#6B7280", fontSize: 14, margin: 0 }}>
             Already have an account?{' '}
@@ -587,12 +510,6 @@ const Register = () => {
             </Link>
           </p>
         </div>
-
-        <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
-// pages/Login.jsx
+// pages/Login.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
+import api from '../services/api'; // ✅ Import default api
+import ReCAPTCHA from 'react-google-recaptcha';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -17,74 +18,101 @@ const Login = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  
+  const [captchaValue, setCaptchaValue] = useState(null);
+  const [captchaError, setCaptchaError] = useState('');
 
-  // Handle query params and location state
   useEffect(() => {
     const errorMsg = searchParams.get('error');
     if (errorMsg) {
       setError(decodeURIComponent(errorMsg).replace(/_/g, ' '));
     }
     
-    // Handle success message from reset password
     if (location.state?.message) {
       setSuccessMessage(location.state.message);
-      // Clear the state after showing
       window.history.replaceState({}, document.title);
     }
   }, [searchParams, location]);
 
-  // Redirect if already logged in
   useEffect(() => {
     if (isLoggedIn) {
       const role = sessionStorage.getItem('role') || 'tourister';
-      if (role === 'guide') {
-        navigate('/guide-dashboard', { replace: true });
-      } else if (role === 'admin') {
-        navigate('/admin-dashboard', { replace: true });
-      } else if (role === 'staff') {
-        navigate('/staff-dashboard', { replace: true });
-      } else {
-        navigate('/', { replace: true });
-      }
+      const roleRoutes = {
+        'guide': '/guide-dashboard',
+        'admin': '/admin-dashboard',
+        'staff': '/staff-dashboard',
+        'tourister': '/'
+      };
+      navigate(roleRoutes[role] || '/', { replace: true });
     }
   }, [isLoggedIn, navigate]);
 
-  // Handle email/password login
+  // ✅ Regular Login Handler - FIXED
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
     setLoading(true);
 
+    if (!captchaValue) {
+      setError('Please complete the CAPTCHA verification');
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await api.post('/auth/login/', { 
-        email, 
-        password,
-        remember_me: rememberMe 
+      console.log('📤 Sending login request for:', email);
+      
+      // ✅ Use api directly (not AuthAPI.login)
+      const response = await api.post('/auth/login/', {
+        email: email.trim(),
+        password: password,
+        remember_me: rememberMe
       });
       
-      console.log('Login response:', response.data);
+      console.log('📥 Login response:', response.data);
 
-      if (response.data.success) {
-        const { user, role, session_key } = response.data;
-        login(user, session_key);
+      if (response.data && response.data.success) {
+        const { user, role: userRole, session_key } = response.data;
         
-        // Redirect based on role
-        if (role === 'guide') {
-          navigate('/guide-dashboard', { replace: true });
-        } else if (role === 'admin') {
-          navigate('/admin-dashboard', { replace: true });
-        } else if (role === 'staff') {
-          navigate('/staff-dashboard', { replace: true });
+        const userToStore = {
+          id: user.id,
+          email: user.email,
+          first_name: user.first_name || '',
+          last_name: user.last_name || '',
+          role: userRole || 'tourister',
+          phone: user.phone || '',
+          profile_picture: user.profile_picture || null,
+          email_verified: user.email_verified || false,
+        };
+        
+        sessionStorage.setItem('user', JSON.stringify(userToStore));
+        sessionStorage.setItem('role', userRole || 'tourister');
+        
+        if (session_key) {
+          sessionStorage.setItem('session_key', session_key);
+        }
+        
+        const result = login(userToStore, session_key);
+        
+        if (result && result.success !== false) {
+          const roleRoutes = {
+            'guide': '/guide-dashboard',
+            'admin': '/admin-dashboard',
+            'staff': '/staff-dashboard',
+            'tourister': '/'
+          };
+          navigate(roleRoutes[userRole] || '/', { replace: true });
         } else {
-          navigate('/', { replace: true });
+          setError(result?.error || 'Login failed');
         }
       } else {
-        setError(response.data.error || 'Login failed');
+        setError(response.data?.error || 'Login failed');
       }
     } catch (err) {
-      console.error('Login error:', err);
-      console.error('Error response:', err.response?.data);
+      console.error('❌ Login error:', err);
+      console.error('❌ Error response:', err.response);
+      console.error('❌ Error data:', err.response?.data);
       
       let errorMsg = 'Login failed. Please try again.';
       if (err.response?.data?.error) {
@@ -92,44 +120,46 @@ const Login = () => {
       } else if (err.response?.data?.message) {
         errorMsg = err.response.data.message;
       }
-      
-      // Handle specific errors
-      if (err.response?.data?.verification_required) {
-        errorMsg = 'Please verify your email first. Check your inbox for the verification link.';
-      }
-      
       setError(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle Google login
+  // ✅ Google Login Handler - FIXED
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     setError('');
     
     try {
-      // Get Google auth URL from backend
-      const response = await api.get('/auth/google_login/');
+      const response = await api.get('/auth/google-login/');
       
       console.log('Google login response:', response.data);
       
-      if (response.data.success && response.data.auth_url) {
-        // Redirect to Google
+      if (response.data && response.data.success && response.data.auth_url) {
         window.location.href = response.data.auth_url;
       } else {
-        setError(response.data.message || 'Failed to get Google login URL');
+        setError('Failed to get Google login URL');
         setIsGoogleLoading(false);
       }
     } catch (error) {
       console.error('Google login error:', error);
-      console.error('Error response:', error.response?.data);
-      
-      const errorMsg = error.response?.data?.error || 'Failed to connect to Google login';
-      setError(errorMsg);
+      setError('Failed to connect to Google login. Please try again.');
       setIsGoogleLoading(false);
     }
+  };
+
+  // ✅ Demo accounts for quick testing
+  const demoAccounts = [
+    { email: 'admin@discoverease.com', password: 'admin123', label: 'Admin' },
+    { email: 'staff@staff.com', password: 'staff123', label: 'Staff' },
+    { email: 'guide@guide.com', password: 'guide123', label: 'Guide' },
+    { email: 'user@example.com', password: 'user123', label: 'Tourister' },
+  ];
+
+  const fillDemo = (demoEmail, demoPassword) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
   };
 
   return (
@@ -153,7 +183,7 @@ const Login = () => {
         position: "relative",
         overflow: "hidden"
       }}>
-        {/* Decorative accent */}
+        {/* Top Gradient Bar */}
         <div style={{
           position: "absolute",
           top: 0,
@@ -195,7 +225,7 @@ const Login = () => {
           </Link>
         </div>
 
-        {/* Header */}
+        {/* Welcome Text */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <h1 style={{
             fontSize: 28,
@@ -255,6 +285,25 @@ const Login = () => {
           </div>
         )}
 
+        {/* CAPTCHA */}
+        <div style={{ marginBottom: 16 }}>
+          <ReCAPTCHA
+            sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'}
+            onChange={(value) => {
+              setCaptchaValue(value);
+              setCaptchaError('');
+            }}
+            onExpired={() => {
+              setCaptchaValue(null);
+              setCaptchaError('CAPTCHA expired. Please try again.');
+            }}
+            onErrored={() => setCaptchaError('reCAPTCHA error occurred')}
+          />
+          {captchaError && (
+            <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>{captchaError}</p>
+          )}
+        </div>
+
         {/* Google Login Button */}
         <button
           onClick={handleGoogleLogin}
@@ -279,16 +328,16 @@ const Login = () => {
           }}
           onMouseEnter={(e) => {
             if (!isGoogleLoading) {
-              e.target.style.borderColor = "#C79A3E";
-              e.target.style.boxShadow = "0 4px 12px rgba(199,154,62,0.15)";
-              e.target.style.transform = "translateY(-1px)";
+              e.currentTarget.style.borderColor = "#C79A3E";
+              e.currentTarget.style.boxShadow = "0 4px 12px rgba(199,154,62,0.15)";
+              e.currentTarget.style.transform = "translateY(-1px)";
             }
           }}
           onMouseLeave={(e) => {
             if (!isGoogleLoading) {
-              e.target.style.borderColor = "#E5E7EB";
-              e.target.style.boxShadow = "none";
-              e.target.style.transform = "translateY(0)";
+              e.currentTarget.style.borderColor = "#E5E7EB";
+              e.currentTarget.style.boxShadow = "none";
+              e.currentTarget.style.transform = "translateY(0)";
             }
           }}
         >
@@ -353,14 +402,14 @@ const Login = () => {
                 boxSizing: "border-box"
               }}
               onFocus={(e) => {
-                e.target.style.borderColor = "#C79A3E";
-                e.target.style.background = "#FFFFFF";
-                e.target.style.boxShadow = "0 0 0 4px rgba(199,154,62,0.1)";
+                e.currentTarget.style.borderColor = "#C79A3E";
+                e.currentTarget.style.background = "#FFFFFF";
+                e.currentTarget.style.boxShadow = "0 0 0 4px rgba(199,154,62,0.1)";
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = "#D1D5DB";
-                e.target.style.background = "#FAFAFA";
-                e.target.style.boxShadow = "none";
+                e.currentTarget.style.borderColor = "#D1D5DB";
+                e.currentTarget.style.background = "#FAFAFA";
+                e.currentTarget.style.boxShadow = "none";
               }}
             />
           </div>
@@ -397,14 +446,14 @@ const Login = () => {
                   boxSizing: "border-box"
                 }}
                 onFocus={(e) => {
-                  e.target.style.borderColor = "#C79A3E";
-                  e.target.style.background = "#FFFFFF";
-                  e.target.style.boxShadow = "0 0 0 4px rgba(199,154,62,0.1)";
+                  e.currentTarget.style.borderColor = "#C79A3E";
+                  e.currentTarget.style.background = "#FFFFFF";
+                  e.currentTarget.style.boxShadow = "0 0 0 4px rgba(199,154,62,0.1)";
                 }}
                 onBlur={(e) => {
-                  e.target.style.borderColor = "#D1D5DB";
-                  e.target.style.background = "#FAFAFA";
-                  e.target.style.boxShadow = "none";
+                  e.currentTarget.style.borderColor = "#D1D5DB";
+                  e.currentTarget.style.background = "#FAFAFA";
+                  e.currentTarget.style.boxShadow = "none";
                 }}
               />
               <button
@@ -459,12 +508,15 @@ const Login = () => {
               />
               Remember me
             </label>
-            <Link to="/forgot-password" style={{
-              color: "#C79A3E",
-              fontSize: 14,
-              textDecoration: "none",
-              fontWeight: 500
-            }}>
+            <Link 
+              to="/forgot-password" 
+              style={{
+                color: "#C79A3E",
+                fontSize: 14,
+                textDecoration: "none",
+                fontWeight: 500
+              }}
+            >
               Forgot password?
             </Link>
           </div>
@@ -489,16 +541,16 @@ const Login = () => {
             }}
             onMouseEnter={(e) => {
               if (!loading) {
-                e.target.style.background = "#0B2422";
-                e.target.style.transform = "translateY(-1px)";
-                e.target.style.boxShadow = "0 4px 16px rgba(7,46,42,0.3)";
+                e.currentTarget.style.background = "#0B2422";
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow = "0 4px 16px rgba(7,46,42,0.3)";
               }
             }}
             onMouseLeave={(e) => {
               if (!loading) {
-                e.target.style.background = "#072E2A";
-                e.target.style.transform = "translateY(0)";
-                e.target.style.boxShadow = "none";
+                e.currentTarget.style.background = "#072E2A";
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "none";
               }
             }}
           >
@@ -520,8 +572,40 @@ const Login = () => {
           }
         `}</style>
 
-        {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: 24 }}>
+        {/* Demo Accounts */}
+        <div style={{ marginTop: 24 }}>
+          <p style={{ textAlign: "center", fontSize: 12, color: "#8A9A95", marginBottom: 10 }}>
+            🔑 Quick Login (Click to auto-fill)
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {demoAccounts.map((demo) => (
+              <button
+                key={demo.label}
+                onClick={() => fillDemo(demo.email, demo.password)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: "1px solid rgba(199,154,62,0.2)",
+                  background: "transparent",
+                  fontSize: 11,
+                  color: "#0B2422",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease",
+                  fontFamily: "'Inter', sans-serif",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(199,154,62,0.08)"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+              >
+                <span style={{ fontWeight: 600 }}>{demo.label}</span>
+                <br />
+                <span style={{ fontSize: 9, color: "#8A9A95" }}>{demo.email}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Register Link */}
+        <div style={{ textAlign: "center", marginTop: 20 }}>
           <p style={{ color: "#6B7280", fontSize: 14, margin: 0 }}>
             Don't have an account?{' '}
             <Link to="/register" style={{ color: "#C79A3E", textDecoration: "none", fontWeight: 600 }}>
