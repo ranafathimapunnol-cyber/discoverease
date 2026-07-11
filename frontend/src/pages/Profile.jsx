@@ -1,4 +1,5 @@
-// pages/Profile.jsx - COMPLETE FIXED VERSION
+// pages/Profile.jsx - COMPLETE WITH USER SUGGESTIONS STATS
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -29,6 +30,19 @@ const Profile = () => {
   const [uploading, setUploading] = useState(false);
   const [profilePicture, setProfilePicture] = useState(null);
   const fileInputRef = useRef(null);
+  
+  // ✅ NEW: User Suggestions Stats
+  const [userSuggestions, setUserSuggestions] = useState([]);
+  const [suggestionStats, setSuggestionStats] = useState({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    implemented: 0,
+    rejected: 0,
+    hidden_gems: 0,
+    insights: 0,
+  });
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Update edit data when user changes
   useEffect(() => {
@@ -43,6 +57,7 @@ const Profile = () => {
       });
       
       loadProfilePicture();
+      loadUserSuggestions();
     }
   }, [user]);
 
@@ -61,7 +76,54 @@ const Profile = () => {
     }
   };
 
-  // ✅ FIXED: Fetch trip stats with correct endpoint
+  // ✅ Load user suggestions from localStorage
+  const loadUserSuggestions = () => {
+    try {
+      const allSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+      const userEmail = user?.email || '';
+      
+      // Filter suggestions by user email
+      const userSuggestions = allSuggestions.filter(s => 
+        s.user_email === userEmail || 
+        (s.user && s.user.email === userEmail)
+      );
+      
+      setUserSuggestions(userSuggestions);
+      
+      // Calculate stats
+      const total = userSuggestions.length;
+      const pending = userSuggestions.filter(s => s.status === 'pending').length;
+      const approved = userSuggestions.filter(s => s.status === 'approved').length;
+      const implemented = userSuggestions.filter(s => s.status === 'implemented').length;
+      const rejected = userSuggestions.filter(s => s.status === 'rejected').length;
+      const hidden_gems = userSuggestions.filter(s => s.type === 'hidden_gem').length;
+      const insights = userSuggestions.filter(s => s.type === 'insight').length;
+      
+      setSuggestionStats({
+        total,
+        pending,
+        approved,
+        implemented,
+        rejected,
+        hidden_gems,
+        insights,
+      });
+    } catch (error) {
+      console.error('Error loading user suggestions:', error);
+      setUserSuggestions([]);
+      setSuggestionStats({
+        total: 0,
+        pending: 0,
+        approved: 0,
+        implemented: 0,
+        rejected: 0,
+        hidden_gems: 0,
+        insights: 0,
+      });
+    }
+  };
+
+  // ✅ Fetch trip stats
   useEffect(() => {
     if (isLoggedIn) {
       fetchTripStats();
@@ -81,7 +143,6 @@ const Profile = () => {
     }
   }, [isLoading, isLoggedIn, navigate]);
 
-  // ✅ FIXED: Use hyphen in URL path
   const fetchTripStats = async () => {
     try {
       const response = await api.get('/auth/trip-stats/');
@@ -94,11 +155,10 @@ const Profile = () => {
       }
     } catch (error) {
       console.warn('Trip stats fetch failed:', error);
-      // Mock data for demo
       setTripStats({
-        total_trips: 12,
-        completed_trips: 8,
-        pending_trips: 2
+        total_trips: 0,
+        completed_trips: 0,
+        pending_trips: 0
       });
     }
   };
@@ -261,6 +321,27 @@ const Profile = () => {
     }
   };
 
+  // Get status color
+  const getStatusColor = (status) => {
+    const colors = {
+      'pending': '#D97706',
+      'approved': '#16A34A',
+      'implemented': '#2563EB',
+      'rejected': '#DC2626',
+    };
+    return colors[status] || '#6B7280';
+  };
+
+  const getStatusBg = (status) => {
+    const colors = {
+      'pending': '#FEF3C7',
+      'approved': '#DCFCE7',
+      'implemented': '#DBEAFE',
+      'rejected': '#FEE2E2',
+    };
+    return colors[status] || '#F3F4F6';
+  };
+
   // Show loading state
   if (isLoading) {
     return (
@@ -373,6 +454,7 @@ const Profile = () => {
         .pf-profile-pic:hover .pf-overlay { opacity: 1; }
         .pf-overlay { opacity: 0; transition: opacity 0.3s ease; }
         .pf-delete-btn:hover { background: #BE5A34 !important; color: #fff !important; }
+        .suggestion-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
       `}</style>
 
       {/* Header */}
@@ -622,6 +704,152 @@ const Profile = () => {
               <p style={{ fontSize: 24, fontWeight: 700, color: "#EAB308", margin: 0 }}>{tripStats.pending_trips}</p>
               <p className="pf-font-mono" style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#5C6E69", margin: 0 }}>Pending</p>
             </div>
+          </div>
+
+          {/* ✅ NEW: User Suggestions Stats */}
+          <div style={{ marginTop: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div>
+                <p className="pf-font-mono" style={{ fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#0E5C53", margin: 0 }}>
+                  📝 My Contributions
+                </p>
+                <p style={{ fontSize: 12, color: "#5C6E69", margin: "4px 0 0" }}>
+                  {suggestionStats.total} total suggestions
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSuggestions(!showSuggestions)}
+                style={{
+                  padding: "6px 16px",
+                  borderRadius: 999,
+                  border: "1px solid #C79A3E",
+                  background: showSuggestions ? "#C79A3E" : "transparent",
+                  color: showSuggestions ? "#fff" : "#0B2422",
+                  fontSize: 10,
+                                    letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  transition: "all 0.3s ease"
+                }}
+              >
+                {showSuggestions ? 'Hide' : 'View All'} {suggestionStats.total > 0 && `(${suggestionStats.total})`}
+              </button>
+            </div>
+
+            {/* Suggestion Stats Cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 8, marginBottom: 12 }}>
+              <div style={{ background: "#FEF3C7", padding: "8px 12px", borderRadius: 6, textAlign: "center" }}>
+                <p style={{ fontSize: 18, fontWeight: 700, color: "#D97706", margin: 0 }}>{suggestionStats.pending}</p>
+                <p style={{ fontSize: 8, color: "#D97706", margin: 0, textTransform: "uppercase" }}>Pending</p>
+              </div>
+              <div style={{ background: "#DCFCE7", padding: "8px 12px", borderRadius: 6, textAlign: "center" }}>
+                <p style={{ fontSize: 18, fontWeight: 700, color: "#16A34A", margin: 0 }}>{suggestionStats.approved}</p>
+                <p style={{ fontSize: 8, color: "#16A34A", margin: 0, textTransform: "uppercase" }}>Approved</p>
+              </div>
+              <div style={{ background: "#DBEAFE", padding: "8px 12px", borderRadius: 6, textAlign: "center" }}>
+                <p style={{ fontSize: 18, fontWeight: 700, color: "#2563EB", margin: 0 }}>{suggestionStats.implemented}</p>
+                <p style={{ fontSize: 8, color: "#2563EB", margin: 0, textTransform: "uppercase" }}>Implemented</p>
+              </div>
+              <div style={{ background: "#FEE2E2", padding: "8px 12px", borderRadius: 6, textAlign: "center" }}>
+                <p style={{ fontSize: 18, fontWeight: 700, color: "#DC2626", margin: 0 }}>{suggestionStats.rejected}</p>
+                <p style={{ fontSize: 8, color: "#DC2626", margin: 0, textTransform: "uppercase" }}>Rejected</p>
+              </div>
+            </div>
+
+            {/* Hidden Gems vs Insights Breakdown */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: 1, background: "#F4FAF8", padding: "8px 12px", borderRadius: 6, textAlign: "center", border: "1px solid rgba(14,92,83,0.1)" }}>
+                <p style={{ fontSize: 16, fontWeight: 700, color: "#0E5C53", margin: 0 }}>{suggestionStats.hidden_gems}</p>
+                <p style={{ fontSize: 8, color: "#5C6E69", margin: 0, textTransform: "uppercase" }}>💎 Hidden Gems</p>
+              </div>
+              <div style={{ flex: 1, background: "#F4FAF8", padding: "8px 12px", borderRadius: 6, textAlign: "center", border: "1px solid rgba(199,154,62,0.1)" }}>
+                <p style={{ fontSize: 16, fontWeight: 700, color: "#C79A3E", margin: 0 }}>{suggestionStats.insights}</p>
+                <p style={{ fontSize: 8, color: "#5C6E69", margin: 0, textTransform: "uppercase" }}>✨ Insights</p>
+              </div>
+            </div>
+
+            {/* Suggestions List */}
+            {showSuggestions && (
+              <div style={{ maxHeight: 400, overflowY: "auto", marginTop: 12 }}>
+                {userSuggestions.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "20px", color: "#5C6E69", fontSize: 13 }}>
+                    You haven't suggested any hidden gems or insights yet.
+                  </div>
+                ) : (
+                  userSuggestions.map((s) => (
+                    <div 
+                      key={s.id} 
+                      className="suggestion-card"
+                      style={{
+                        background: "#FBF6EA",
+                        padding: "12px 16px",
+                        borderRadius: 6,
+                        border: "1px solid rgba(199,154,62,0.15)",
+                        marginBottom: 8,
+                        transition: "all 0.3s ease"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>
+                              {s.name || 'Untitled'}
+                            </p>
+                            <span style={{ 
+                              fontSize: 9, 
+                              padding: "2px 8px", 
+                              borderRadius: 999,
+                              background: s.type === 'hidden_gem' ? 'rgba(14,92,83,0.15)' : 'rgba(199,154,62,0.15)',
+                              color: s.type === 'hidden_gem' ? '#0E5C53' : '#C79A3E'
+                            }}>
+                              {s.type === 'hidden_gem' ? '💎 Gem' : '✨ Insight'}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: 12, color: "#5C6E69", margin: "4px 0 0" }}>
+                            📍 {s.district || 'N/A'} · {s.category || 'Uncategorized'}
+                          </p>
+                          {s.image && (
+                            <img 
+                              src={s.image} 
+                              alt={s.name} 
+                              style={{ 
+                                width: 60, 
+                                height: 60, 
+                                objectFit: "cover", 
+                                borderRadius: 4, 
+                                marginTop: 6,
+                                border: "1px solid rgba(199,154,62,0.2)"
+                              }} 
+                            />
+                          )}
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <span style={{
+                            fontSize: 10,
+                            padding: "2px 10px",
+                            borderRadius: 999,
+                            background: getStatusBg(s.status || 'pending'),
+                            color: getStatusColor(s.status || 'pending'),
+                            display: "inline-block",
+                            fontWeight: 500
+                          }}>
+                            {s.status || 'pending'}
+                          </span>
+                          {s.admin_notes && s.status === 'rejected' && (
+                            <p style={{ fontSize: 9, color: "#DC2626", margin: "4px 0 0", maxWidth: 150 }}>
+                              Reason: {s.admin_notes}
+                            </p>
+                          )}
+                          <p style={{ fontSize: 9, color: "#8A9A95", margin: "4px 0 0" }}>
+                            {s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           <div style={{ margin: "20px 0 12px" }}>

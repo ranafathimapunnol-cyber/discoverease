@@ -1,7 +1,9 @@
-// pages/Home.jsx - FIXED (removed price references)
+// pages/Home.jsx - COMPLETE WITH IMAGE UPLOAD
+
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -15,7 +17,48 @@ export default function Home() {
     location: '',
     description: '',
     category: '',
+    district: '',
+    image: null,
   });
+  const [imagePreview, setImagePreview] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [districts, setDistricts] = useState([]);
+
+  // ✅ Fetch districts
+  useEffect(() => {
+    const fetchDistricts = async () => {
+      try {
+        const response = await api.get('/guides/districts/');
+        if (Array.isArray(response.data)) {
+          setDistricts(response.data);
+        } else if (response.data?.results && Array.isArray(response.data.results)) {
+          setDistricts(response.data.results);
+        } else {
+          setDistricts([
+            { id: 1, name: 'Thiruvananthapuram' }, { id: 2, name: 'Kollam' },
+            { id: 3, name: 'Pathanamthitta' }, { id: 4, name: 'Alappuzha' },
+            { id: 5, name: 'Kottayam' }, { id: 6, name: 'Idukki' },
+            { id: 7, name: 'Ernakulam' }, { id: 8, name: 'Thrissur' },
+            { id: 9, name: 'Palakkad' }, { id: 10, name: 'Malappuram' },
+            { id: 11, name: 'Kozhikode' }, { id: 12, name: 'Wayanad' },
+            { id: 13, name: 'Kannur' }, { id: 14, name: 'Kasaragod' },
+          ]);
+        }
+      } catch (error) {
+        console.error('Error fetching districts:', error);
+        setDistricts([
+          { id: 1, name: 'Thiruvananthapuram' }, { id: 2, name: 'Kollam' },
+          { id: 3, name: 'Pathanamthitta' }, { id: 4, name: 'Alappuzha' },
+          { id: 5, name: 'Kottayam' }, { id: 6, name: 'Idukki' },
+          { id: 7, name: 'Ernakulam' }, { id: 8, name: 'Thrissur' },
+          { id: 9, name: 'Palakkad' }, { id: 10, name: 'Malappuram' },
+          { id: 11, name: 'Kozhikode' }, { id: 12, name: 'Wayanad' },
+          { id: 13, name: 'Kannur' }, { id: 14, name: 'Kasaragod' },
+        ]);
+      }
+    };
+    fetchDistricts();
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -24,7 +67,54 @@ export default function Home() {
   }, []);
 
   const handleSuggestionChange = (e) => {
-    setSuggestionData({ ...suggestionData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setSuggestionData({ ...suggestionData, [name]: value });
+  };
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      setSuggestionData({ ...suggestionData, image: file });
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeImage = () => {
+    setSuggestionData({ ...suggestionData, image: null });
+    setImagePreview(null);
+  };
+
+  // ✅ Function to safely save to localStorage
+  const saveToLocalStorage = (key, data) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+      return true;
+    } catch (e) {
+      if (e.name === 'QuotaExceededError' || e.code === 22) {
+        try {
+          localStorage.removeItem(key);
+          localStorage.setItem(key, JSON.stringify(data));
+          return true;
+        } catch (retryError) {
+          console.error('Failed to save after clearing:', retryError);
+          return false;
+        }
+      }
+      console.error('Failed to save to localStorage:', e);
+      return false;
+    }
   };
 
   const handleSuggestionSubmit = async (e) => {
@@ -35,36 +125,109 @@ export default function Home() {
       navigate('/login');
       return;
     }
+
+    if (!suggestionData.district) {
+      alert('⚠️ Please select a district.');
+      return;
+    }
+    
+    if (!suggestionData.placeName || !suggestionData.description) {
+      alert('⚠️ Please fill in all required fields.');
+      return;
+    }
+    
+    setSubmitting(true);
     
     try {
-      const existingSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+      let userEmail = user?.email || 'anonymous';
+      
       const newSuggestion = {
         id: Date.now(),
         name: suggestionData.placeName,
         description: suggestionData.description,
         category: suggestionData.category,
         location_info: suggestionData.location,
+        district: suggestionData.district,
         status: 'pending',
         type: 'hidden_gem',
-        user_email: user?.email || 'anonymous',
+        user_email: userEmail,
         created_at: new Date().toISOString(),
-        suggestion_type: 'new'
+        suggestion_type: 'new',
+        image: imagePreview,
       };
       
-      existingSuggestions.push(newSuggestion);
-      localStorage.setItem('hidden_gems_suggestions', JSON.stringify(existingSuggestions));
+      // ✅ Save to localStorage with proper error handling
+      let existingSuggestions = [];
+      try {
+        const raw = localStorage.getItem('hidden_gems_suggestions');
+        if (raw) {
+          existingSuggestions = JSON.parse(raw);
+        }
+      } catch (parseError) {
+        existingSuggestions = [];
+      }
       
-      console.log('Hidden Gem saved locally:', newSuggestion);
+      // Keep only last 10 to avoid storage issues
+      const limitedSuggestions = existingSuggestions.slice(-9);
+      limitedSuggestions.push(newSuggestion);
+      
+      const saved = saveToLocalStorage('hidden_gems_suggestions', limitedSuggestions);
+      if (!saved) {
+        saveToLocalStorage('hidden_gems_suggestions', [newSuggestion]);
+      }
+      
+      // ✅ Try to send to backend (silent fail)
+      try {
+        const formData = new FormData();
+        formData.append('name', suggestionData.placeName);
+        formData.append('description', suggestionData.description);
+        formData.append('category', suggestionData.category || 'other');
+        formData.append('location_info', suggestionData.location);
+        formData.append('district', suggestionData.district);
+        formData.append('user_email', userEmail);
+        formData.append('suggestion_type', 'new');
+        if (suggestionData.image) {
+          formData.append('image', suggestionData.image);
+        }
+        
+        await api.post('/suggestions/', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        console.log('✅ Suggestion sent to backend');
+      } catch (apiError) {
+        console.log('⚠️ API not available, saved locally only');
+      }
+      
+      console.log('✅ Hidden Gem saved:', newSuggestion);
       setSuggestionSubmitted(true);
+      
       setTimeout(() => {
         setSuggestionSubmitted(false);
         setShowSuggestion(false);
-        setSuggestionData({ placeName: '', location: '', description: '', category: '' });
-      }, 3000);
+        const districtName = suggestionData.district;
+        setSuggestionData({
+          placeName: '',
+          location: '',
+          description: '',
+          category: '',
+          district: '',
+          image: null,
+        });
+        setImagePreview(null);
+        setSubmitting(false);
+        
+        // ✅ Redirect to guides page with district filter
+        if (districtName) {
+          navigate(`/guides?district=${encodeURIComponent(districtName)}&search=${encodeURIComponent(districtName)}`);
+        } else {
+          navigate('/guides');
+        }
+      }, 2000);
       
     } catch (error) {
       console.error('Error submitting suggestion:', error);
       alert('❌ Failed to submit suggestion. Please try again.');
+      setSubmitting(false);
     }
   };
 
@@ -82,7 +245,7 @@ export default function Home() {
     navigate('/login');
   };
 
-  // ✅ Category icon set
+  // ✅ Category icon set (same as before)
   function CategoryIcon({ type }) {
     const common = { width: 34, height: 34, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", className: "text-[#0E5C53] group-hover:text-[#E4C77B] transition-colors" };
     const icons = {
@@ -98,7 +261,7 @@ export default function Home() {
     return icons[type] || <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
   }
 
-  // ✅ Feature icon set
+  // ✅ Feature icon set (same as before)
   function FeatureIcon({ type }) {
     const common = { width: 28, height: 28, viewBox: "0 0 24 24", fill: "none", stroke: "#C79A3E", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
     const icons = {
@@ -112,7 +275,7 @@ export default function Home() {
     return icons[type] || <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
   }
 
-  // ✅ explorePlaces - FIXED (removed price)
+  // ✅ explorePlaces
   const explorePlaces = [
     {
       id: 1,
@@ -189,7 +352,7 @@ export default function Home() {
     </div>
   );
 
-  // ✅ BottomNav - All protected links use handleProtectedClick
+  // ✅ BottomNav
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -267,6 +430,8 @@ export default function Home() {
         .category-tile { transition: all 0.3s ease; }
         .feature-card { transition: all 0.3s ease; }
         .feature-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(11,36,34,0.15); }
+        .insights-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(199,154,62,0.15); }
+        .image-preview:hover { opacity: 0.8; }
       `}</style>
 
       {/* HERO */}
@@ -408,11 +573,79 @@ export default function Home() {
         </div>
       </section>
 
+      {/* LOCAL INSIGHTS SECTION */}
+      <section className="relative px-6 py-20 max-w-7xl mx-auto">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-12">
+          <div>
+            <span className="font-mono text-xs text-[#C79A3E] tracking-[0.25em] uppercase">Field notes / 02</span>
+            <h2 className="font-display text-4xl md:text-5xl text-[#0B2422] mt-2">
+              Local <span className="italic text-[#C79A3E]">Insights</span>
+            </h2>
+          </div>
+          <p className="text-[#4A5F5A] max-w-sm text-sm leading-relaxed">Hidden gems and honest tips, written by fellow travelers and locals who know Kerala best.</p>
+        </div>
+
+        <div 
+          onClick={() => handleProtectedClick('/local-insights')}
+          className="group relative bg-gradient-to-br from-[#072E2A] to-[#0B3A34] rounded-2xl overflow-hidden cursor-pointer border border-[#C79A3E]/20 hover:border-[#C79A3E]/60 transition-all duration-500"
+        >
+          <div className="absolute inset-0 bg-[url('/pattern.png')] opacity-5" />
+          
+          <div className="absolute top-0 right-0 w-64 h-64 bg-[#C79A3E]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          <div className="absolute bottom-0 left-0 w-48 h-48 bg-[#E4C77B]/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+          
+          <div className="relative p-8 md:p-12">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-3xl">📖</span>
+                  <span className="font-mono text-xs text-[#E4C77B] tracking-[0.2em] uppercase">Community knowledge</span>
+                </div>
+                <h3 className="font-display text-2xl md:text-3xl text-white mb-3">
+                  Discover Kerala's <span className="text-[#E4C77B]">hidden stories</span>
+                </h3>
+                <p className="text-[#B9CFC9] text-sm max-w-lg leading-relaxed">
+                  Read authentic insights from travelers who've been there, and share your own discoveries with our community of explorers.
+                </p>
+                <div className="flex items-center gap-6 mt-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#E4C77B] font-bold text-xl">💎</span>
+                    <span className="text-[#B9CFC9] text-xs">Traveler tips</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#E4C77B] font-bold text-xl">📍</span>
+                    <span className="text-[#B9CFC9] text-xs">Hidden spots</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#E4C77B] font-bold text-xl">✨</span>
+                    <span className="text-[#B9CFC9] text-xs">Local secrets</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex-shrink-0 flex flex-col items-center gap-4">
+                <div className="flex items-center gap-3 bg-[#0B3A34]/50 px-6 py-3 rounded-full border border-[#C79A3E]/20">
+                  <span className="font-mono text-[#E4C77B] text-sm font-bold">Explore Insights</span>
+                  <svg className="w-5 h-5 text-[#E4C77B] group-hover:translate-x-1 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-[#8A9A95]">
+                  <span>✨ Real traveler stories</span>
+                  <span>•</span>
+                  <span>🗺️ Curated by locals</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* TOP CATEGORIES */}
       <section className="relative px-6 py-20 bg-[#F5EFE0]">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <span className="font-mono text-xs text-[#0E5C53] tracking-[0.25em] uppercase">Field notes / 02</span>
+            <span className="font-mono text-xs text-[#0E5C53] tracking-[0.25em] uppercase">Field notes / 03</span>
             <h2 className="font-display italic text-4xl md:text-5xl text-[#0B2422] mt-3">
               Top Categories
             </h2>
@@ -447,7 +680,7 @@ export default function Home() {
         <div className="bg-[#072E2A] py-20">
           <div className="max-w-6xl mx-auto px-6">
             <div className="text-center mb-14">
-              <span className="font-mono text-xs text-[#E4C77B] tracking-[0.25em] uppercase">Field notes / 03</span>
+              <span className="font-mono text-xs text-[#E4C77B] tracking-[0.25em] uppercase">Field notes / 04</span>
               <h2 className="font-display text-4xl md:text-5xl text-white mt-3">
                 Why Choose <span className="italic text-[#E4C77B]">DiscoverEase?</span>
               </h2>
@@ -477,20 +710,20 @@ export default function Home() {
         </div>
       </section>
 
-      {/* KNOW A HIDDEN GEM? */}
+      {/* KNOW A HIDDEN GEM? - WITH IMAGE & DISTRICT */}
       <section className="relative px-6 py-20 max-w-7xl mx-auto">
         <div className="bg-white rounded-lg p-8 md:p-14 border border-[#C79A3E]/30 shadow-lg" style={{ boxShadow: '0 30px 60px -20px rgba(11,36,34,0.15)' }}>
           <div className="flex flex-col md:flex-row items-stretch gap-10 md:gap-14">
             <div className="flex-1 text-center md:text-left">
               <div className="inline-flex items-center gap-2 mb-4">
-                <span className="font-mono text-xs text-[#0E5C53] tracking-[0.25em] uppercase">Postmarked by travelers</span>
+                <span className="font-mono text-xs text-[#0E5C53] tracking-[0.25em] uppercase">Share with guides</span>
               </div>
               <h2 className="font-display text-3xl md:text-4xl text-[#0B2422] mb-4">
-                Know a hidden <span className="italic text-[#0E5C53]">gem</span>?
+                Share a hidden <span className="italic text-[#0E5C53]">gem</span>
               </h2>
               <p className="text-[#4A5F5A] text-base mb-8 leading-relaxed">
-                Discovered a secret waterfall, a quiet village, or a magical forest?{' '}
-                <span className="text-[#0E5C53] font-medium">Send us word — share it with our guides!</span>
+                Found a secret spot? Share it with our local guides in your district.
+                <span className="text-[#0E5C53] font-medium block mt-2">Include a photo to help guides find it!</span>
               </p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 max-w-md mx-auto md:mx-0">
                 {travelerTips.map((item, index) => (
@@ -505,58 +738,84 @@ export default function Home() {
             <div className="flex-1 w-full flex items-stretch">
               {!showSuggestion ? (
                 <button onClick={() => setShowSuggestion(true)} className="w-full p-8 rounded-lg border-2 border-dashed border-[#C79A3E]/50 text-center hover:border-[#C79A3E] transition-all duration-300 group flex flex-col items-center justify-center gap-3" style={{ background: 'radial-gradient(circle at top right, rgba(199,154,62,0.06), transparent 60%)' }}>
-                  <div className="w-16 h-16 rounded-full border-2 border-[#C79A3E] flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-300">📍</div>
-                  <h3 className="font-display text-2xl text-[#0B2422]">Suggest a hidden place</h3>
-                  <p className="text-[#5C6E69] text-sm">Help our guides discover Kerala's secrets</p>
+                  <div className="w-16 h-16 rounded-full border-2 border-[#C79A3E] flex items-center justify-center text-2xl group-hover:scale-110 transition-transform duration-300">📸</div>
+                  <h3 className="font-display text-2xl text-[#0B2422]">Share with a guide</h3>
+                  <p className="text-[#5C6E69] text-sm">Send your discovery to a guide in your district</p>
                   <div className="mt-2 font-mono text-xs uppercase tracking-[0.2em] px-6 py-2.5 border border-[#0B2422] rounded-full group-hover:bg-[#0B2422] group-hover:text-white transition-all duration-300">Share now →</div>
                 </button>
               ) : suggestionSubmitted ? (
                 <div className="w-full rounded-lg p-8 text-center border border-[#0E5C53]/40 flex flex-col items-center justify-center gap-3" style={{ background: '#F4FAF8' }}>
                   <div className="text-5xl">✅</div>
                   <h3 className="font-display text-2xl text-[#0E5C53]">Thank you, explorer!</h3>
-                  <p className="text-[#4A5F5A] text-sm">Your hidden gem has been shared with our guide team.</p>
-                  <p className="font-mono text-xs text-[#0E5C53] uppercase tracking-wider">Guides will review it soon</p>
+                  <p className="text-[#4A5F5A] text-sm">Your hidden gem has been shared with the guide in your district.</p>
+                  <p className="font-mono text-xs text-[#0E5C53] uppercase tracking-wider">Guide will review it soon</p>
                 </div>
               ) : (
-                <div className="w-full rounded-lg p-6 border border-[#C79A3E]/30 bg-white">
+                <div className="w-full rounded-lg p-6 border border-[#C79A3E]/30 bg-white max-h-[600px] overflow-y-auto">
                   <div className="flex justify-between items-center mb-5">
                     <h3 className="font-display text-xl text-[#0B2422]">Share your discovery</h3>
                     <button onClick={() => setShowSuggestion(false)} className="text-[#8A9A95] hover:text-[#0B2422] transition text-lg leading-none">✕</button>
                   </div>
                   <form onSubmit={handleSuggestionSubmit} className="space-y-4">
-                    <input 
-                      type="text" 
-                      name="placeName" 
-                      placeholder="What's the name of this hidden place?" 
-                      value={suggestionData.placeName} 
-                      onChange={handleSuggestionChange} 
-                      className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm placeholder:text-[#8A9A95] rounded-lg" 
-                      required 
-                    />
-                    <input 
-                      type="text" 
-                      name="location" 
-                      placeholder="Where is it located? (District/Area)" 
-                      value={suggestionData.location} 
-                      onChange={handleSuggestionChange} 
-                      className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm placeholder:text-[#8A9A95] rounded-lg" 
-                      required 
-                    />
-                    <textarea 
-                      name="description" 
-                      placeholder="Describe why this place is special..." 
-                      rows="3" 
-                      value={suggestionData.description} 
-                      onChange={handleSuggestionChange} 
-                      className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition resize-none text-sm placeholder:text-[#8A9A95] rounded-lg" 
-                      required 
-                    />
-                    <div className="flex gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-[#0B2422] mb-1">Place Name *</label>
+                      <input 
+                        type="text" 
+                        name="placeName" 
+                        placeholder="What's the name of this hidden place?" 
+                        value={suggestionData.placeName} 
+                        onChange={handleSuggestionChange} 
+                        className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm placeholder:text-[#8A9A95] rounded-lg" 
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#0B2422] mb-1">District *</label>
+                      <select
+                        name="district"
+                        value={suggestionData.district}
+                        onChange={handleSuggestionChange}
+                        className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm text-[#4A5F5A] rounded-lg"
+                        required
+                      >
+                        <option value="">Select District</option>
+                        {Array.isArray(districts) && districts.map((d) => (
+                          <option key={d.id} value={d.name}>{d.name}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">This will be sent to guides in this district</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#0B2422] mb-1">Location Details *</label>
+                      <input 
+                        type="text" 
+                        name="location" 
+                        placeholder="Nearby landmarks, how to reach" 
+                        value={suggestionData.location} 
+                        onChange={handleSuggestionChange} 
+                        className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm placeholder:text-[#8A9A95] rounded-lg" 
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#0B2422] mb-1">Description *</label>
+                      <textarea 
+                        name="description" 
+                        placeholder="Describe why this place is special..." 
+                        rows="3" 
+                        value={suggestionData.description} 
+                        onChange={handleSuggestionChange} 
+                        className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition resize-none text-sm placeholder:text-[#8A9A95] rounded-lg" 
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[#0B2422] mb-1">Category *</label>
                       <select 
                         name="category" 
                         value={suggestionData.category} 
                         onChange={handleSuggestionChange} 
-                        className="flex-1 px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm text-[#4A5F5A] rounded-lg" 
+                        className="w-full px-4 py-3 bg-[#FBF6EA] border border-[#C79A3E]/30 focus:border-[#0E5C53] outline-none transition text-sm text-[#4A5F5A] rounded-lg" 
                         required
                       >
                         <option value="">Select category</option>
@@ -567,13 +826,56 @@ export default function Home() {
                         <option value="heritage">Heritage</option>
                         <option value="beach">Beach</option>
                         <option value="forest">Forest</option>
+                        <option value="temple">Temple</option>
+                        <option value="fort">Fort</option>
+                        <option value="camping">Camping</option>
+                        <option value="other">Other</option>
                       </select>
+                    </div>
+                    {/* Image Upload */}
+                    <div>
+                      <label className="block text-xs font-medium text-[#0B2422] mb-1">Upload Photo</label>
+                      <div className="flex items-center gap-4">
+                        <label className="cursor-pointer bg-[#FBF6EA] border border-[#C79A3E]/30 rounded-lg px-4 py-3 hover:bg-[#F5EFE0] transition text-sm text-[#0B2422] flex items-center gap-2">
+                          <span>📷</span>
+                          <span>Choose Image</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageChange}
+                            className="hidden"
+                          />
+                        </label>
+                        {imagePreview && (
+                          <button
+                            type="button"
+                            onClick={removeImage}
+                            className="text-red-500 text-sm hover:text-red-700 transition"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">Max 5MB. JPG, PNG, GIF accepted</p>
+                      {imagePreview && (
+                        <div className="mt-3 relative">
+                          <img
+                            src={imagePreview}
+                            alt="Preview"
+                            className="w-32 h-32 object-cover rounded-lg border border-[#C79A3E]/30 image-preview"
+                          />
+                          <span className="absolute top-1 right-1 bg-[#072E2A] text-white text-xs px-2 py-0.5 rounded-full">
+                            {suggestionData.image?.name || 'Image'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <button 
                       type="submit" 
-                      className="w-full py-3 rounded-full bg-[#0E5C53] text-white font-mono text-xs uppercase tracking-[0.2em] hover:bg-[#0B2422] transition-all duration-300 mt-2"
+                      disabled={submitting}
+                      className="w-full py-3 rounded-full bg-[#0E5C53] text-white font-mono text-xs uppercase tracking-[0.2em] hover:bg-[#0B2422] transition-all duration-300 mt-2 disabled:opacity-50"
                     >
-                      Share this hidden gem with our guides
+                      {submitting ? '⏳ Sharing...' : '📤 Share with district guide'}
                     </button>
                   </form>
                 </div>

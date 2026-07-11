@@ -1,4 +1,4 @@
-// src/pages/StaffDashboard.jsx - COMPLETE FIXED WITH AUTO-VERIFY TOGGLE
+// src/pages/StaffDashboard.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -29,6 +29,7 @@ const StaffDashboard = () => {
     pendingReviews: 0,
   });
   const [suggestions, setSuggestions] = useState([]);
+  const [allSuggestions, setAllSuggestions] = useState([]);
   const [guides, setGuides] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [reviews, setReviews] = useState([]);
@@ -43,12 +44,14 @@ const StaffDashboard = () => {
   const [processingId, setProcessingId] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newGuidePassword, setNewGuidePassword] = useState('');
-  
-  // ✅ AUTO-VERIFY TOGGLE STATE
   const [autoVerify, setAutoVerify] = useState(true);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(null);
+  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [suggestionFilter, setSuggestionFilter] = useState('all');
+  const [actionLoading, setActionLoading] = useState(false);
 
   // ============================================
-  // FETCH DATA - UPDATED URLS
+  // FETCH DATA
   // ============================================
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -71,19 +74,43 @@ const StaffDashboard = () => {
         console.error('Error fetching staff stats:', error);
       }
 
-      // 2. Fetch Suggestions
+      // 2. Fetch ALL Suggestions from both localStorage and API
       try {
-        const suggRes = await api.get('/suggestions/', { params: { status: 'pending' } });
-        if (suggRes?.data?.success) {
-          setSuggestions(suggRes.data.results || []);
-        } else if (Array.isArray(suggRes?.data)) {
-          setSuggestions(suggRes.data);
-        } else {
-          setSuggestions([]);
+        // Try API first
+        const allSuggRes = await api.get('/suggestions/');
+        let all = [];
+        if (allSuggRes?.data?.success) {
+          all = allSuggRes.data.results || [];
+        } else if (Array.isArray(allSuggRes?.data)) {
+          all = allSuggRes.data;
         }
+        
+        // Also get from localStorage for hidden gems
+        try {
+          const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+          // Merge and deduplicate by id
+          const allIds = new Set(all.map(s => s.id));
+          const uniqueLocal = localSuggestions.filter(s => !allIds.has(s.id));
+          all = [...all, ...uniqueLocal];
+        } catch (e) {
+          console.log('No local suggestions found');
+        }
+        
+        setAllSuggestions(all);
+        const pending = all.filter(s => s.status === 'pending');
+        setSuggestions(pending);
       } catch (error) {
         console.error('Error fetching suggestions:', error);
-        setSuggestions([]);
+        // Fallback to localStorage
+        try {
+          const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+          setAllSuggestions(localSuggestions);
+          const pending = localSuggestions.filter(s => s.status === 'pending');
+          setSuggestions(pending);
+        } catch (e) {
+          setAllSuggestions([]);
+          setSuggestions([]);
+        }
       }
 
       // 3. Fetch Staff Guides
@@ -147,38 +174,116 @@ const StaffDashboard = () => {
   }, [user, navigate, fetchData]);
 
   // ============================================
-  // PROCESS SUGGESTION
+  // PROCESS SUGGESTION - Approve, Reject, Implement, Delete
   // ============================================
   const processSuggestion = async (id, action) => {
+    setActionLoading(true);
     setProcessingId(id);
     try {
-      const notes = action === 'reject' ? prompt('Reason for rejection:') : 'Approved by staff';
+      if (action === 'delete') {
+        // Delete from localStorage and API
+        if (!window.confirm('Are you sure you want to permanently delete this suggestion?')) {
+          setActionLoading(false);
+          setProcessingId(null);
+          return;
+        }
+        
+        // Remove from localStorage
+        try {
+          const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+          const updated = localSuggestions.filter(s => s.id !== id);
+          localStorage.setItem('hidden_gems_suggestions', JSON.stringify(updated));
+        } catch (e) {
+          console.log('Error updating localStorage:', e);
+        }
+        
+        // Try API delete
+        try {
+          await api.delete(`/suggestions/${id}/`);
+        } catch (e) {
+          console.log('API delete failed, but removed from localStorage:', e);
+        }
+        
+        alert('🗑️ Suggestion deleted successfully!');
+        fetchData();
+        if (showSuggestionModal) {
+          setShowSuggestionModal(false);
+          setSelectedSuggestion(null);
+        }
+        setActionLoading(false);
+        setProcessingId(null);
+        return;
+      }
+
+      // For approve, reject, implement
+      const notes = action === 'reject' ? prompt('Reason for rejection:') : `Processed by ${user?.email || 'Staff'}`;
       if (action === 'reject' && notes === null) { 
-        setProcessingId(null); 
+        setActionLoading(false);
+        setProcessingId(null);
         return; 
       }
       
-      const response = await api.post(`/staff/staff/suggestions/${id}/process/`, {
-        action,
-        notes: notes || 'Approved by staff'
-      });
+      // Try API first
+      try {
+        const response = await api.post(`/staff/staff/suggestions/${id}/process/`, {
+          action,
+          notes: notes || `Processed by ${user?.email || 'Staff'}`
+        });
+        
+        if (response?.data?.success) {
+          alert(`✅ Suggestion ${action}ed successfully!`);
+          fetchData();
+          if (showSuggestionModal) {
+            setShowSuggestionModal(false);
+            setSelectedSuggestion(null);
+          }
+          setActionLoading(false);
+          setProcessingId(null);
+          return;
+        }
+      } catch (error) {
+        console.error('API process failed, trying localStorage fallback:', error);
+      }
       
-      if (response?.data?.success) {
-        alert(`✅ Suggestion ${action}ed successfully!`);
+      // Fallback: Update localStorage
+      try {
+        const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+        const updated = localSuggestions.map(s => {
+          if (s.id === id) {
+            const now = new Date().toISOString();
+            return { 
+              ...s, 
+              status: action === 'approve' ? 'approved' : action === 'implement' ? 'implemented' : 'rejected',
+              processed_at: now,
+              processed_by: user?.email || 'staff',
+              admin_notes: notes || `Processed by ${user?.email || 'Staff'}`
+            };
+          }
+          return s;
+        });
+        localStorage.setItem('hidden_gems_suggestions', JSON.stringify(updated));
+        
+        alert(`✅ Suggestion ${action}ed successfully! (Local)`);
         fetchData();
-      } else {
+        if (showSuggestionModal) {
+          setShowSuggestionModal(false);
+          setSelectedSuggestion(null);
+        }
+      } catch (e) {
         alert('❌ Failed to process suggestion');
+        console.error(e);
       }
     } catch (error) {
       alert('❌ Failed to process suggestion');
       console.error(error);
     } finally {
+      setActionLoading(false);
       setProcessingId(null);
     }
   };
 
   // ============================================
-  // ADD GUIDE - WITH AUTO-VERIFY TOGGLE
+  // ADD GUIDE
   // ============================================
   const handleAddGuide = async (e) => {
     e.preventDefault();
@@ -186,28 +291,27 @@ const StaffDashboard = () => {
     try {
       const guideData = {
         ...guideForm,
-        password: guideForm.password || 'TempPass123',
-        auto_verify: autoVerify  // ✅ Send auto-verify preference
+        is_verified: autoVerify,
       };
       
-      const response = await api.post('/staff/staff/guides/add/', guideData);
-      if (response?.data?.success) {
-        setNewGuidePassword(response.data.password || guideForm.password);
+      const res = await api.post('/staff/staff/guides/add/', guideData);
+      
+      if (res?.data?.success) {
+        setNewGuidePassword(res.data.password || guideForm.password || 'TempPass123');
         setShowPasswordModal(true);
         setShowAddGuide(false);
-        setGuideForm({ 
-          full_name: '', email: '', password: '', phone: '', bio: '', 
-          experience_years: '0', languages: '', primary_district: '', 
-          price_per_day: '0', price_per_hour: '0' 
+        setGuideForm({
+          full_name: '', email: '', password: '',
+          phone: '', bio: '',
+          experience_years: '0', languages: '', primary_district: '',
+          price_per_day: '0', price_per_hour: '0'
         });
-        await fetchData();
-        alert(`✅ Guide added ${response.data.is_verified ? 'and verified' : ''} successfully!`);
+        fetchData();
       } else {
-        alert(response?.data?.error || 'Failed to add guide');
+        alert(res?.data?.error || 'Failed to add guide');
       }
     } catch (error) {
-      const errorMsg = error.response?.data?.error || error.message || 'Failed to add guide';
-      alert('❌ ' + errorMsg);
+      alert(error.response?.data?.error || 'Failed to add guide');
       console.error(error);
     } finally {
       setGuideLoading(false);
@@ -219,15 +323,11 @@ const StaffDashboard = () => {
   // ============================================
   const verifyGuide = async (id) => {
     try {
-      const response = await api.post(`/staff/staff/guides/${id}/verify/`);
-      if (response?.data?.success) {
-        alert('✅ Guide verified!');
-        fetchData();
-      } else {
-        alert('❌ Failed to verify guide');
-      }
+      await api.post(`/staff/staff/guides/${id}/verify/`);
+      alert('Guide verified!');
+      fetchData();
     } catch (error) {
-      alert('❌ Failed to verify guide');
+      alert('Failed to verify guide');
       console.error(error);
     }
   };
@@ -238,15 +338,10 @@ const StaffDashboard = () => {
   const deleteGuide = async (id) => {
     if (!window.confirm('Delete this guide?')) return;
     try {
-      const response = await api.delete(`/staff/staff/guides/${id}/`);
-      if (response?.data?.success) {
-        alert('✅ Guide deleted');
-        fetchData();
-      } else {
-        alert('❌ Failed to delete guide');
-      }
+      await api.delete(`/staff/staff/guides/${id}/`);
+      fetchData();
     } catch (error) {
-      alert('❌ Failed to delete guide');
+      alert('Failed to delete guide');
       console.error(error);
     }
   };
@@ -256,15 +351,10 @@ const StaffDashboard = () => {
   // ============================================
   const updateBooking = async (id, status) => {
     try {
-      const response = await api.post(`/staff/staff/bookings/${id}/update/`, { status });
-      if (response?.data?.success) {
-        alert(`✅ Booking ${status}!`);
-        fetchData();
-      } else {
-        alert('❌ Failed to update booking');
-      }
+      await api.post(`/staff/staff/bookings/${id}/update/`, { status });
+      fetchData();
     } catch (error) {
-      alert('❌ Failed to update booking');
+      alert('Failed to update booking');
       console.error(error);
     }
   };
@@ -274,22 +364,52 @@ const StaffDashboard = () => {
   // ============================================
   const processReview = async (id, action) => {
     try {
-      const response = await api.post(`/staff/staff/reviews/${id}/process/`, { action });
-      if (response?.data?.success) {
-        alert(`✅ Review ${action === 'approve' ? 'approved' : 'rejected'}!`);
-        fetchData();
-      } else {
-        alert('❌ Failed to process review');
-      }
+      await api.post(`/staff/staff/reviews/${id}/process/`, { action });
+      fetchData();
     } catch (error) {
-      alert('❌ Failed to process review');
+      alert('Failed to process review');
       console.error(error);
     }
   };
 
   // ============================================
-  // RENDER
+  // GET FILTERED SUGGESTIONS
   // ============================================
+  const getFilteredSuggestions = () => {
+    if (suggestionFilter === 'all') return allSuggestions;
+    return allSuggestions.filter(s => s.status === suggestionFilter);
+  };
+
+  const filteredSuggestions = getFilteredSuggestions();
+
+  // ============================================
+  // GET STATUS COLOR
+  // ============================================
+  const getStatusColor = (status) => {
+    const colors = {
+      'pending': 'bg-yellow-100 text-yellow-700',
+      'approved': 'bg-green-100 text-green-700',
+      'implemented': 'bg-blue-100 text-blue-700',
+      'rejected': 'bg-red-100 text-red-700',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-700';
+  };
+
+  const getStatusLabel = (status) => {
+    const labels = {
+      'pending': '⏳ Pending',
+      'approved': '✅ Approved',
+      'implemented': '🚀 Implemented',
+      'rejected': '❌ Rejected',
+    };
+    return labels[status] || status;
+  };
+
+  const openSuggestionModal = (suggestion) => {
+    setSelectedSuggestion(suggestion);
+    setShowSuggestionModal(true);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FBF6EA]">
@@ -354,116 +474,225 @@ const StaffDashboard = () => {
 
         {/* Overview Tab */}
         {activeTab === 'overview' && (
-          <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                <h3 className="font-semibold mb-4">Recent Bookings</h3>
-                {bookings.slice(0, 5).length === 0 ? (
-                  <p className="text-gray-500 text-sm">No recent bookings</p>
-                ) : (
-                  bookings.slice(0, 5).map(b => (
-                    <div key={b.id} className="flex justify-between items-center py-2 border-b border-gray-50">
-                      <div>
-                        <p className="font-medium text-sm">{b.traveler_email || 'Anonymous'}</p>
-                        <p className="text-xs text-gray-500">{b.guide_name} • {b.date}</p>
-                      </div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        b.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                        b.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        b.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {b.status}
-                      </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+              <h3 className="font-semibold mb-4">Recent Bookings</h3>
+              {bookings.slice(0, 5).length === 0 ? (
+                <p className="text-gray-500 text-sm">No recent bookings</p>
+              ) : (
+                bookings.slice(0, 5).map(b => (
+                  <div key={b.id} className="flex justify-between items-center py-2 border-b border-gray-50">
+                    <div>
+                      <p className="font-medium text-sm">{b.traveler_email || 'Anonymous'}</p>
+                      <p className="text-xs text-gray-500">{b.guide_name} • {b.date}</p>
                     </div>
-                  ))
-                )}
-              </div>
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                <h3 className="font-semibold mb-4">Recent Suggestions</h3>
-                {suggestions.slice(0, 5).length === 0 ? (
-                  <p className="text-gray-500 text-sm">No pending suggestions</p>
-                ) : (
-                  suggestions.slice(0, 5).map(s => (
-                    <div key={s.id} className="flex justify-between items-center py-2 border-b border-gray-50">
-                      <div>
-                        <p className="font-medium text-sm">{s.name || 'Untitled'}</p>
-                        <p className="text-xs text-gray-500">{s.user?.email || 'Anonymous'}</p>
-                      </div>
-                      <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
-                        {s.status}
-                      </span>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      b.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                      b.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                      b.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {b.status}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
+              <h3 className="font-semibold mb-4">Recent Suggestions</h3>
+              {suggestions.slice(0, 5).length === 0 ? (
+                <p className="text-gray-500 text-sm">No pending suggestions</p>
+              ) : (
+                suggestions.slice(0, 5).map(s => (
+                  <div key={s.id} className="flex justify-between items-center py-2 border-b border-gray-50">
+                    <div>
+                      <p className="font-medium text-sm">{s.name || 'Untitled'}</p>
+                      <p className="text-xs text-gray-500">{s.user?.email || s.user_email || 'Anonymous'}</p>
+                      <p className="text-xs text-gray-400">{s.district || 'No district'}</p>
                     </div>
-                  ))
-                )}
-              </div>
+                    <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
+                      {s.status}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
 
-        {/* Suggestions Tab */}
+        {/* ✅ SUGGESTIONS TAB - COMPLETE WITH ALL ACTIONS */}
         {activeTab === 'suggestions' && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Name</th>
-                    <th className="px-4 py-3 text-left">User</th>
-                    <th className="px-4 py-3 text-left">Category</th>
-                    <th className="px-4 py-3 text-left">Status</th>
-                    <th className="px-4 py-3 text-left">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {suggestions.length === 0 ? (
-                    <tr><td colSpan="5" className="text-center py-8 text-gray-500">No pending suggestions</td></tr>
-                  ) : (
-                    suggestions.map(s => (
-                      <tr key={s.id} className="border-t border-gray-100">
-                        <td className="px-4 py-3 font-medium">{s.name || 'Untitled'}</td>
-                        <td className="px-4 py-3">{s.user?.email || 'Anonymous'}</td>
-                        <td className="px-4 py-3">{s.category || 'N/A'}</td>
-                        <td className="px-4 py-3">
-                          <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">
-                            {s.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => processSuggestion(s.id, 'approve')}
-                              className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition"
-                              disabled={processingId === s.id}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => processSuggestion(s.id, 'reject')}
-                              className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
-                              disabled={processingId === s.id}
-                            >
-                              Reject
-                            </button>
-                            <button
-                              onClick={() => processSuggestion(s.id, 'implement')}
-                              className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
-                              disabled={processingId === s.id}
-                            >
-                              Implement
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+          <div>
+            {/* Filter Buttons */}
+            <div className="flex gap-2 mb-4 flex-wrap">
+              <button
+                onClick={() => setSuggestionFilter('all')}
+                className={`px-3 py-1.5 text-xs rounded-full transition ${
+                  suggestionFilter === 'all' 
+                    ? 'bg-[#072E2A] text-white' 
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                }`}
+              >
+                All ({allSuggestions.length})
+              </button>
+              <button
+                onClick={() => setSuggestionFilter('pending')}
+                className={`px-3 py-1.5 text-xs rounded-full transition ${
+                  suggestionFilter === 'pending' 
+                    ? 'bg-yellow-600 text-white' 
+                    : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                }`}
+              >
+                ⏳ Pending ({allSuggestions.filter(s => s.status === 'pending').length})
+              </button>
+              <button
+                onClick={() => setSuggestionFilter('approved')}
+                className={`px-3 py-1.5 text-xs rounded-full transition ${
+                  suggestionFilter === 'approved' 
+                    ? 'bg-green-600 text-white' 
+                    : 'bg-green-100 text-green-700 hover:bg-green-200'
+                }`}
+              >
+                ✅ Approved ({allSuggestions.filter(s => s.status === 'approved').length})
+              </button>
+              <button
+                onClick={() => setSuggestionFilter('implemented')}
+                className={`px-3 py-1.5 text-xs rounded-full transition ${
+                  suggestionFilter === 'implemented' 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                }`}
+              >
+                🚀 Implemented ({allSuggestions.filter(s => s.status === 'implemented').length})
+              </button>
+              <button
+                onClick={() => setSuggestionFilter('rejected')}
+                className={`px-3 py-1.5 text-xs rounded-full transition ${
+                  suggestionFilter === 'rejected' 
+                    ? 'bg-red-600 text-white' 
+                    : 'bg-red-100 text-red-700 hover:bg-red-200'
+                }`}
+              >
+                ❌ Rejected ({allSuggestions.filter(s => s.status === 'rejected').length})
+              </button>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Name</th>
+                      <th className="px-4 py-3 text-left">User</th>
+                      <th className="px-4 py-3 text-left">District</th>
+                      <th className="px-4 py-3 text-left">Category</th>
+                      <th className="px-4 py-3 text-left">Status</th>
+                      <th className="px-4 py-3 text-left">Processed By</th>
+                      <th className="px-4 py-3 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSuggestions.length === 0 ? (
+                      <tr><td colSpan="7" className="text-center py-8 text-gray-500">No suggestions found</td></tr>
+                    ) : (
+                      filteredSuggestions.map(s => (
+                        <tr key={s.id} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => openSuggestionModal(s)}>
+                          <td className="px-4 py-3 font-medium">{s.name || 'Untitled'}</td>
+                          <td className="px-4 py-3">
+                            <div>
+                              <p>{s.user?.email || s.user_email || 'Anonymous'}</p>
+                              {s.user?.username && <p className="text-xs text-gray-400">@{s.user.username}</p>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">
+                              {s.district || 'N/A'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">{s.category || 'N/A'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(s.status)}`}>
+                              {getStatusLabel(s.status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {s.processed_by ? (
+                              <div>
+                                <p className="text-xs font-medium">{s.processed_by?.email || s.processed_by || 'Unknown'}</p>
+                                {s.processed_at && (
+                                  <p className="text-xs text-gray-400">{new Date(s.processed_at).toLocaleDateString()}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex gap-1 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                              {s.status === 'pending' && (
+                                <>
+                                  <button
+                                    onClick={() => processSuggestion(s.id, 'approve')}
+                                    className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition"
+                                    disabled={processingId === s.id || actionLoading}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => processSuggestion(s.id, 'reject')}
+                                    className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
+                                    disabled={processingId === s.id || actionLoading}
+                                  >
+                                    Reject
+                                  </button>
+                                  <button
+                                    onClick={() => processSuggestion(s.id, 'implement')}
+                                    className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                                    disabled={processingId === s.id || actionLoading}
+                                  >
+                                    Implement
+                                  </button>
+                                </>
+                              )}
+                              {(s.status === 'approved' || s.status === 'implemented') && (
+                                <button
+                                  onClick={() => processSuggestion(s.id, 'implement')}
+                                  className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                                  disabled={processingId === s.id || actionLoading}
+                                >
+                                  Implement
+                                </button>
+                              )}
+                              {/* ✅ DELETE BUTTON - Always visible for all statuses */}
+                              <button
+                                onClick={() => processSuggestion(s.id, 'delete')}
+                                className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition"
+                                disabled={processingId === s.id || actionLoading}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openSuggestionModal(s);
+                                }}
+                                className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+                              >
+                                View
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
-        {/* ============ GUIDES TAB ============ */}
+        {/* Guides Tab */}
         {activeTab === 'guides' && (
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -621,8 +850,7 @@ const StaffDashboard = () => {
                             >
                               Approve
                             </button>
-                            <button
-                              onClick={() => processReview(r.id, 'reject')}
+                            <button                              onClick={() => processReview(r.id, 'reject')}
                               className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
                             >
                               Reject
@@ -638,6 +866,141 @@ const StaffDashboard = () => {
           </div>
         )}
       </div>
+
+      {/* ✅ SUGGESTION DETAIL MODAL - WITH DELETE OPTION */}
+      {showSuggestionModal && selectedSuggestion && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-xl font-semibold text-[#072E2A]">{selectedSuggestion.name}</h3>
+              <button onClick={() => setShowSuggestionModal(false)} className="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+            </div>
+
+            {selectedSuggestion.image && (
+              <div className="mb-4">
+                <img 
+                  src={selectedSuggestion.image} 
+                  alt={selectedSuggestion.name} 
+                  className="w-full max-h-64 object-cover rounded-lg border border-gray-200"
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <p className="text-sm text-gray-500">User</p>
+                <p className="font-medium">{selectedSuggestion.user?.email || selectedSuggestion.user_email || 'Anonymous'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">District</p>
+                <p className="font-medium">{selectedSuggestion.district || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Category</p>
+                <p className="font-medium">{selectedSuggestion.category || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Status</p>
+                <span className={`px-2 py-1 rounded-full text-xs ${getStatusColor(selectedSuggestion.status)}`}>
+                  {getStatusLabel(selectedSuggestion.status)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-500">Location Info</p>
+              <p className="text-sm">{selectedSuggestion.location_info || 'N/A'}</p>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-500">Description</p>
+              <p className="text-sm text-gray-700">{selectedSuggestion.description || 'No description'}</p>
+            </div>
+
+            {/* ✅ Show who processed it */}
+            {selectedSuggestion.processed_by && (
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">Processed By</p>
+                <p className="text-sm font-medium">
+                  {selectedSuggestion.processed_by?.email || selectedSuggestion.processed_by || 'Unknown'}
+                </p>
+                {selectedSuggestion.processed_at && (
+                  <p className="text-xs text-gray-400">{new Date(selectedSuggestion.processed_at).toLocaleString()}</p>
+                )}
+              </div>
+            )}
+
+            {selectedSuggestion.admin_notes && (
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-500">Admin Notes</p>
+                <p className="text-sm">{selectedSuggestion.admin_notes}</p>
+              </div>
+            )}
+
+            {/* ✅ ACTION BUTTONS IN MODAL */}
+            <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200 flex-wrap">
+              {selectedSuggestion.status === 'pending' && (
+                <>
+                  <button
+                    onClick={() => {
+                      processSuggestion(selectedSuggestion.id, 'approve');
+                    }}
+                    disabled={actionLoading}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                  >
+                    ✅ Approve
+                  </button>
+                  <button
+                    onClick={() => {
+                      processSuggestion(selectedSuggestion.id, 'reject');
+                    }}
+                    disabled={actionLoading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50"
+                  >
+                    ❌ Reject
+                  </button>
+                  <button
+                    onClick={() => {
+                      processSuggestion(selectedSuggestion.id, 'implement');
+                    }}
+                    disabled={actionLoading}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                  >
+                    🚀 Implement
+                  </button>
+                </>
+              )}
+              {(selectedSuggestion.status === 'approved' || selectedSuggestion.status === 'implemented') && (
+                <button
+                  onClick={() => {
+                    processSuggestion(selectedSuggestion.id, 'implement');
+                  }}
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                >
+                  🚀 Implement
+                </button>
+              )}
+              {/* ✅ DELETE BUTTON - Always visible in modal */}
+              <button
+                onClick={() => {
+                  processSuggestion(selectedSuggestion.id, 'delete');
+                }}
+                disabled={actionLoading}
+                className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 transition disabled:opacity-50"
+              >
+                🗑️ Delete Permanently
+              </button>
+              <button
+                onClick={() => setShowSuggestionModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============ ADD GUIDE MODAL ============ */}
       {showAddGuide && (
@@ -756,7 +1119,7 @@ const StaffDashboard = () => {
                   </div>
                 </div>
 
-                {/* ✅ AUTO-VERIFY TOGGLE */}
+                {/* Auto-Verify Toggle */}
                 <div className="border-t border-gray-200 pt-4 mt-2">
                   <div className="flex items-center gap-3">
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -801,7 +1164,7 @@ const StaffDashboard = () => {
         </div>
       )}
 
-      {/* ============ PASSWORD MODAL ============ */}
+      {/* Password Modal */}
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">

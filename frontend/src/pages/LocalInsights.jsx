@@ -1,4 +1,4 @@
-// pages/LocalInsights.jsx - CLEANED VERSION (No fake data)
+// pages/LocalInsights.jsx - WITH APPROVED STATUS AND DETAIL VIEW
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,19 +12,25 @@ const LocalInsights = () => {
     const [loading, setLoading] = useState(true);
     const [showSuggestionModal, setShowSuggestionModal] = useState(false);
     const [activeCategory, setActiveCategory] = useState('all');
+    const [selectedInsight, setSelectedInsight] = useState(null);
+    const [showDetailModal, setShowDetailModal] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
         description: '',
         category: '',
         location_info: '',
-        suggestion_type: 'new'
+        district: '',
+        suggestion_type: 'new',
+        image: null,
     });
+    const [imagePreview, setImagePreview] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [stats, setStats] = useState({
         insights: 0,
         places: 0,
         categories: 0
     });
+    const [districts, setDistricts] = useState([]);
 
     useEffect(() => {
         if (!isLoggedIn) {
@@ -38,30 +44,39 @@ const LocalInsights = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // ✅ Fetch insights from localStorage (ONLY implemented suggestions)
+    // ✅ Fetch insights from localStorage - SHOW APPROVED AND IMPLEMENTED
     const fetchInsights = async () => {
         setLoading(true);
         try {
-            // Read from localStorage
             const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
             
-            // ✅ Show ONLY implemented suggestions (from both types)
-            const implemented = localSuggestions.filter(s => s.status === 'implemented');
+            // ✅ Show both 'approved' and 'implemented' as "Approved" status
+            const approvedAndImplemented = localSuggestions.filter(s => 
+                s.status === 'approved' || s.status === 'implemented'
+            );
             
-            const insightsData = implemented.map(s => ({
+            const insightsData = approvedAndImplemented.map(s => ({
                 id: s.id,
                 author: s.user_email || 'Anonymous Traveler',
                 place: s.name,
                 tip: s.description,
                 category: s.category,
                 location: s.location_info,
+                district: s.district || 'Unknown',
                 type: s.type || 'insight',
-                created_at: s.created_at
+                status: s.status || 'approved',
+                created_at: s.created_at,
+                image: s.image || null,
+                processed_at: s.processed_at || null,
+                processed_by: s.processed_by || 'Guide',
+                description: s.description,
             }));
+            
+            // Sort by most recent first
+            insightsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             
             setInsights(insightsData);
             
-            // ✅ Calculate real stats
             const uniquePlaces = new Set(insightsData.map(i => i.place));
             const uniqueCategories = new Set(insightsData.map(i => i.category).filter(Boolean));
             
@@ -86,7 +101,31 @@ const LocalInsights = () => {
         }
     }, [isLoggedIn]);
 
-    // ✅ Handle suggestion submission - Direct localStorage save
+    const handleImageChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Image size must be less than 5MB');
+                return;
+            }
+            setFormData({ ...formData, image: file });
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setImagePreview(reader.result);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const removeImage = () => {
+        setFormData({ ...formData, image: null });
+        setImagePreview(null);
+    };
+
     const handleSubmitSuggestion = async (e) => {
         e.preventDefault();
 
@@ -96,11 +135,15 @@ const LocalInsights = () => {
             return;
         }
 
+        if (!formData.district) {
+            alert('⚠️ Please select a district.');
+            return;
+        }
+
         setSubmitting(true);
         try {
             const existingSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
             
-            // Get user email from localStorage
             let userEmail = 'anonymous';
             try {
                 const userData = JSON.parse(localStorage.getItem('user') || '{}');
@@ -115,11 +158,13 @@ const LocalInsights = () => {
                 description: formData.description,
                 category: formData.category,
                 location_info: formData.location_info,
-                status: 'pending', // ✅ Starts as pending, guide will approve/implement
-                type: 'insight', // ✅ Marks as from LocalInsights page
+                district: formData.district,
+                status: 'pending',
+                type: 'insight',
                 user_email: userEmail,
                 created_at: new Date().toISOString(),
-                suggestion_type: 'new'
+                suggestion_type: 'new',
+                image: imagePreview,
             };
             
             existingSuggestions.push(newSuggestion);
@@ -132,8 +177,11 @@ const LocalInsights = () => {
                 description: '',
                 category: '',
                 location_info: '',
-                suggestion_type: 'new'
+                district: '',
+                suggestion_type: 'new',
+                image: null,
             });
+            setImagePreview(null);
             fetchInsights();
         } catch (error) {
             console.error('Error submitting suggestion:', error);
@@ -141,6 +189,17 @@ const LocalInsights = () => {
         } finally {
             setSubmitting(false);
         }
+    };
+
+    // ✅ Open detail modal
+    const openDetailModal = (insight) => {
+        setSelectedInsight(insight);
+        setShowDetailModal(true);
+    };
+
+    const closeDetailModal = () => {
+        setShowDetailModal(false);
+        setSelectedInsight(null);
     };
 
     const handleProtectedClick = (path) => {
@@ -152,13 +211,11 @@ const LocalInsights = () => {
         }
     };
 
-    // ✅ Category chips from real insights
     const categories = ['all', ...Array.from(new Set(insights.map(i => i.category).filter(Boolean)))];
     const filteredInsights = activeCategory === 'all'
         ? insights
         : insights.filter(i => i.category === activeCategory);
 
-    // ✅ Zari divider
     const ZariDivider = () => (
         <svg width="100%" height="10" viewBox="0 0 400 10" preserveAspectRatio="none" style={{ display: 'block' }}>
             <line x1="0" y1="5" x2="400" y2="5" stroke="#C79A3E" strokeWidth="0.6" strokeOpacity="0.4" />
@@ -168,7 +225,6 @@ const LocalInsights = () => {
         </svg>
     );
 
-    // ✅ BottomNav
     const BottomNav = () => (
         <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
             scrolled
@@ -266,6 +322,16 @@ const LocalInsights = () => {
                     overflow-y: auto;
                     border: 1px solid rgba(199,154,62,0.3);
                 }
+                .modal-content-detail {
+                    background: #FBF6EA;
+                    border-radius: 12px;
+                    padding: 32px;
+                    max-width: 600px;
+                    width: 100%;
+                    max-height: 90vh;
+                    overflow-y: auto;
+                    border: 1px solid rgba(199,154,62,0.3);
+                }
                 .category-badge {
                     display: inline-block;
                     padding: 2px 12px;
@@ -289,12 +355,13 @@ const LocalInsights = () => {
                 }
                 .insight-card {
                     transition: all 0.3s ease;
+                    cursor: pointer;
                 }
                 .insight-card:hover {
                     transform: translateY(-2px);
                     box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                 }
-                .implemented-badge {
+                .approved-badge {
                     display: inline-block;
                     padding: 2px 10px;
                     border-radius: 999px;
@@ -316,6 +383,20 @@ const LocalInsights = () => {
                     color: #0E5C53;
                     border: 1px solid rgba(199,154,62,0.2);
                     margin-left: 6px;
+                }
+                .image-preview {
+                    max-width: 100%;
+                    max-height: 200px;
+                    object-fit: cover;
+                    border-radius: 8px;
+                    border: 1px solid rgba(199,154,62,0.2);
+                }
+                .insight-image {
+                    width: 100%;
+                    max-height: 300px;
+                    object-fit: cover;
+                    border-radius: 8px;
+                    border: 1px solid rgba(199,154,62,0.2);
                 }
             `}</style>
 
@@ -424,13 +505,14 @@ const LocalInsights = () => {
                         {filteredInsights.length === 0 ? (
                             <div style={{ textAlign: "center", padding: "40px 0", color: "#5C6E69" }}>
                                 <p>No insights yet. Be the first to suggest one!</p>
-                                <p style={{ fontSize: 12, marginTop: 8 }}>Suggestions implemented by guides will appear here.</p>
+                                <p style={{ fontSize: 12, marginTop: 8 }}>Suggestions approved by guides will appear here.</p>
                             </div>
                         ) : (
                             filteredInsights.map((insight) => (
                                 <div
                                     key={insight.id}
                                     className="insight-card"
+                                    onClick={() => openDetailModal(insight)}
                                     style={{
                                         background: "#fff",
                                         borderRadius: 4,
@@ -440,36 +522,54 @@ const LocalInsights = () => {
                                     }}
                                 >
                                     <div style={{ display: "flex", gap: 6, position: 'absolute', top: 12, right: 12 }}>
-                                        <span className="implemented-badge">✅ Implemented</span>
+                                        <span className="approved-badge">✅ Approved</span>
                                         {insight.type === 'hidden_gem' ? (
                                             <span className="type-badge">💎 From Traveler</span>
                                         ) : (
                                             <span className="type-badge">✨ From Expert</span>
                                         )}
                                     </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                                        <div className="li-font-display" style={{
-                                            width: 38,
-                                            height: 38,
-                                            borderRadius: "50%",
-                                            border: "1px solid #C79A3E",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            fontSize: 15,
-                                            color: "#0E5C53",
-                                            flexShrink: 0,
-                                            fontStyle: "italic"
-                                        }}>
-                                            {insight.author?.[0]?.toUpperCase() || 'U'}
-                                        </div>
-                                        <div>
-                                            <p style={{ fontWeight: 600, fontSize: 13, color: "#0B2422", margin: 0 }}>
-                                                {insight.author || 'Anonymous Traveler'}
-                                            </p>
-                                            <p className="li-font-mono" style={{ fontSize: 10, color: "#5C6E69", margin: "2px 0 0" }}>
-                                                📍 {insight.place || insight.location}
-                                            </p>
+                                    <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+                                        {insight.image && (
+                                            <div style={{ flexShrink: 0 }}>
+                                                <img 
+                                                    src={insight.image} 
+                                                    alt={insight.place} 
+                                                    style={{ 
+                                                        width: 60, 
+                                                        height: 60, 
+                                                        borderRadius: 8, 
+                                                        objectFit: 'cover',
+                                                        border: '1px solid rgba(199,154,62,0.2)'
+                                                    }} 
+                                                />
+                                            </div>
+                                        )}
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{
+                                                width: 38,
+                                                height: 38,
+                                                borderRadius: "50%",
+                                                border: "1px solid #C79A3E",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontSize: 15,
+                                                color: "#0E5C53",
+                                                flexShrink: 0,
+                                                fontStyle: "italic"
+                                            }}>
+                                                {insight.author?.[0]?.toUpperCase() || 'U'}
+                                            </div>
+                                            <div>
+                                                <p style={{ fontWeight: 600, fontSize: 13, color: "#0B2422", margin: 0 }}>
+                                                    {insight.author || 'Anonymous Traveler'}
+                                                </p>
+                                                <p className="li-font-mono" style={{ fontSize: 10, color: "#5C6E69", margin: "2px 0 0" }}>
+                                                    📍 {insight.place || insight.location}
+                                                    {insight.district && ` · ${insight.district}`}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                     <p style={{ fontSize: 13, color: "#4A5F5A", margin: "0 0 8px 0", lineHeight: 1.55 }}>
@@ -480,6 +580,17 @@ const LocalInsights = () => {
                                             {insight.category}
                                         </span>
                                     )}
+                                    <div style={{ marginTop: 8, fontSize: 11, color: "#8A9A95" }}>
+                                        <span>✅ Approved by {insight.processed_by || 'Guide'}</span>
+                                        {insight.processed_at && (
+                                            <span style={{ marginLeft: 12 }}>
+                                                📅 {new Date(insight.processed_at).toLocaleDateString()}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ marginTop: 6, fontSize: 11, color: "#C79A3E" }}>
+                                        👆 Click to view details
+                                    </div>
                                 </div>
                             ))
                         )}
@@ -501,7 +612,7 @@ const LocalInsights = () => {
                 </div>
             </div>
 
-            {/* Suggest Destination Modal */}
+            {/* Suggest Destination Modal with District & Image */}
             {showSuggestionModal && (
                 <div className="modal-overlay" onClick={() => setShowSuggestionModal(false)}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -524,6 +635,33 @@ const LocalInsights = () => {
                                     value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 />
+                            </div>
+
+                            <div>
+                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>District *</label>
+                                <select
+                                    required
+                                    style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff" }}
+                                    value={formData.district}
+                                    onChange={(e) => setFormData({ ...formData, district: e.target.value })}
+                                >
+                                    <option value="">Select District</option>
+                                    <option value="Thiruvananthapuram">Thiruvananthapuram</option>
+                                    <option value="Kollam">Kollam</option>
+                                    <option value="Pathanamthitta">Pathanamthitta</option>
+                                    <option value="Alappuzha">Alappuzha</option>
+                                    <option value="Kottayam">Kottayam</option>
+                                    <option value="Idukki">Idukki</option>
+                                    <option value="Ernakulam">Ernakulam</option>
+                                    <option value="Thrissur">Thrissur</option>
+                                    <option value="Palakkad">Palakkad</option>
+                                    <option value="Malappuram">Malappuram</option>
+                                    <option value="Kozhikode">Kozhikode</option>
+                                    <option value="Wayanad">Wayanad</option>
+                                    <option value="Kannur">Kannur</option>
+                                    <option value="Kasaragod">Kasaragod</option>
+                                </select>
+                                <p style={{ fontSize: 11, color: "#8A9A95", marginTop: 4 }}>This will be sent to guides in this district</p>
                             </div>
 
                             <div>
@@ -578,9 +716,46 @@ const LocalInsights = () => {
                                 />
                             </div>
 
+                            {/* Image Upload */}
+                            <div>
+                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Upload Photo</label>
+                                <div className="flex items-center gap-4">
+                                    <label className="cursor-pointer bg-[#FBF6EA] border border-[#C79A3E]/30 rounded-lg px-4 py-3 hover:bg-[#F5EFE0] transition text-sm text-[#0B2422] flex items-center gap-2">
+                                        <span>📷</span>
+                                        <span>Choose Image</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageChange}
+                                            className="hidden"
+                                        />
+                                    </label>
+                                    {imagePreview && (
+                                        <button
+                                            type="button"
+                                            onClick={removeImage}
+                                            className="text-red-500 text-sm hover:text-red-700 transition"
+                                        >
+                                            Remove
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-xs text-gray-400 mt-1">Max 5MB. JPG, PNG, GIF accepted</p>
+                                {imagePreview && (
+                                    <div className="mt-3">
+                                        <img
+                                            src={imagePreview}
+                                            alt="Preview"
+                                            className="image-preview"
+                                            style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, border: '1px solid rgba(199,154,62,0.2)' }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
                             <div style={{ background: "#f0f7f5", padding: "12px", borderRadius: 4, fontSize: 12, color: "#0E5C53" }}>
                                 💡 Your suggestion will be sent to our local guides for review.
-                                Once implemented, it will appear in the insights section for all travelers to see.
+                                Once approved, it will appear in the insights section for all travelers to see.
                             </div>
 
                             <button
@@ -602,6 +777,141 @@ const LocalInsights = () => {
                                 {submitting ? 'Submitting...' : '📤 Submit Suggestion'}
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ✅ Detail Modal */}
+            {showDetailModal && selectedInsight && (
+                <div className="modal-overlay" onClick={closeDetailModal}>
+                    <div className="modal-content-detail" onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                            <h2 className="li-font-display" style={{ fontSize: 24, color: "#0B2422", margin: 0 }}>
+                                {selectedInsight.place}
+                            </h2>
+                            <button onClick={closeDetailModal} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#5C6E69" }}>×</button>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                            <span className="approved-badge">✅ Approved</span>
+                            {selectedInsight.category && (
+                                <span className="category-badge">{selectedInsight.category}</span>
+                            )}
+                            {selectedInsight.district && (
+                                <span className="category-badge" style={{ background: "rgba(199,154,62,0.25)" }}>
+                                    📍 {selectedInsight.district}
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Image */}
+                        {selectedInsight.image && (
+                            <div style={{ marginBottom: 16 }}>
+                                <img 
+                                    src={selectedInsight.image} 
+                                    alt={selectedInsight.place} 
+                                    className="insight-image"
+                                    style={{ 
+                                        width: '100%', 
+                                        maxHeight: 300, 
+                                        objectFit: 'cover', 
+                                        borderRadius: 8,
+                                        border: '1px solid rgba(199,154,62,0.2)'
+                                    }}
+                                />
+                            </div>
+                        )}
+
+                        {/* Author Info */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                            <div style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: "50%",
+                                border: "1px solid #C79A3E",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 16,
+                                color: "#0E5C53",
+                            }}>
+                                {selectedInsight.author?.[0]?.toUpperCase() || 'U'}
+                            </div>
+                            <div>
+                                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0 }}>
+                                    {selectedInsight.author || 'Anonymous Traveler'}
+                                </p>
+                                <p className="li-font-mono" style={{ fontSize: 10, color: "#5C6E69", margin: 0 }}>
+                                    📅 {selectedInsight.created_at ? new Date(selectedInsight.created_at).toLocaleDateString() : 'Recently'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Location */}
+                        {selectedInsight.location && (
+                            <div style={{ marginBottom: 12 }}>
+                                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>📍 Location</h4>
+                                <p style={{ fontSize: 13, color: "#5C6E69", margin: 0 }}>{selectedInsight.location}</p>
+                            </div>
+                        )}
+
+                        {/* Description */}
+                        <div style={{ marginBottom: 12 }}>
+                            <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>📝 Description</h4>
+                            <p style={{ fontSize: 13, color: "#4A5F5A", lineHeight: 1.6, margin: 0 }}>
+                                {selectedInsight.description || selectedInsight.tip || 'No description provided.'}
+                            </p>
+                        </div>
+
+                        {/* Tips */}
+                        {selectedInsight.tip && selectedInsight.tip !== selectedInsight.description && (
+                            <div style={{ marginBottom: 12 }}>
+                                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>💡 Tips</h4>
+                                <p style={{ fontSize: 13, color: "#4A5F5A", lineHeight: 1.6, margin: 0 }}>
+                                    {selectedInsight.tip}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Approval Info */}
+                        <div style={{ padding: 12, background: "#E6F0EA", borderRadius: 8, marginTop: 8 }}>
+                            <p style={{ fontSize: 12, color: "#3F7A5E", margin: 0 }}>
+                                ✅ Approved by {selectedInsight.processed_by || 'Guide'}
+                                {selectedInsight.processed_at && (
+                                    <span style={{ marginLeft: 8 }}>
+                                        on {new Date(selectedInsight.processed_at).toLocaleDateString()}
+                                    </span>
+                                )}
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={closeDetailModal}
+                            style={{
+                                marginTop: 16,
+                                padding: "10px 24px",
+                                borderRadius: 999,
+                                border: "1px solid #0B2422",
+                                background: "transparent",
+                                color: "#0B2422",
+                                fontSize: 11,
+                                letterSpacing: "0.15em",
+                                textTransform: "uppercase",
+                                cursor: "pointer",
+                                width: "100%",
+                            }}
+                            onMouseEnter={(e) => {
+                                e.target.style.background = "#0B2422";
+                                e.target.style.color = "#fff";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.background = "transparent";
+                                e.target.style.color = "#0B2422";
+                            }}
+                        >
+                            Close
+                        </button>
                     </div>
                 </div>
             )}

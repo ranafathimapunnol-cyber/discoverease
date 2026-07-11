@@ -1,6 +1,5 @@
-// src/pages/Guides.jsx - COMPLETE FIXED VERSION
-
-import React, { useState, useEffect } from 'react';
+// src/pages/Guides.jsx - COMPLETE FIXED VERSION WITH BOOKINGS
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -34,7 +33,6 @@ const KERALA_DISTRICTS = [
 ];
 
 const getDistrictName = (id) => KERALA_DISTRICTS.find((d) => d.id === Number(id))?.name || null;
-const getDistrictId = (name) => KERALA_DISTRICTS.find((d) => d.name.toLowerCase() === name.toLowerCase())?.id || null;
 
 const ZariDivider = ({ color = T.gold, opacity = 0.55 }) => (
     <svg width="100%" height="10" viewBox="0 0 400 10" preserveAspectRatio="none" style={{ display: 'block' }}>
@@ -88,63 +86,45 @@ const Guides = () => {
     const [activeSpecialty, setActiveSpecialty] = useState('all');
     const [activeDistrict, setActiveDistrict] = useState(null);
     const [allSpecialties, setAllSpecialties] = useState(['all']);
-
-    // Load district from URL params
-    useEffect(() => {
-        const params = new URLSearchParams(location.search);
-        const district = params.get('district');
-        const specialty = params.get('specialty');
-        const search = params.get('search');
-
-        if (specialty) setActiveSpecialty(specialty);
-        if (search) setSearchTerm(search);
-        if (district) {
-            const found = KERALA_DISTRICTS.find((d) => d.name.toLowerCase() === district.toLowerCase());
-            if (found) {
-                setActiveDistrict(found);
-                if (!search) setSearchTerm(district);
-            }
-        }
-    }, [location.search]);
-
-    useEffect(() => {
-        const handleScroll = () => setScrolled(window.scrollY > 50);
-        window.addEventListener('scroll', handleScroll);
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, []);
-
-    useEffect(() => {
-        if (!isLoggedIn) {
-            navigate('/login', { replace: true });
-        } else {
-            fetchGuides();
-            fetchMyBookings();
-        }
-    }, [isLoggedIn, navigate, activeDistrict, activeSpecialty]);
+    
+    const isInitialMount = useRef(true);
+    const fetchTimeout = useRef(null);
+    const isFetching = useRef(false);
 
     // ============================================
-    // FETCH GUIDES FROM API - FIXED WITH PAGINATION
+    // FETCH GUIDES FROM API
     // ============================================
     const fetchGuides = async () => {
+        if (isFetching.current) {
+            console.log('⏳ Fetch already in progress, skipping...');
+            return;
+        }
+        
+        isFetching.current = true;
         setLoading(true);
+        
         try {
             const params = {};
 
             if (activeDistrict) {
-                params.district = activeDistrict.id;
+                params.districts = activeDistrict.id;
+                console.log(`📍 Filtering by district: ${activeDistrict.name} (ID: ${activeDistrict.id})`);
             }
 
             if (activeSpecialty && activeSpecialty !== 'all') {
                 params.category = activeSpecialty;
             }
 
-            if (searchTerm) {
+            if (searchTerm && searchTerm !== activeDistrict?.name) {
                 params.search = searchTerm;
             }
 
+            console.log('📊 Fetching guides with params:', params);
+
             const response = await api.get('/guides/guides/', { params });
             
-            // Handle paginated response
+            console.log('📊 API Response:', response.data);
+
             let guidesData = [];
             if (response.data && response.data.results) {
                 guidesData = response.data.results;
@@ -155,14 +135,10 @@ const Guides = () => {
                 guidesData = [];
             }
 
-            // Transform API data to match UI format
             const formattedGuides = guidesData.map((guide) => ({
                 id: guide.id,
-                user: {
-                    first_name: guide.full_name?.split(' ')[0] || 'Guide',
-                    last_name: guide.full_name?.split(' ').slice(1).join(' ') || '',
-                    email: guide.email || '',
-                },
+                full_name: guide.full_name || 'Guide',
+                email: guide.email || '',
                 bio: guide.bio || 'Experienced guide ready to show you the best of Kerala.',
                 experience_years: guide.years_of_experience || 0,
                 specialties: guide.categories?.map((c) => c.name) || ['local tours'],
@@ -170,16 +146,16 @@ const Guides = () => {
                 total_reviews: guide.total_reviews || 0,
                 is_verified: guide.is_verified || false,
                 phone: guide.phone_number || '',
-                primary_district: guide.districts?.[0]?.id || null,
-                additional_districts: guide.districts?.slice(1).map((d) => d.id) || [],
+                districts: guide.districts || [],
                 availabilities: guide.availabilities || [],
                 price_per_day: guide.price_per_day || 0,
                 price_per_hour: guide.price_per_hour || 0,
+                languages: guide.languages || 'English, Malayalam',
             }));
 
             setGuides(formattedGuides);
+            console.log(`📊 Formatted guides: ${formattedGuides.length}`);
 
-            // Extract specialties for filter
             const specialties = ['all', ...new Set(formattedGuides.flatMap((g) => g.specialties || []))];
             setAllSpecialties(specialties);
         } catch (error) {
@@ -187,24 +163,87 @@ const Guides = () => {
             setGuides([]);
         } finally {
             setLoading(false);
+            isFetching.current = false;
         }
     };
 
     // ============================================
-    // FETCH MY BOOKINGS
+    // FETCH MY BOOKINGS - COMPLETE FIX
     // ============================================
     const fetchMyBookings = async () => {
         try {
-            const response = await api.get('/guides/bookings/');
-
-            if (response.data && response.data.success && response.data.bookings) {
-                setMyBookings(response.data.bookings);
-            } else if (response.data && Array.isArray(response.data)) {
-                setMyBookings(response.data);
-            } else if (response.data && response.data.results) {
-                setMyBookings(response.data.results);
-            } else {
+            console.log('📊 Fetching my bookings...');
+            console.log('👤 Current user:', user?.email);
+            
+            if (!user?.email) {
+                console.log('⚠️ No user logged in, skipping bookings fetch');
                 setMyBookings([]);
+                return;
+            }
+            
+            let bookingsData = [];
+            
+            // ✅ Try BookingViewSet endpoint
+            try {
+                console.log('📊 Fetching from /guides/bookings/...');
+                const response = await api.get('/guides/bookings/');
+                console.log('📊 BookingViewSet response:', response.data);
+                
+                if (response.data) {
+                    if (response.data.success && response.data.bookings) {
+                        bookingsData = response.data.bookings;
+                    } else if (response.data.success && response.data.results) {
+                        bookingsData = response.data.results;
+                    } else if (Array.isArray(response.data)) {
+                        bookingsData = response.data;
+                    } else if (response.data.results && Array.isArray(response.data.results)) {
+                        bookingsData = response.data.results;
+                    } else if (response.data.bookings && Array.isArray(response.data.bookings)) {
+                        bookingsData = response.data.bookings;
+                    }
+                }
+            } catch (firstError) {
+                console.log('⚠️ BookingViewSet failed:', firstError.message);
+            }
+            
+            // ✅ If no bookings from API, try localStorage
+            if (bookingsData.length === 0) {
+                console.log('📊 No bookings from API, checking localStorage...');
+                try {
+                    const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
+                    console.log('📊 Traveler bookings from localStorage:', travelerBookings);
+                    
+                    if (user?.email) {
+                        const userBookings = travelerBookings.filter(b => b.travelerEmail === user.email);
+                        console.log(`📊 Found ${userBookings.length} bookings in localStorage for ${user.email}`);
+                        bookingsData = userBookings;
+                    }
+                } catch (e) {
+                    console.error('Error reading localStorage bookings:', e);
+                }
+            }
+            
+            // ✅ Filter bookings for the current user
+            if (bookingsData.length > 0 && user?.email) {
+                const filtered = bookingsData.filter(b => {
+                    const userMatch = 
+                        b.user?.email === user.email ||
+                        b.traveler_email === user.email ||
+                        b.travelerEmail === user.email ||
+                        b.user === user.id ||
+                        b.user_id === user.id ||
+                        b.user?.id === user.id;
+                    
+                    if (userMatch) {
+                        console.log(`✅ Found booking:`, b);
+                    }
+                    return userMatch;
+                });
+                
+                console.log(`📊 Final filtered bookings: ${filtered.length}`);
+                setMyBookings(filtered);
+            } else {
+                setMyBookings(bookingsData);
             }
         } catch (error) {
             console.error('Error fetching bookings:', error);
@@ -216,40 +255,119 @@ const Guides = () => {
     // FILTER GUIDES
     // ============================================
     const filteredGuides = guides.filter((g) => {
-        const term = searchTerm.toLowerCase();
-        const matchesSearch =
-            !term ||
-            `${g.user?.first_name || ''} ${g.user?.last_name || ''}`.toLowerCase().includes(term) ||
-            (g.bio || '').toLowerCase().includes(term) ||
-            (g.specialties || []).some((s) => s.toLowerCase().includes(term));
+        let matchesSearch = true;
+        if (searchTerm && searchTerm !== activeDistrict?.name) {
+            const term = searchTerm.toLowerCase();
+            matchesSearch = 
+                (g.full_name || '').toLowerCase().includes(term) ||
+                (g.bio || '').toLowerCase().includes(term) ||
+                (g.specialties || []).some((s) => s.toLowerCase().includes(term));
+        }
 
         const matchesSpecialty = activeSpecialty === 'all' || (g.specialties || []).includes(activeSpecialty);
 
         let matchesDistrict = true;
         if (activeDistrict) {
-            const servesDistrict =
-                g.primary_district === activeDistrict.id || (g.additional_districts || []).includes(activeDistrict.id);
-            matchesDistrict = servesDistrict;
+            matchesDistrict = (g.districts || []).some(d => d.id === activeDistrict.id);
         }
 
         return matchesSearch && matchesSpecialty && matchesDistrict;
     });
 
-    const handleProtectedClick = (path) => {
-        if (!isLoggedIn) {
-            alert('⚠️ Login required.');
-            navigate('/login');
-        } else navigate(path);
-    };
+    // ============================================
+    // EFFECTS
+    // ============================================
+    
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const district = params.get('district');
+        const specialty = params.get('specialty');
+        const search = params.get('search');
 
-    const openGuide = (guide) => {
-        setSelectedGuide(selectedGuide?.id === guide.id ? null : guide);
-        setSelectedSlot(null);
-        setBookingError(null);
-    };
+        console.log('📍 URL Params:', { district, specialty, search });
+
+        let shouldUpdate = false;
+
+        if (specialty) {
+            setActiveSpecialty(specialty);
+            shouldUpdate = true;
+        }
+        
+        if (search && search !== district) {
+            setSearchTerm(search);
+            shouldUpdate = true;
+        } else if (!district) {
+            if (search) {
+                setSearchTerm(search);
+                shouldUpdate = true;
+            }
+        }
+        
+        if (district) {
+            const found = KERALA_DISTRICTS.find((d) => d.name.toLowerCase() === district.toLowerCase());
+            if (found) {
+                setActiveDistrict(found);
+                console.log(`📍 Set active district: ${found.name} (ID: ${found.id})`);
+                shouldUpdate = true;
+            } else {
+                const foundById = KERALA_DISTRICTS.find((d) => d.id === Number(district));
+                if (foundById) {
+                    setActiveDistrict(foundById);
+                    console.log(`📍 Set active district by ID: ${foundById.name} (ID: ${foundById.id})`);
+                    shouldUpdate = true;
+                }
+            }
+        } else {
+            setActiveDistrict(null);
+            shouldUpdate = true;
+        }
+
+        if (shouldUpdate || isInitialMount.current) {
+            isInitialMount.current = false;
+            if (fetchTimeout.current) {
+                clearTimeout(fetchTimeout.current);
+            }
+            fetchTimeout.current = setTimeout(() => {
+                // ✅ Fetch guides and bookings together
+                Promise.all([fetchGuides(), fetchMyBookings()])
+                    .then(() => console.log('✅ Guides and bookings fetched successfully'))
+                    .catch(err => console.error('❌ Error fetching data:', err));
+            }, 300);
+        }
+    }, [location.search]);
+
+    useEffect(() => {
+        if (!isLoggedIn) {
+            navigate('/login', { replace: true });
+        }
+    }, [isLoggedIn, navigate]);
+
+    useEffect(() => {
+        const handleScroll = () => setScrolled(window.scrollY > 50);
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    useEffect(() => {
+        if (!isInitialMount.current) {
+            if (fetchTimeout.current) {
+                clearTimeout(fetchTimeout.current);
+            }
+            fetchTimeout.current = setTimeout(() => {
+                fetchGuides();
+            }, 200);
+        }
+    }, [activeSpecialty]);
+
+    // ✅ Re-fetch bookings when user changes
+    useEffect(() => {
+        if (user?.email) {
+            fetchMyBookings();
+        }
+    }, [user?.email]);
 
     // ============================================
-    // BOOKING - Uses API
+    // BOOKING
     // ============================================
     const handleBookGuide = async () => {
         setBookingError(null);
@@ -267,24 +385,51 @@ const Guides = () => {
         try {
             const bookingData = {
                 guide: selectedGuide.id,
-                district: activeDistrict?.id || selectedGuide.primary_district,
+                district: activeDistrict?.id || selectedGuide.districts?.[0]?.id,
                 date: selectedSlot.date,
                 time: selectedSlot.start_time,
                 duration_hours: 1,
                 number_of_people: 1,
-                special_requests: notes.trim(),
+                special_requests: notes.trim() || trimmedDestination,
+                destination: trimmedDestination,
             };
+
+            console.log('📝 Creating booking:', bookingData);
 
             const response = await api.post('/guides/bookings/', bookingData);
 
+            console.log('📝 Booking response:', response.data);
+
             if (response.data) {
-                setBookingSuccess(`✅ Booking sent to ${selectedGuide.user?.first_name}! They'll confirm shortly.`);
+                // ✅ Save to localStorage
+                try {
+                    const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
+                    const newBooking = {
+                        id: response.data.id || Date.now(),
+                        guideEmail: selectedGuide.email || selectedGuide.id,
+                        guideName: selectedGuide.full_name,
+                        district: activeDistrict?.name || selectedGuide.districts?.[0]?.name,
+                        destination: trimmedDestination,
+                        date: selectedSlot.date,
+                        time: `${selectedSlot.start_time} - ${selectedSlot.end_time}`,
+                        status: 'pending',
+                        createdAt: new Date().toISOString(),
+                        travelerEmail: user?.email,
+                    };
+                    travelerBookings.push(newBooking);
+                    localStorage.setItem('traveler_bookings', JSON.stringify(travelerBookings));
+                    console.log('✅ Booking saved to localStorage:', newBooking);
+                } catch (e) {
+                    console.log('Error saving to localStorage:', e);
+                }
+
+                setBookingSuccess(`✅ Booking sent to ${selectedGuide.full_name}! They'll confirm shortly.`);
                 setSelectedGuide(null);
                 setSelectedSlot(null);
                 setDestination('');
                 setNotes('');
-                fetchGuides();
-                fetchMyBookings();
+                // ✅ Refresh both guides and bookings after booking
+                await Promise.all([fetchGuides(), fetchMyBookings()]);
             }
         } catch (error) {
             console.error('Booking error:', error);
@@ -297,10 +442,29 @@ const Guides = () => {
     const handleCancelMyBooking = async (bookingId) => {
         if (!window.confirm('Cancel this booking?')) return;
         try {
-            await api.post(`/guides/bookings/${bookingId}/cancel/`);
-            fetchMyBookings();
+            // Try API cancel
+            try {
+                await api.post(`/guides/bookings/${bookingId}/cancel/`);
+            } catch (e) {
+                console.log('API cancel failed, updating localStorage:', e);
+            }
+            
+            // Update localStorage
+            try {
+                const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
+                const updated = travelerBookings.map(b => 
+                    b.id === bookingId ? { ...b, status: 'cancelled' } : b
+                );
+                localStorage.setItem('traveler_bookings', JSON.stringify(updated));
+            } catch (e) {
+                console.log('Error updating localStorage:', e);
+            }
+            
+            // ✅ Refresh bookings
+            await fetchMyBookings();
         } catch (error) {
             alert('Failed to cancel booking');
+            console.error('Cancel error:', error);
         }
     };
 
@@ -381,6 +545,19 @@ const Guides = () => {
             </div>
         </div>
     );
+
+    const handleProtectedClick = (path) => {
+        if (!isLoggedIn) {
+            alert('⚠️ Login required.');
+            navigate('/login');
+        } else navigate(path);
+    };
+
+    const openGuide = (guide) => {
+        setSelectedGuide(selectedGuide?.id === guide.id ? null : guide);
+        setSelectedSlot(null);
+        setBookingError(null);
+    };
 
     return (
         <div
@@ -506,7 +683,7 @@ const Guides = () => {
                 </div>
             )}
 
-            {/* My Bookings */}
+            {/* ✅ MY BOOKINGS - FIXED DISPLAY */}
             {showMyBookings && (
                 <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px 20px 0' }}>
                     <h2 style={{ fontSize: 18, fontWeight: 600, color: T.ink, marginBottom: 16 }}>📅 My Bookings</h2>
@@ -541,11 +718,16 @@ const Guides = () => {
                                         }}>
                                         <div>
                                             <p style={{ fontWeight: 600, color: T.ink, margin: 0 }}>
-                                                {b.district?.name || 'Kerala Tour'}
+                                                {b.destination || b.district?.name || 'Kerala Tour'}
                                             </p>
                                             <p style={{ fontSize: 13, color: T.muted, margin: '4px 0 0' }}>
-                                                🧭 {b.guide_name || 'Guide'} • 📅 {b.date} • ⏰ {b.time}
-                                                {b.district && ` • 📍 ${b.district.name}`}
+                                                🧭 {b.guide_name || b.guideName || 'Guide'} • 📅 {b.date} • ⏰ {b.time}
+                                                {b.district && ` • 📍 ${b.district.name || b.district}`}
+                                                {b.destination && b.destination !== (b.district?.name || b.district) && (
+                                                    <span style={{ display: 'block', marginTop: 2 }}>
+                                                        📍 Destination: <strong>{b.destination}</strong>
+                                                    </span>
+                                                )}
                                             </p>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -667,7 +849,7 @@ const Guides = () => {
                 )}
             </div>
 
-            {/* Guides Grid */}
+            {/* Guides Grid - Same as before */}
             <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px 24px' }}>
                 {loading ? (
                     <div style={{ textAlign: 'center', padding: '60px 0' }}>
@@ -698,6 +880,11 @@ const Guides = () => {
                                     : 'Check back soon — guides are still setting up their availability.'
                                 : 'Try a different search term or specialty.'}
                         </p>
+                        {activeDistrict && (
+                            <p style={{ fontSize: 14, color: T.muted, marginTop: 8 }}>
+                                Showing 0 guides for {activeDistrict.name}.
+                            </p>
+                        )}
                     </div>
                 ) : (
                     <div style={{ display: 'grid', gap: 20 }}>
@@ -716,6 +903,7 @@ const Guides = () => {
                                     cursor: 'pointer',
                                 }}
                                 onClick={() => openGuide(guide)}>
+                                
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
                                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
                                         <div
@@ -732,12 +920,41 @@ const Guides = () => {
                                                 color: '#fff',
                                                 flexShrink: 0,
                                             }}>
-                                            {guide.user?.first_name?.[0] || 'G'}
+                                            {guide.full_name?.[0] || 'G'}
                                         </div>
                                         <div>
                                             <h3 style={{ fontSize: 19, fontWeight: 600, color: T.ink, margin: 0 }}>
-                                                {guide.user?.first_name} {guide.user?.last_name}
+                                                {guide.full_name}
                                             </h3>
+                                            
+                                            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                                                {(guide.districts || []).map((d) => (
+                                                    <span
+                                                        key={d.id}
+                                                        style={{
+                                                            padding: '2px 10px',
+                                                            borderRadius: 999,
+                                                            fontSize: 9,
+                                                            background: T.goldLight,
+                                                            color: T.deepTeal,
+                                                        }}>
+                                                        📍 {d.name}
+                                                    </span>
+                                                ))}
+                                                {(!guide.districts || guide.districts.length === 0) && (
+                                                    <span
+                                                        style={{
+                                                            padding: '2px 10px',
+                                                            borderRadius: 999,
+                                                            fontSize: 9,
+                                                            background: '#E5E7EB',
+                                                            color: '#6B7280',
+                                                        }}>
+                                                        District not assigned
+                                                    </span>
+                                                )}
+                                            </div>
+                                            
                                             <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                                                 {guide.specialties.map((s, i) => (
                                                     <span
@@ -753,6 +970,7 @@ const Guides = () => {
                                                     </span>
                                                 ))}
                                             </div>
+                                            
                                             <div
                                                 style={{
                                                     marginTop: 8,
@@ -778,33 +996,6 @@ const Guides = () => {
                                                         ✅ Verified
                                                     </span>
                                                 )}
-                                            </div>
-                                            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                                {guide.primary_district && (
-                                                    <span
-                                                        style={{
-                                                            padding: '2px 8px',
-                                                            borderRadius: 999,
-                                                            fontSize: 9,
-                                                            background: T.goldLight,
-                                                            color: T.deepTeal,
-                                                        }}>
-                                                        📍 {getDistrictName(guide.primary_district)}
-                                                    </span>
-                                                )}
-                                                {(guide.additional_districts || []).slice(0, 2).map((d, i) => (
-                                                    <span
-                                                        key={i}
-                                                        style={{
-                                                            padding: '2px 8px',
-                                                            borderRadius: 999,
-                                                            fontSize: 9,
-                                                            background: 'rgba(199,154,62,0.15)',
-                                                            color: '#0E5C53',
-                                                        }}>
-                                                        {getDistrictName(d)}
-                                                    </span>
-                                                ))}
                                             </div>
                                         </div>
                                     </div>
@@ -844,6 +1035,46 @@ const Guides = () => {
                                             paddingTop: 20,
                                         }}
                                         onClick={(e) => e.stopPropagation()}>
+                                        
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                                            <div>
+                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>📍 Districts Served</h4>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                                    {(guide.districts || []).map((d) => (
+                                                        <span
+                                                            key={d.id}
+                                                            style={{
+                                                                padding: '2px 10px',
+                                                                borderRadius: 999,
+                                                                fontSize: 11,
+                                                                background: T.goldLight,
+                                                                color: T.deepTeal,
+                                                            }}>
+                                                            {d.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>💬 Languages</h4>
+                                                <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
+                                                    {guide.languages || 'English, Malayalam'}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>⭐ Rating</h4>
+                                                <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
+                                                    {guide.rating} · {guide.total_reviews} reviews
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>💰 Pricing</h4>
+                                                <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
+                                                    ₹{guide.price_per_day}/day · ₹{guide.price_per_hour}/hour
+                                                </p>
+                                            </div>
+                                        </div>
+
                                         <p style={{ fontSize: 14, fontWeight: 500, color: T.ink, marginBottom: 12 }}>
                                             📅 Available Slots:
                                         </p>
@@ -906,7 +1137,7 @@ const Guides = () => {
                                                         color: T.ink,
                                                         marginBottom: 12,
                                                     }}>
-                                                    Book {guide.user?.first_name}
+                                                    Book {guide.full_name}
                                                 </h4>
                                                 {bookingError && (
                                                     <p style={{ color: '#DC2626', fontSize: 12, marginBottom: 10 }}>

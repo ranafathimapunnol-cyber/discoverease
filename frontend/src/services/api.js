@@ -261,6 +261,18 @@ export const AuthAPI = {
             throw error;
         }
     },
+    reviewBooking: async (bookingId, reviewData) => {
+  try {
+    const response = await api.post(`/guides/bookings/${bookingId}/review/`, {
+      rating: reviewData.rating,
+      comment: reviewData.comment,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error submitting review:', error);
+    throw error;
+  }
+},
 
     // ============================================
     // BOOKING ENDPOINTS - FIXED

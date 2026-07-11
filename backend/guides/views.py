@@ -1,5 +1,4 @@
 # guides/views.py - COMPLETE FIXED VERSION
-
 from django.db.models import Q, Avg
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
@@ -324,7 +323,6 @@ class GuideViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'success': False, 'error': str(e)}, status=400)
 
-    # ✅ FIXED: Delete availability - only if not booked
     @action(detail=True, methods=['delete'], url_path='availability', permission_classes=[IsAuthenticated])
     def guide_delete_availability(self, request, pk=None):
         """Delete availability slot - ONLY if not booked"""
@@ -332,14 +330,12 @@ class GuideViewSet(viewsets.ModelViewSet):
             guide = Guide.objects.get(user=request.user)
             slot = GuideAvailability.objects.get(id=pk, guide=guide)
             
-            # Check if slot has any bookings
             if slot.current_bookings > 0:
                 return Response({
                     'success': False,
                     'error': f'Cannot delete this slot. It has {slot.current_bookings} booking(s).'
                 }, status=400)
             
-            # Check if slot is booked
             if slot.is_booked:
                 return Response({
                     'success': False,
@@ -425,7 +421,6 @@ class BookingViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         booking = serializer.save(user=self.request.user)
         
-        # Calculate total price
         price_per_hour = booking.guide.price_per_hour or Decimal('0.00')
         if price_per_hour == Decimal('0.00'):
             price_per_day = booking.guide.price_per_day or Decimal('0.00')
@@ -435,7 +430,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking.total_price = total_price
         booking.save()
         
-        # Mark availability as booked
         availability = GuideAvailability.objects.filter(
             guide=booking.guide,
             date=booking.date,
@@ -449,7 +443,7 @@ class BookingViewSet(viewsets.ModelViewSet):
             booking.availability = availability
             booking.save()
 
-    # ✅ FIXED: Process booking (confirm/reject/complete)
+    # ✅ FIXED: Process booking (confirm/reject/complete) - CORRECT URL: /bookings/{id}/process/
     @action(detail=True, methods=['post'], url_path='process')
     def process_booking(self, request, pk=None):
         """Process booking (confirm/reject/complete)"""
@@ -465,14 +459,13 @@ class BookingViewSet(viewsets.ModelViewSet):
             
             action = request.data.get('action')
             
-            # ✅ Validate action
             if not action:
                 return Response({
                     'success': False,
                     'error': 'Action is required. Use confirm, reject, or complete'
                 }, status=400)
             
-            # ✅ Process based on action
+            # Process based on action
             if action == 'confirm':
                 if booking.status != 'pending':
                     return Response({
@@ -515,7 +508,6 @@ class BookingViewSet(viewsets.ModelViewSet):
                     'status': booking.status
                 })
             
-            # Invalid action
             return Response({
                 'success': False,
                 'error': f'Invalid action: {action}. Use confirm, reject, or complete'
@@ -528,7 +520,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             }, status=400)
 
-    # ✅ FIXED: Complete booking
+    # ✅ FIXED: Complete booking - CORRECT URL: /bookings/{id}/complete/
     @action(detail=True, methods=['post'], url_path='complete')
     def complete_booking(self, request, pk=None):
         """Complete a booking"""
@@ -562,7 +554,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             }, status=400)
 
-    # ✅ FIXED: Cancel booking
+    # ✅ FIXED: Cancel booking - CORRECT URL: /bookings/{id}/cancel/
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel_booking(self, request, pk=None):
         """Cancel a booking"""
@@ -584,7 +576,6 @@ class BookingViewSet(viewsets.ModelViewSet):
             booking.status = 'cancelled'
             booking.save()
             
-            # Free up availability
             availability = booking.availability
             if availability:
                 availability.current_bookings -= 1
@@ -646,7 +637,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking.status = 'cancelled'
         booking.save()
         
-        # Free up availability
         availability = booking.availability
         if availability:
             availability.current_bookings -= 1
@@ -697,7 +687,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         booking.status = 'rejected'
         booking.save()
         
-        # Free up availability
         availability = booking.availability
         if availability:
             availability.current_bookings -= 1
