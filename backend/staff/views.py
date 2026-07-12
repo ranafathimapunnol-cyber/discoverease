@@ -1,5 +1,4 @@
 # staff/views.py - COMPLETE FIXED VERSION
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -7,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db import models
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 from django.contrib.auth import get_user_model
 import random
 import string
@@ -24,11 +24,16 @@ class StaffViewSet(viewsets.ViewSet):
     """Staff Dashboard - Staff can manage guides"""
     permission_classes = [IsAuthenticated]
 
-    def _check_staff_access(self, request):
-        """Check if user has staff or admin access"""
-        if hasattr(request.user, 'role') and request.user.role in ['staff', 'admin']:
+    def _check_staff_access(self, request_or_user):
+        """Check if user has staff or admin access - accepts request or user object"""
+        if hasattr(request_or_user, 'user'):
+            user = request_or_user.user
+        else:
+            user = request_or_user
+        
+        if hasattr(user, 'role') and user.role in ['staff', 'admin']:
             return True
-        if request.user.is_staff or request.user.is_superuser:
+        if user.is_staff or user.is_superuser:
             return True
         return False
 
@@ -55,7 +60,7 @@ class StaffViewSet(viewsets.ViewSet):
         return request.META.get('REMOTE_ADDR')
 
     # ============================================
-    # STAFF STATS
+    # STAFF STATS - URL: /api/staff/stats/
     # ============================================
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
@@ -65,31 +70,14 @@ class StaffViewSet(viewsets.ViewSet):
 
         try:
             stats = {
-                'pendingSuggestions': 0,
-                'totalGuides': 0,
-                'totalBookings': 0,
-                'confirmedBookings': 0,
+                'pendingSuggestions': Suggestion.objects.filter(status='pending').count(),
+                'totalGuides': Guide.objects.filter(is_active=True).count(),
+                'totalBookings': GuideBooking.objects.count(),
+                'confirmedBookings': GuideBooking.objects.filter(status='confirmed').count(),
                 'totalReviews': 0,
                 'pendingReviews': 0,
-                'totalUsers': 0,
+                'totalUsers': User.objects.filter(is_active=True).count(),
             }
-
-            try:
-                stats['pendingSuggestions'] = Suggestion.objects.filter(status='pending').count()
-            except:
-                pass
-
-            try:
-                stats['totalGuides'] = Guide.objects.filter(is_active=True).count()
-            except:
-                pass
-
-            try:
-                stats['totalBookings'] = GuideBooking.objects.count()
-                stats['confirmedBookings'] = GuideBooking.objects.filter(status='confirmed').count()
-            except:
-                pass
-
             return Response({'success': True, 'stats': stats})
         except Exception as e:
             logger.error(f"Staff stats error: {e}")
@@ -104,7 +92,7 @@ class StaffViewSet(viewsets.ViewSet):
             }})
 
     # ============================================
-    # STAFF GUIDES
+    # STAFF GUIDES - URL: /api/staff/guides/
     # ============================================
     @action(detail=False, methods=['get'], url_path='guides')
     def guides(self, request):
@@ -139,11 +127,10 @@ class StaffViewSet(viewsets.ViewSet):
                 })
             return Response({'success': True, 'guides': data})
         except Exception as e:
-            logger.error(f"Error fetching guides: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # ADD GUIDE - FIXED: Each guide gets their own slots
+    # ADD GUIDE - URL: /api/staff/guides/add/
     # ============================================
     @action(detail=False, methods=['post'], url_path='guides/add')
     def add_guide(self, request):
@@ -156,10 +143,10 @@ class StaffViewSet(viewsets.ViewSet):
             email = data.get('email')
             
             if not email:
-                return Response({'error': 'Email is required'}, status=400)
+                return Response({'success': False, 'error': 'Email is required'}, status=400)
 
             if User.objects.filter(email=email).exists():
-                return Response({'error': 'User with this email already exists'}, status=400)
+                return Response({'success': False, 'error': 'User with this email already exists'}, status=400)
 
             password = data.get('password')
             if not password:
@@ -169,7 +156,6 @@ class StaffViewSet(viewsets.ViewSet):
             first_name = full_name.split()[0] if full_name else ''
             last_name = ' '.join(full_name.split()[1:]) if full_name else ''
 
-            # Create user
             user = User.objects.create_user(
                 email=email,
                 username=email.split('@')[0],
@@ -181,7 +167,6 @@ class StaffViewSet(viewsets.ViewSet):
                 email_verified=True,
             )
 
-            # Create guide profile
             guide = Guide.objects.create(
                 user=user,
                 full_name=full_name or email.split('@')[0],
@@ -197,20 +182,13 @@ class StaffViewSet(viewsets.ViewSet):
                 verified_by=request.user,
             )
 
-            print(f"✅ Guide created: {guide.full_name} (ID: {guide.id})")
-
-            # Handle district
             district_name = data.get('primary_district')
             if not district_name:
-                return Response({
-                    'success': False,
-                    'error': 'Please select a district for the guide.'
-                }, status=400)
+                return Response({'success': False, 'error': 'Please select a district for the guide.'}, status=400)
 
             try:
                 district = District.objects.get(name__iexact=district_name)
                 guide.districts.add(district)
-                print(f"✅ Added district: {district.name}")
             except District.DoesNotExist:
                 available = list(District.objects.values_list('name', flat=True))
                 return Response({
@@ -218,18 +196,12 @@ class StaffViewSet(viewsets.ViewSet):
                     'error': f"District '{district_name}' not found. Available: {', '.join(available)}"
                 }, status=400)
 
-            # ✅ IMPORTANT: Clear any existing slots for this guide
-            deleted_count = guide.availabilities.all().delete()
-            print(f"🗑️ Cleared {deleted_count[0]} existing slots for {guide.full_name}")
-
-            # ✅ Add fresh slots - ONLY FOR THIS SPECIFIC GUIDE
+            guide.availabilities.all().delete()
             slots_added = 0
             for i in range(14):
                 date = datetime.now().date() + timedelta(days=i)
-                
-                # Morning slot
-                slot = GuideAvailability.objects.create(
-                    guide=guide,  # ✅ THIS GUIDE ONLY
+                GuideAvailability.objects.create(
+                    guide=guide,
                     date=date,
                     start_time="09:00",
                     end_time="13:00",
@@ -238,11 +210,8 @@ class StaffViewSet(viewsets.ViewSet):
                     is_booked=False
                 )
                 slots_added += 1
-                print(f"  ✅ Added morning slot for {date} to guide ID {guide.id}")
-                
-                # Afternoon slot
-                slot2 = GuideAvailability.objects.create(
-                    guide=guide,  # ✅ THIS GUIDE ONLY
+                GuideAvailability.objects.create(
+                    guide=guide,
                     date=date,
                     start_time="14:00",
                     end_time="18:00",
@@ -251,9 +220,6 @@ class StaffViewSet(viewsets.ViewSet):
                     is_booked=False
                 )
                 slots_added += 1
-                print(f"  ✅ Added afternoon slot for {date} to guide ID {guide.id}")
-
-            print(f"✅ Added {slots_added} total slots for guide: {guide.full_name}")
 
             return Response({
                 'success': True,
@@ -274,24 +240,28 @@ class StaffViewSet(viewsets.ViewSet):
             }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            logger.error(f"Error adding guide: {e}")
-            print(f"❌ ERROR: {str(e)}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # VERIFY GUIDE
+    # VERIFY GUIDE - URL: /api/staff/{pk}/verify/
     # ============================================
-    @action(detail=True, methods=['post'], url_path='guides/verify')
+    @action(detail=True, methods=['post'], url_path='verify')
     def verify_guide(self, request, pk=None):
         """Verify a guide (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
+            # ✅ Use get_object_or_404 - will raise Http404 if not found
             guide = get_object_or_404(Guide, id=pk)
             guide.is_verified = True
             guide.verified_by = request.user
             guide.save()
+            
+            self._log_activity(request, 'verify', 'Guide', guide.id, {
+                'guide_name': guide.full_name,
+                'verified_by': request.user.email
+            })
             
             return Response({
                 'success': True,
@@ -302,14 +272,17 @@ class StaffViewSet(viewsets.ViewSet):
                     'is_verified': guide.is_verified,
                 }
             })
+        except Http404:
+            # ✅ Re-raise Http404 to return 404 response
+            raise
         except Exception as e:
             logger.error(f"Error verifying guide: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # DELETE GUIDE
+    # DELETE GUIDE - URL: /api/staff/{pk}/delete/
     # ============================================
-    @action(detail=True, methods=['delete'], url_path='guides')
+    @action(detail=True, methods=['delete'], url_path='delete')
     def delete_guide(self, request, pk=None):
         """Delete a guide (Staff & Admin)"""
         if not self._check_staff_access(request):
@@ -319,21 +292,23 @@ class StaffViewSet(viewsets.ViewSet):
             guide = get_object_or_404(Guide, id=pk)
             guide.is_active = False
             guide.save()
-            
             if guide.user:
                 guide.user.is_active = False
                 guide.user.save()
             
-            return Response({
-                'success': True,
-                'message': 'Guide deleted successfully'
+            self._log_activity(request, 'delete', 'Guide', guide.id, {
+                'guide_name': guide.full_name
             })
+            
+            return Response({'success': True, 'message': 'Guide deleted successfully'})
+        except Http404:
+            raise
         except Exception as e:
             logger.error(f"Error deleting guide: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF BOOKINGS
+    # STAFF BOOKINGS - URL: /api/staff/bookings/
     # ============================================
     @action(detail=False, methods=['get'], url_path='bookings')
     def bookings(self, request):
@@ -348,17 +323,11 @@ class StaffViewSet(viewsets.ViewSet):
                 data.append({
                     'id': booking.id,
                     'booking_id': booking.booking_id,
-                    'user': {
-                        'username': booking.user.username if booking.user else 'Anonymous',
-                    },
+                    'user': {'username': booking.user.username if booking.user else 'Anonymous'},
                     'traveler_email': booking.user.email if booking.user else '',
-                    'guide': {
-                        'full_name': booking.guide.full_name if booking.guide else 'Unknown'
-                    },
+                    'guide': {'full_name': booking.guide.full_name if booking.guide else 'Unknown'},
                     'guide_name': booking.guide.full_name if booking.guide else 'Unknown',
-                    'district': {
-                        'name': booking.district.name if booking.district else 'N/A'
-                    },
+                    'district': {'name': booking.district.name if booking.district else 'N/A'},
                     'date': booking.date.isoformat(),
                     'time': booking.time.strftime('%H:%M') if booking.time else 'N/A',
                     'status': booking.status,
@@ -366,13 +335,12 @@ class StaffViewSet(viewsets.ViewSet):
                 })
             return Response({'success': True, 'bookings': data})
         except Exception as e:
-            logger.error(f"Error fetching bookings: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # UPDATE BOOKING STATUS
+    # UPDATE BOOKING - URL: /api/staff/{pk}/update/
     # ============================================
-    @action(detail=True, methods=['post'], url_path='bookings/update')
+    @action(detail=True, methods=['post'], url_path='update')
     def update_booking(self, request, pk=None):
         """Update booking status (Staff & Admin)"""
         if not self._check_staff_access(request):
@@ -389,21 +357,24 @@ class StaffViewSet(viewsets.ViewSet):
             booking.status = status_val
             booking.save()
             
+            self._log_activity(request, 'update', 'Booking', booking.id, {
+                'booking_id': booking.booking_id,
+                'new_status': status_val
+            })
+            
             return Response({
                 'success': True,
                 'message': f'Booking {status_val} successfully',
-                'booking': {
-                    'id': booking.id,
-                    'booking_id': booking.booking_id,
-                    'status': booking.status,
-                }
+                'booking': {'id': booking.id, 'booking_id': booking.booking_id, 'status': booking.status}
             })
+        except Http404:
+            raise
         except Exception as e:
             logger.error(f"Error updating booking: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF SUGGESTIONS
+    # STAFF SUGGESTIONS - URL: /api/staff/suggestions/
     # ============================================
     @action(detail=False, methods=['get'], url_path='suggestions')
     def suggestions(self, request):
@@ -414,7 +385,6 @@ class StaffViewSet(viewsets.ViewSet):
         try:
             status_filter = request.query_params.get('status', 'pending')
             suggestions = Suggestion.objects.filter(status=status_filter).order_by('-created_at')
-            
             data = []
             for s in suggestions.select_related('user', 'processed_by'):
                 data.append({
@@ -426,21 +396,18 @@ class StaffViewSet(viewsets.ViewSet):
                     'suggestion_type': s.suggestion_type,
                     'status': s.status,
                     'location_info': s.location_info,
-                    'user': {
-                        'email': s.user.email if s.user else 'Anonymous',
-                    },
+                    'user': {'email': s.user.email if s.user else 'Anonymous'},
                     'admin_notes': s.admin_notes,
                     'created_at': s.created_at.isoformat(),
                 })
             return Response({'success': True, 'suggestions': data})
         except Exception as e:
-            logger.error(f"Error fetching suggestions: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # PROCESS SUGGESTION
+    # PROCESS SUGGESTION - URL: /api/staff/{pk}/process/
     # ============================================
-    @action(detail=True, methods=['post'], url_path='suggestions/process')
+    @action(detail=True, methods=['post'], url_path='process')
     def process_suggestion(self, request, pk=None):
         """Process a suggestion (Staff & Admin)"""
         if not self._check_staff_access(request):
@@ -455,32 +422,41 @@ class StaffViewSet(viewsets.ViewSet):
             if action not in valid_actions:
                 return Response({'error': 'Invalid action'}, status=400)
             
-            status_map = {
-                'approve': 'approved',
-                'reject': 'rejected',
-                'implement': 'implemented'
-            }
-            
+            status_map = {'approve': 'approved', 'reject': 'rejected', 'implement': 'implemented'}
             suggestion.status = status_map[action]
             suggestion.admin_notes = notes
             suggestion.processed_by = request.user
             suggestion.processed_at = timezone.now()
             suggestion.save()
             
+            self._log_activity(request, 'process', 'Suggestion', suggestion.id, {
+                'action': action,
+                'suggestion_name': suggestion.name
+            })
+            
+            # ✅ FIXED: Explicit message based on action (NO TYPO!)
+            if action == 'approve':
+                message = 'Suggestion approved successfully'
+            elif action == 'reject':
+                message = 'Suggestion rejected successfully'
+            elif action == 'implement':
+                message = 'Suggestion implemented successfully'
+            else:
+                message = f'Suggestion {action}ed successfully'
+            
             return Response({
                 'success': True,
-                'message': f'Suggestion {action}ed successfully',
-                'suggestion': {
-                    'id': suggestion.id,
-                    'status': suggestion.status,
-                }
+                'message': message,
+                'suggestion': {'id': suggestion.id, 'status': suggestion.status}
             })
+        except Http404:
+            raise
         except Exception as e:
             logger.error(f"Error processing suggestion: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF INSIGHTS
+    # STAFF INSIGHTS - URL: /api/staff/insights/
     # ============================================
     @action(detail=False, methods=['get'], url_path='insights')
     def insights(self, request):
@@ -496,39 +472,16 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({
                 'success': True,
                 'insights': {
-                    'recent_bookings': [
-                        {
-                            'id': b.id,
-                            'booking_id': b.booking_id,
-                            'guide_name': b.guide.full_name if b.guide else 'Unknown',
-                            'date': b.date.isoformat(),
-                            'status': b.status,
-                        } for b in recent_bookings
-                    ],
-                    'recent_suggestions': [
-                        {
-                            'id': s.id,
-                            'name': s.name,
-                            'status': s.status,
-                            'created_at': s.created_at.isoformat(),
-                        } for s in recent_suggestions
-                    ],
-                    'recent_guides': [
-                        {
-                            'id': g.id,
-                            'full_name': g.full_name,
-                            'is_verified': g.is_verified,
-                            'created_at': g.created_at.isoformat(),
-                        } for g in recent_guides
-                    ],
+                    'recent_bookings': [{'id': b.id, 'booking_id': b.booking_id, 'guide_name': b.guide.full_name if b.guide else 'Unknown', 'date': b.date.isoformat(), 'status': b.status} for b in recent_bookings],
+                    'recent_suggestions': [{'id': s.id, 'name': s.name, 'status': s.status, 'created_at': s.created_at.isoformat()} for s in recent_suggestions],
+                    'recent_guides': [{'id': g.id, 'full_name': g.full_name, 'is_verified': g.is_verified, 'created_at': g.created_at.isoformat()} for g in recent_guides],
                 }
             })
         except Exception as e:
-            logger.error(f"Error fetching insights: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF REVIEWS
+    # STAFF REVIEWS - URL: /api/staff/reviews/
     # ============================================
     @action(detail=False, methods=['get'], url_path='reviews')
     def staff_reviews(self, request):
@@ -537,25 +490,78 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
-            try:
-                from destinations.models import Review
-                reviews = Review.objects.all().order_by('-created_at')
-                data = []
-                for review in reviews:
-                    data.append({
-                        'id': review.id,
-                        'user': {
-                            'username': review.user.username if review.user else 'Anonymous',
-                        },
-                        'rating': review.rating,
-                        'comment': review.comment,
-                        'review_text': review.comment,
-                        'is_approved': getattr(review, 'is_approved', False),
-                        'created_at': review.created_at.isoformat(),
-                    })
-                return Response({'success': True, 'reviews': data})
-            except ImportError:
-                return Response({'success': True, 'reviews': []})
-        except Exception as e:
-            logger.error(f"Error fetching reviews: {e}")
+            from destinations.models import Review
+            reviews = Review.objects.all().order_by('-created_at')
+            data = [{'id': r.id, 'user': {'username': r.user.username if r.user else 'Anonymous'}, 'rating': r.rating, 'comment': r.comment, 'review_text': r.comment, 'is_approved': getattr(r, 'is_approved', False), 'created_at': r.created_at.isoformat()} for r in reviews]
+            return Response({'success': True, 'reviews': data})
+        except ImportError:
             return Response({'success': True, 'reviews': []})
+        except Exception as e:
+            return Response({'success': True, 'reviews': []})
+
+    # ============================================
+    # STAFF NOTIFICATIONS
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='notifications')
+    def notifications(self, request):
+        """Get staff notifications"""
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            from .models import StaffNotification
+            notifications = StaffNotification.objects.filter(
+                staff=request.user
+            ).order_by('-created_at')
+            
+            data = [{
+                'id': n.id,
+                'title': n.title,
+                'message': n.message,
+                'is_read': n.is_read,
+                'link': n.link,
+                'created_at': n.created_at.isoformat(),
+            } for n in notifications]
+            
+            return Response({'success': True, 'notifications': data})
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='notifications/unread_count')
+    def unread_count(self, request):
+        """Get unread notification count"""
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            from .models import StaffNotification
+            count = StaffNotification.objects.filter(
+                staff=request.user,
+                is_read=False
+            ).count()
+            return Response({'success': True, 'count': count})
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=True, methods=['post'], url_path='notifications/mark_read')
+    def mark_notification_read(self, request, pk=None):
+        """Mark notification as read"""
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            from .models import StaffNotification
+            notification = get_object_or_404(StaffNotification, id=pk, staff=request.user)
+            notification.is_read = True
+            notification.save()
+            
+            self._log_activity(request, 'update', 'Notification', notification.id, {
+                'title': notification.title
+            })
+            
+            return Response({'success': True, 'message': 'Notification marked as read'})
+        except Http404:
+            raise
+        except Exception as e:
+            logger.error(f"Error marking notification as read: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)

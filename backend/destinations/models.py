@@ -68,8 +68,8 @@ class Destination(models.Model):
         super().save(*args, **kwargs)
     
     def __str__(self):
-        return self.name
-
+        return self.name# destinations/models.py - Add is_approved to Review model
+# destinations/models.py - Add is_approved to Review model
 
 class Review(models.Model):
     """User Reviews"""
@@ -78,6 +78,7 @@ class Review(models.Model):
     rating = models.IntegerField(choices=[(i, i) for i in range(1, 6)])
     comment = models.TextField()
     is_verified_traveler = models.BooleanField(default=False)
+    is_approved = models.BooleanField(default=False)  # ✅ ADD THIS FIELD
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

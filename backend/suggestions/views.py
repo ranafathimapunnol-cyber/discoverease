@@ -12,7 +12,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class SuggestionViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing suggestions.
+    Users can submit suggestions, admins/staff can process them.
+    """
     queryset = Suggestion.objects.all()
     serializer_class = SuggestionSerializer
     permission_classes = [AllowAny]
@@ -20,6 +25,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
     filterset_fields = ['status', 'user', 'suggestion_type', 'category']
     
     def get_queryset(self):
+        """Get queryset with filters applied"""
         queryset = Suggestion.objects.all()
         
         # Filter by status
@@ -57,6 +63,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             return Response([], status=status.HTTP_200_OK)
     
     def create(self, request, *args, **kwargs):
+        """Create a new suggestion (authenticated users only)"""
         # Only authenticated users can create suggestions
         if not request.user.is_authenticated:
             return Response(
@@ -82,7 +89,10 @@ class SuggestionViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='guide_stats')
     def guide_stats(self, request):
-        """Get stats for guide dashboard - FIXED - NEVER FAILS"""
+        """
+        Get stats for guide dashboard - NEVER FAILS
+        Returns statistics about suggestions by status, category, and type.
+        """
         try:
             # Initialize all stats with 0
             stats = {
@@ -169,7 +179,10 @@ class SuggestionViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def process(self, request, pk=None):
-        """Process a suggestion (admin/staff only)"""
+        """
+        Process a suggestion (admin/staff only)
+        Actions: approve, reject, implement
+        """
         try:
             # Check permissions
             if not request.user.is_staff and not request.user.is_superuser:
@@ -201,9 +214,19 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             suggestion.processed_at = timezone.now()
             suggestion.save()
             
+            # ✅ FIXED: Explicit message based on action (NO TYPO!)
+            if action == 'approve':
+                message = 'Suggestion approved successfully'
+            elif action == 'reject':
+                message = 'Suggestion rejected successfully'
+            elif action == 'implement':
+                message = 'Suggestion implemented successfully'
+            else:
+                message = f'Suggestion {action}ed successfully'
+            
             return Response({
                 'success': True,
-                'message': f'Suggestion {action}ed successfully',
+                'message': message,
                 'suggestion': self.get_serializer(suggestion).data
             })
         except Exception as e:
