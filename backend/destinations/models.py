@@ -1,7 +1,71 @@
-# destinations/models.py
+# destinations/models.py - COMPLETE WITH CATEGORY DATA MODELS
+
 from django.db import models
 from django.utils.text import slugify
 from accounts.models import User
+
+class Category(models.Model):
+    """Category model for destinations"""
+    key = models.CharField(max_length=50, unique=True)
+    label = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    image = models.URLField(blank=True, max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'categories'
+        ordering = ['label']
+    
+    def __str__(self):
+        return self.label
+
+class CategoryData(models.Model):
+    """Category metadata and grouping - For your frontend category data"""
+    key = models.CharField(max_length=100, unique=True, db_index=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    type = models.CharField(max_length=50, blank=True, null=True)
+    icon = models.CharField(max_length=50, blank=True, null=True)
+    image = models.URLField(max_length=500, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'category_data'
+        ordering = ['order', 'title']
+    
+    def __str__(self):
+        return self.title
+
+class CategoryPlace(models.Model):
+    """Individual places within categories - From your frontend data"""
+    category = models.CharField(max_length=100, db_index=True)
+    name = models.CharField(max_length=255)
+    location = models.CharField(max_length=255)
+    description = models.TextField()
+    difficulty = models.CharField(max_length=50, blank=True, null=True)
+    duration = models.CharField(max_length=100, blank=True, null=True)
+    best_time = models.CharField(max_length=100, blank=True, null=True)
+    image = models.URLField(max_length=500, blank=True, null=True)
+    type = models.CharField(max_length=50, default='well-known')
+    hidden_gem = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'category_places'
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['category', 'name']),
+            models.Index(fields=['category', 'type']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} ({self.category})"
 
 class Destination(models.Model):
     """Main Destination Table with Status"""
@@ -12,7 +76,7 @@ class Destination(models.Model):
         REJECTED = 'rejected', 'Rejected'
         HIDDEN = 'hidden', 'Hidden Gem'
     
-    class Category(models.TextChoices):
+    class CategoryChoice(models.TextChoices):
         BEACH = 'beach', 'Beach'
         HILL = 'hill', 'Hill Station'
         BACKWATER = 'backwater', 'Backwater'
@@ -28,7 +92,7 @@ class Destination(models.Model):
     slug = models.SlugField(unique=True, blank=True)
     short_description = models.CharField(max_length=300)
     long_description = models.TextField()
-    category = models.CharField(max_length=20, choices=Category.choices, db_index=True)
+    category = models.CharField(max_length=20, choices=CategoryChoice.choices, db_index=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True)
     
     # Location
@@ -38,7 +102,7 @@ class Destination(models.Model):
     district = models.CharField(max_length=100, blank=True, null=True, db_index=True)
     
     # Media
-    featured_image = models.URLField()
+    featured_image = models.URLField(max_length=500)
     gallery_images = models.JSONField(default=list, blank=True)
     
     # Stats
@@ -68,8 +132,7 @@ class Destination(models.Model):
         super().save(*args, **kwargs)
     
     def __str__(self):
-        return self.name# destinations/models.py - Add is_approved to Review model
-# destinations/models.py - Add is_approved to Review model
+        return self.name
 
 class Review(models.Model):
     """User Reviews"""
@@ -78,7 +141,9 @@ class Review(models.Model):
     rating = models.IntegerField(choices=[(i, i) for i in range(1, 6)])
     comment = models.TextField()
     is_verified_traveler = models.BooleanField(default=False)
-    is_approved = models.BooleanField(default=False)  # ✅ ADD THIS FIELD
+    is_approved = models.BooleanField(default=False)
+    image = models.URLField(max_length=500, blank=True, null=True)
+    images = models.JSONField(default=list, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -88,6 +153,7 @@ class Review(models.Model):
         unique_together = ['user', 'destination']
         indexes = [
             models.Index(fields=['destination', 'rating']),
+            models.Index(fields=['is_approved']),
         ]
     
     def __str__(self):

@@ -1,4 +1,5 @@
-# destinations/views.py - COMPLETE FULL VERSION
+# destinations/views.py - COMPLETE FIXED VERSION WITH ALL ENDPOINTS
+
 from django.shortcuts import render
 from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
@@ -8,8 +9,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Avg, Count, Sum
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Destination, Review
-from .serializers import DestinationSerializer, ReviewSerializer, CategorySerializer, DestinationListSerializer
+from .models import Destination, Review, Category, CategoryData, CategoryPlace
+from .serializers import DestinationSerializer, ReviewSerializer, DestinationListSerializer, CategorySerializer
 from .filters import DestinationFilter
 import logging
 
@@ -447,36 +448,16 @@ class DestinationViewSet(viewsets.ModelViewSet):
             'recent_activity': recent
         })
 
-    @action(detail=False, methods=['get'])
-    def category_stats(self, request):
-        """Get category-wise statistics"""
-        category_stats = []
-        for cat in Destination.Category.choices:
-            count = Destination.objects.filter(category=cat[0]).count()
-            approved_count = Destination.objects.filter(category=cat[0], status='approved').count()
-            hidden_count = Destination.objects.filter(category=cat[0], status='hidden').count()
-            category_stats.append({
-                'key': cat[0],
-                'label': cat[1],
-                'count': count,
-                'approved': approved_count,
-                'hidden': hidden_count,
-                'pending': Destination.objects.filter(category=cat[0], status='pending').count(),
-                'rejected': Destination.objects.filter(category=cat[0], status='rejected').count(),
-                'description': self._get_category_description(cat[0]),
-                'image': self._get_category_image(cat[0])
-            })
-        return Response(category_stats)
-
     # ============================================
-    # CATEGORY ENDPOINTS
+    # ✅ CATEGORY ENDPOINTS - COMPLETE FIXED
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='categories')
     def get_categories(self, request):
         """Get all categories with counts and metadata"""
         categories = []
-        for cat in Destination.Category.choices:
+        # ✅ FIXED: Use CategoryChoice instead of Category
+        for cat in Destination.CategoryChoice.choices:
             count = Destination.objects.filter(
                 category=cat[0], 
                 status__in=['approved', 'hidden']
@@ -490,30 +471,8 @@ class DestinationViewSet(viewsets.ModelViewSet):
             })
         return Response(categories)
 
-    @action(detail=False, methods=['get'], url_path='category/(?P<category_key>[^/.]+)')
-    def get_category_detail(self, request, category_key=None):
-        """Get detailed information about a specific category"""
-        if category_key not in dict(Destination.Category.choices):
-            return Response(
-                {'error': f'Category "{category_key}" not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        destinations = self.get_queryset().filter(category=category_key)
-        
-        # Get category info
-        category_info = {
-            'key': category_key,
-            'label': dict(Destination.Category.choices)[category_key],
-            'description': self._get_category_description(category_key),
-            'image': self._get_category_image(category_key),
-            'count': destinations.count(),
-            'destinations': self.get_serializer(destinations, many=True).data
-        }
-        
-        return Response(category_info)
-
-    @action(detail=False, methods=['post'], url_path='categories/add')
+    # ✅ FIXED: POST endpoint for adding categories
+    @action(detail=False, methods=['post'], url_path='add-category')
     def add_category(self, request):
         """Add a new category (admin/staff only)"""
         if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
@@ -533,27 +492,240 @@ class DestinationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if category already exists in choices
-        valid_categories = [c[0] for c in Destination.Category.choices]
+        # ✅ FIXED: Use CategoryChoice instead of Category
+        valid_categories = [c[0] for c in Destination.CategoryChoice.choices]
         if category_key in valid_categories:
             return Response(
-                {'error': f'Category "{category_key}" already exists in choices'},
+                {'error': f'Category "{category_key}" already exists in default categories'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # We can't dynamically add to choices, but we can store it in a custom field
-        # Or we can create a Category model if you have one
-        # For now, we'll return success with the info
-        return Response({
-            'success': True,
-            'message': f'Category "{category_key}" is available for use',
-            'category': {
-                'key': category_key,
-                'label': label or category_key.title(),
-                'description': description,
-                'image': image
-            }
-        })
+        # Store category in Category model
+        try:
+            category, created = Category.objects.get_or_create(
+                key=category_key,
+                defaults={
+                    'label': label or category_key.title(),
+                    'description': description,
+                    'image': image
+                }
+            )
+            if created:
+                return Response({
+                    'success': True,
+                    'message': f'Category "{category_key}" added successfully',
+                    'category': CategorySerializer(category).data
+                }, status=status.HTTP_201_CREATED)
+            else:
+                return Response({
+                    'success': False,
+                    'error': f'Category "{category_key}" already exists'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error adding category: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'], url_path='category/(?P<category_key>[^/.]+)')
+    def get_category_detail(self, request, category_key=None):
+        """Get detailed information about a specific category"""
+        # ✅ FIXED: Use CategoryChoice instead of Category
+        if category_key not in dict(Destination.CategoryChoice.choices):
+            # Check if it's a custom category
+            try:
+                category = Category.objects.get(key=category_key)
+                label = category.label
+            except Category.DoesNotExist:
+                return Response(
+                    {'error': f'Category "{category_key}" not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        else:
+            label = dict(Destination.CategoryChoice.choices)[category_key]
+        
+        destinations = self.get_queryset().filter(category=category_key)
+        
+        # Get category info
+        category_info = {
+            'key': category_key,
+            'label': label,
+            'description': self._get_category_description(category_key),
+            'image': self._get_category_image(category_key),
+            'count': destinations.count(),
+            'destinations': self.get_serializer(destinations, many=True).data
+        }
+        
+        return Response(category_info)
+
+    @action(detail=False, methods=['get'], url_path='categories/all')
+    def get_all_categories_with_destinations(self, request):
+        """Get all categories with their destinations"""
+        # Get default categories
+        default_categories = []
+        for cat in Destination.CategoryChoice.choices:
+            destinations = self.get_queryset().filter(category=cat[0])
+            default_categories.append({
+                'key': cat[0],
+                'label': cat[1],
+                'description': self._get_category_description(cat[0]),
+                'image': self._get_category_image(cat[0]),
+                'count': destinations.count(),
+                'destinations': self.get_serializer(destinations, many=True).data
+            })
+        
+        # Get custom categories
+        custom_categories = Category.objects.all()
+        for cat in custom_categories:
+            destinations = self.get_queryset().filter(category=cat.key)
+            default_categories.append({
+                'key': cat.key,
+                'label': cat.label,
+                'description': cat.description,
+                'image': cat.image,
+                'count': destinations.count(),
+                'destinations': self.get_serializer(destinations, many=True).data,
+                'is_custom': True
+            })
+        
+        return Response(default_categories)
+
+    # ============================================
+    # ✅ CATEGORY DATA ENDPOINTS - NEW
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='category-data')
+    def get_category_data(self, request):
+        """Get all category data with places from CategoryData and CategoryPlace models"""
+        try:
+            categories = CategoryData.objects.filter(is_active=True)
+            result = []
+            
+            for cat in categories:
+                places = CategoryPlace.objects.filter(
+                    category=cat.key, 
+                    is_active=True
+                )
+                result.append({
+                    'key': cat.key,
+                    'title': cat.title,
+                    'description': cat.description,
+                    'type': cat.type,
+                    'icon': cat.icon,
+                    'image': cat.image,
+                    'count': places.count(),
+                    'places': [
+                        {
+                            'id': p.id,
+                            'name': p.name,
+                            'location': p.location,
+                            'description': p.description,
+                            'difficulty': p.difficulty,
+                            'duration': p.duration,
+                            'best_time': p.best_time,
+                            'image': p.image,
+                            'type': p.type,
+                            'hidden_gem': p.hidden_gem,
+                        } for p in places[:50]  # Limit to 50 places per category
+                    ]
+                })
+            
+            return Response({'success': True, 'data': result})
+        except Exception as e:
+            logger.error(f"Error fetching category data: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='category-data/(?P<category_key>[^/.]+)')
+    def get_category_data_detail(self, request, category_key=None):
+        """Get detailed data for a specific category"""
+        try:
+            category = get_object_or_404(CategoryData, key=category_key, is_active=True)
+            places = CategoryPlace.objects.filter(category=category_key, is_active=True)
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'key': category.key,
+                    'title': category.title,
+                    'description': category.description,
+                    'type': category.type,
+                    'image': category.image,
+                    'count': places.count(),
+                    'places': [
+                        {
+                            'id': p.id,
+                            'name': p.name,
+                            'location': p.location,
+                            'description': p.description,
+                            'difficulty': p.difficulty,
+                            'duration': p.duration,
+                            'best_time': p.best_time,
+                            'image': p.image,
+                            'type': p.type,
+                            'hidden_gem': p.hidden_gem,
+                        } for p in places
+                    ]
+                }
+            })
+        except Exception as e:
+            logger.error(f"Error fetching category detail: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['post'], url_path='import-category-data')
+    def import_category_data(self, request):
+        """Import category data from frontend JSON"""
+        if not request.user.is_staff and request.user.role != 'admin':
+            return Response({'error': 'Admin access required'}, status=403)
+        
+        try:
+            data = request.data
+            imported_categories = 0
+            imported_places = 0
+            
+            for category_key, category_info in data.items():
+                # Create or update category
+                cat, created = CategoryData.objects.update_or_create(
+                    key=category_key,
+                    defaults={
+                        'title': category_info.get('title', category_key),
+                        'description': category_info.get('description', ''),
+                        'type': category_info.get('type', ''),
+                        'image': category_info.get('image', ''),
+                        'is_active': True
+                    }
+                )
+                if created:
+                    imported_categories += 1
+                
+                # Import places
+                places = category_info.get('places', [])
+                for place_data in places:
+                    place, place_created = CategoryPlace.objects.update_or_create(
+                        category=category_key,
+                        name=place_data.get('name'),
+                        defaults={
+                            'location': place_data.get('location', ''),
+                            'description': place_data.get('description', ''),
+                            'difficulty': place_data.get('difficulty', ''),
+                            'duration': place_data.get('duration', ''),
+                            'best_time': place_data.get('best_time', ''),
+                            'image': place_data.get('image', ''),
+                            'type': place_data.get('type', 'well-known'),
+                            'hidden_gem': place_data.get('hidden_gem', ''),
+                            'is_active': True
+                        }
+                    )
+                    if place_created:
+                        imported_places += 1
+            
+            return Response({
+                'success': True,
+                'message': f'Imported {imported_categories} categories and {imported_places} places'
+            })
+        except Exception as e:
+            logger.error(f"Error importing category data: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
     # SEARCH / SUGGEST ENDPOINTS

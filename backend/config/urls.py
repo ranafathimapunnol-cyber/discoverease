@@ -1,4 +1,5 @@
-# config/urls.py
+# config/urls.py - COMPLETE WORKING VERSION
+
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
@@ -6,12 +7,12 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/auth/', include('accounts.urls')),        # /api/auth/
-    path('api/suggestions/', include('suggestions.urls')),  # /api/suggestions/
-    path('api/destinations/', include('destinations.urls')), # /api/destinations/
-    path('api/guides/', include('guides.urls')),        # /api/guides/
-    path('api/staff/', include('staff.urls')),  # Staff endpoints
-    path('api/admin/', include('admin_dashboard.urls')), 
+    path('api/auth/', include('accounts.urls')),
+    path('api/suggestions/', include('suggestions.urls')),
+    path('api/destinations/', include('destinations.urls')),
+    path('api/guides/', include('guides.urls')),
+    path('api/staff/', include('staff.urls')),
+    path('api/admin/', include('admin_dashboard.urls')),  # ← /api/admin/stats/
 ]
 
 if settings.DEBUG:

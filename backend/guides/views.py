@@ -1,4 +1,5 @@
-# guides/views.py - COMPLETE FIXED VERSION
+# guides/views.py - COMPLETE FIXED VERSION WITH FULL REVIEW SUPPORT
+
 from django.db.models import Q, Avg
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
@@ -394,7 +395,7 @@ class GuideViewSet(viewsets.ModelViewSet):
 
 
 class BookingViewSet(viewsets.ModelViewSet):
-    """ViewSet for guide bookings"""
+    """ViewSet for guide bookings with full review support"""
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['status', 'date', 'guide']
@@ -412,7 +413,7 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_staff:
+        if user.is_staff or user.is_superuser:
             return GuideBooking.objects.all()
         return GuideBooking.objects.filter(
             Q(user=user) | Q(guide__user=user)
@@ -443,14 +444,16 @@ class BookingViewSet(viewsets.ModelViewSet):
             booking.availability = availability
             booking.save()
 
-    # ✅ FIXED: Process booking (confirm/reject/complete) - CORRECT URL: /bookings/{id}/process/
+    # ============================================
+    # ✅ BOOKING PROCESSING ENDPOINTS
+    # ============================================
+    
     @action(detail=True, methods=['post'], url_path='process')
     def process_booking(self, request, pk=None):
         """Process booking (confirm/reject/complete)"""
         try:
             booking = self.get_object()
             
-            # Check if this booking belongs to the logged-in guide
             if booking.guide.user != request.user and not request.user.is_staff:
                 return Response({
                     'success': False,
@@ -465,7 +468,6 @@ class BookingViewSet(viewsets.ModelViewSet):
                     'error': 'Action is required. Use confirm, reject, or complete'
                 }, status=400)
             
-            # Process based on action
             if action == 'confirm':
                 if booking.status != 'pending':
                     return Response({
@@ -520,7 +522,6 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             }, status=400)
 
-    # ✅ FIXED: Complete booking - CORRECT URL: /bookings/{id}/complete/
     @action(detail=True, methods=['post'], url_path='complete')
     def complete_booking(self, request, pk=None):
         """Complete a booking"""
@@ -554,7 +555,6 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             }, status=400)
 
-    # ✅ FIXED: Cancel booking - CORRECT URL: /bookings/{id}/cancel/
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel_booking(self, request, pk=None):
         """Cancel a booking"""
@@ -596,6 +596,100 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             }, status=400)
 
+    # ============================================
+    # ✅ REVIEW ENDPOINT - USING FK RELATIONSHIP
+    # ============================================
+    
+    @action(detail=True, methods=['post'], url_path='review')
+    def add_review(self, request, pk=None):
+        """
+        Add a review for a completed booking.
+        Uses Foreign Key relationships: booking → user, guide
+        """
+        booking = self.get_object()
+        
+        # Check permissions - only the user who made the booking can review
+        if request.user != booking.user:
+            return Response(
+                {'error': 'Only the user who made the booking can review'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if booking is completed
+        if booking.status != 'completed':
+            return Response(
+                {'error': 'Can only review completed bookings'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if review already exists
+        if GuideReview.objects.filter(booking=booking).exists():
+            return Response(
+                {'error': 'Review already exists for this booking'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate data
+        serializer = GuideReviewCreateSerializer(
+            data=request.data,
+            context={'booking_id': booking.id}
+        )
+        
+        if serializer.is_valid():
+            # Create review with Foreign Key relationships
+            review = GuideReview.objects.create(
+                booking=booking,
+                user=request.user,
+                guide=booking.guide,
+                rating=serializer.validated_data['rating'],
+                comment=serializer.validated_data['comment'],
+                is_approved=False  # Requires admin/guide approval
+            )
+            
+            # Update guide rating
+            guide = booking.guide
+            avg_rating = guide.reviews.aggregate(Avg('rating'))['rating__avg']
+            guide.rating = avg_rating or 0
+            guide.total_reviews = guide.reviews.count()
+            guide.save()
+            
+            # Return the created review
+            review_data = GuideReviewSerializer(review).data
+            return Response({
+                'success': True,
+                'message': 'Review submitted successfully!',
+                'review': review_data
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ GET REVIEW FOR BOOKING
+    # ============================================
+    
+    @action(detail=True, methods=['get'], url_path='review')
+    def get_review(self, request, pk=None):
+        """Get the review for a booking if it exists"""
+        booking = self.get_object()
+        
+        try:
+            review = GuideReview.objects.get(booking=booking)
+            serializer = GuideReviewSerializer(review)
+            return Response({
+                'success': True,
+                'review': serializer.data
+            })
+        except GuideReview.DoesNotExist:
+            return Response({
+                'success': True,
+                'review': None,
+                'message': 'No review found for this booking'
+            })
+
+    # ============================================
+    # ✅ LEGACY ENDPOINTS (for compatibility)
+    # ============================================
+    
     @action(detail=True, methods=['post'])
     def confirm(self, request, pk=None):
         """Confirm a booking (staff/guide only)"""
@@ -696,66 +790,98 @@ class BookingViewSet(viewsets.ModelViewSet):
         
         return Response({'message': 'Booking rejected successfully'})
 
-    @action(detail=True, methods=['post'])
-    def review(self, request, pk=None):
-        """Add a review for a completed booking"""
-        booking = self.get_object()
-        
-        if request.user != booking.user:
-            return Response(
-                {'error': 'Only the user who made the booking can review'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if booking.status != 'completed':
-            return Response(
-                {'error': 'Can only review completed bookings'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if GuideReview.objects.filter(booking=booking).exists():
-            return Response(
-                {'error': 'Review already exists for this booking'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        serializer = GuideReviewCreateSerializer(
-            data=request.data,
-            context={'booking_id': booking.id}
-        )
-        
-        if serializer.is_valid():
-            review = serializer.save(
-                user=request.user,
-                guide=booking.guide,
-                booking=booking
-            )
-            
-            guide = booking.guide
-            avg_rating = guide.reviews.aggregate(Avg('rating'))['rating__avg']
-            guide.rating = avg_rating or 0
-            guide.total_reviews = guide.reviews.count()
-            guide.save()
-            
-            return Response(GuideReviewSerializer(review).data, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class GuideReviewViewSet(viewsets.ModelViewSet):
-    """ViewSet for guide reviews"""
+    """ViewSet for managing guide reviews"""
     permission_classes = [IsAuthenticatedOrReadOnly]
     serializer_class = GuideReviewSerializer
     
     def get_queryset(self):
+        """Filter reviews by guide_id if provided"""
+        queryset = GuideReview.objects.all()
         guide_id = self.request.query_params.get('guide_id')
+        user_id = self.request.query_params.get('user_id')
+        booking_id = self.request.query_params.get('booking_id')
+        
         if guide_id:
-            return GuideReview.objects.filter(guide_id=guide_id)
-        return GuideReview.objects.all()
+            queryset = queryset.filter(guide_id=guide_id)
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        if booking_id:
+            queryset = queryset.filter(booking_id=booking_id)
+        
+        return queryset.order_by('-created_at')
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], url_path='my-reviews')
     def my_reviews(self, request):
         """Get current user's reviews"""
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
         reviews = GuideReview.objects.filter(user=request.user)
         serializer = self.get_serializer(reviews, many=True)
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'reviews': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'], url_path='for-guide/(?P<guide_id>[^/.]+)')
+    def for_guide(self, request, guide_id=None):
+        """Get all reviews for a specific guide"""
+        try:
+            guide = Guide.objects.get(id=guide_id)
+            reviews = GuideReview.objects.filter(guide=guide, is_approved=True)
+            serializer = self.get_serializer(reviews, many=True)
+            return Response({
+                'success': True,
+                'guide': guide.full_name,
+                'rating': float(guide.rating),
+                'total_reviews': guide.total_reviews,
+                'reviews': serializer.data
+            })
+        except Guide.DoesNotExist:
+            return Response(
+                {'error': 'Guide not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve_review(self, request, pk=None):
+        """Approve a review (guide or staff only)"""
+        review = self.get_object()
+        
+        # Check if user is the guide or staff
+        if request.user != review.guide.user and not request.user.is_staff:
+            return Response(
+                {'error': 'Only the guide or staff can approve reviews'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        review.is_approved = True
+        review.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Review approved successfully',
+            'review': GuideReviewSerializer(review).data
+        })
+    
+    @action(detail=True, methods=['delete'], url_path='delete')
+    def delete_review(self, request, pk=None):
+        """Delete a review (staff only)"""
+        if not request.user.is_staff:
+            return Response(
+                {'error': 'Only staff can delete reviews'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        review = self.get_object()
+        review.delete()
+        
+        return Response({
+            'success': True,
+            'message': 'Review deleted successfully'
+        })  

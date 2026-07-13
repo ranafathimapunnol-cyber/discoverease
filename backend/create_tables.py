@@ -155,3 +155,4 @@ print("\n🎉 All guide tables created!")
 tables = connection.introspection.table_names()
 guide_tables = [t for t in tables if 'guide' in t.lower()]
 print(f"\nGuide tables: {guide_tables}")
+
