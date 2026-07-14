@@ -52,7 +52,6 @@ class User(AbstractUser):
         print(f"✅ Token generated and saved: {token}")
         return token
 
-    
     def verify_email(self):
         self.email_verified = True
         self.is_active = True
@@ -78,8 +77,8 @@ class User(AbstractUser):
     
     def is_verification_token_valid(self, token):
         if not self.email_verification_token or not self.token_created_at:
-          return False
+            return False
         if self.email_verification_token != token:
-         return False
-        expiry = self.token_created_at + timezone.timedelta(minutes=30)  # 30 minutes expiry
+            return False
+        expiry = self.token_created_at + timezone.timedelta(minutes=30)
         return timezone.now() <= expiry

@@ -66,11 +66,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('confirm_password')
         
-        # Auto-generate username from email
         email = validated_data.get('email', '')
         base_username = email.split('@')[0] if email else 'user'
         
-        # Handle duplicate username
         username = base_username
         counter = 1
         while User.objects.filter(username=username).exists():
@@ -78,8 +76,6 @@ class RegisterSerializer(serializers.ModelSerializer):
             counter += 1
         
         validated_data['username'] = username
-        
-        # Role defaults to 'tourister'
         validated_data['role'] = User.Role.TOURISTER
         
         user = User.objects.create_user(**validated_data)

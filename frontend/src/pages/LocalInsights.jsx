@@ -1,11 +1,12 @@
-// pages/LocalInsights.jsx - WITH APPROVED STATUS AND DETAIL VIEW
+// pages/LocalInsights.jsx - FIXED WITH REVIEWS FROM user_reviews
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
 
 const LocalInsights = () => {
     const navigate = useNavigate();
-    const { isLoggedIn } = useAuth();
+    const { isLoggedIn, user } = useAuth();
     const [activeNav, setActiveNav] = useState('insights');
     const [scrolled, setScrolled] = useState(false);
     const [insights, setInsights] = useState([]);
@@ -30,7 +31,6 @@ const LocalInsights = () => {
         places: 0,
         categories: 0
     });
-    const [districts, setDistricts] = useState([]);
 
     useEffect(() => {
         if (!isLoggedIn) {
@@ -44,40 +44,157 @@ const LocalInsights = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // ✅ Fetch insights from localStorage - SHOW APPROVED AND IMPLEMENTED
+    // ✅ Compress image before storing
+    const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+                    } else {
+                        if (height > maxHeight) {
+                            width = Math.round((width * maxHeight) / height);
+                            height = maxHeight;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                };
+            };
+        });
+    };
+
+    // ✅ Fetch ALL IMPLEMENTED insights from API + localStorage + user_reviews
     const fetchInsights = async () => {
         setLoading(true);
         try {
-            const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-            
-            // ✅ Show both 'approved' and 'implemented' as "Approved" status
-            const approvedAndImplemented = localSuggestions.filter(s => 
-                s.status === 'approved' || s.status === 'implemented'
-            );
-            
-            const insightsData = approvedAndImplemented.map(s => ({
+            let allImplementedItems = [];
+
+            // 1️⃣ First try to fetch from API
+            try {
+                const response = await api.get('/staff/suggestions/?status=implemented');
+                console.log('📊 API implemented suggestions:', response.data);
+                
+                if (response.data?.success && response.data?.suggestions) {
+                    const apiItems = response.data.suggestions.filter(s => s.status === 'implemented');
+                    allImplementedItems = [...allImplementedItems, ...apiItems];
+                } else if (Array.isArray(response.data)) {
+                    const apiItems = response.data.filter(s => s.status === 'implemented');
+                    allImplementedItems = [...allImplementedItems, ...apiItems];
+                }
+            } catch (apiError) {
+                console.log('⚠️ API fetch failed, using localStorage:', apiError.message);
+            }
+
+            // 2️⃣ Also check localStorage for implemented items (hidden_gems_suggestions)
+            try {
+                const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+                const localImplemented = localSuggestions.filter(s => s.status === 'implemented');
+                
+                const existingIds = new Set(allImplementedItems.map(s => s.id));
+                const uniqueLocal = localImplemented.filter(s => !existingIds.has(s.id));
+                allImplementedItems = [...allImplementedItems, ...uniqueLocal];
+                
+                console.log('📊 Local implemented suggestions:', uniqueLocal.length);
+            } catch (e) {
+                console.log('⚠️ No local suggestions found');
+            }
+
+            // 3️⃣ 🔥 FETCH IMPLEMENTED REVIEWS FROM user_reviews
+            try {
+                const allReviews = JSON.parse(localStorage.getItem('user_reviews') || '[]');
+                const implementedReviews = allReviews.filter(r => r.status === 'implemented');
+                console.log('📊 Implemented reviews found:', implementedReviews.length);
+                
+                // Convert reviews to match the insight format
+                const reviewItems = implementedReviews.map(r => ({
+                    id: `review-${r.id}`,
+                    author: r.user_email || 'Anonymous Traveler',
+                    place: r.destination || r.name || 'Unknown Place',
+                    tip: r.review_text || r.description || '',
+                    category: r.category || 'general',
+                    location: r.location_info || r.district || '',
+                    district: r.district || 'Unknown',
+                    type: 'review',
+                    suggestion_type: 'review',
+                    status: 'implemented',
+                    created_at: r.created_at || new Date().toISOString(),
+                    image: r.image || null,
+                    description: r.review_text || r.description || '',
+                    originalType: 'review',
+                    rating: r.rating || null,
+                    destination: r.destination,
+                    review_text: r.review_text,
+                    tips: r.tips,
+                    best_time: r.best_time,
+                }));
+                
+                // Merge with existing items, avoid duplicates by id
+                const existingIds = new Set(allImplementedItems.map(s => s.id));
+                const uniqueReviews = reviewItems.filter(s => !existingIds.has(s.id));
+                allImplementedItems = [...allImplementedItems, ...uniqueReviews];
+                
+                console.log('📊 Unique implemented reviews added:', uniqueReviews.length);
+            } catch (e) {
+                console.log('⚠️ No reviews found in localStorage:', e);
+            }
+
+            // 4️⃣ If still no items, try alternative endpoint
+            if (allImplementedItems.length === 0) {
+                try {
+                    const response = await api.get('/guides/suggestions/?status=implemented');
+                    if (response.data?.success && response.data?.suggestions) {
+                        const apiItems = response.data.suggestions.filter(s => s.status === 'implemented');
+                        allImplementedItems = [...allImplementedItems, ...apiItems];
+                    }
+                } catch (e) {
+                    console.log('⚠️ Alternative API endpoint failed');
+                }
+            }
+
+            // 5️⃣ Format the insights
+            const insightsData = allImplementedItems.map(s => ({
                 id: s.id,
-                author: s.user_email || 'Anonymous Traveler',
-                place: s.name,
-                tip: s.description,
-                category: s.category,
-                location: s.location_info,
+                author: s.user_email || s.user?.email || 'Anonymous Traveler',
+                place: s.name || s.place || s.destination || 'Unknown Place',
+                tip: s.description || s.tip || s.review_text || '',
+                category: s.category || 'general',
+                location: s.location_info || s.location || '',
                 district: s.district || 'Unknown',
-                type: s.type || 'insight',
-                status: s.status || 'approved',
-                created_at: s.created_at,
-                image: s.image || null,
-                processed_at: s.processed_at || null,
-                processed_by: s.processed_by || 'Guide',
-                description: s.description,
+                type: s.type || s.suggestion_type || 'insight',
+                status: s.status || 'implemented',
+                created_at: s.created_at || s.createdAt || new Date().toISOString(),
+                image: s.image || s.images?.[0] || null,
+                description: s.description || s.review_text || '',
+                originalType: s.type || s.suggestion_type || 'insight',
+                rating: s.rating || null,
+                destination: s.destination,
+                review_text: s.review_text,
+                tips: s.tips,
+                best_time: s.best_time,
             }));
-            
+
             // Sort by most recent first
             insightsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             
             setInsights(insightsData);
             
-            const uniquePlaces = new Set(insightsData.map(i => i.place));
+            const uniquePlaces = new Set(insightsData.map(i => i.place).filter(Boolean));
             const uniqueCategories = new Set(insightsData.map(i => i.category).filter(Boolean));
             
             setStats({
@@ -85,23 +202,118 @@ const LocalInsights = () => {
                 places: uniquePlaces.size,
                 categories: uniqueCategories.size
             });
-            
+
+            console.log(`📊 Total implemented items: ${insightsData.length} (${insightsData.filter(i => i.originalType === 'review').length} reviews)`);
+
         } catch (error) {
             console.error('Error fetching insights:', error);
-            setInsights([]);
-            setStats({ insights: 0, places: 0, categories: 0 });
+            
+            // Fallback: try to get from localStorage only
+            try {
+                const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
+                const implementedItems = localSuggestions.filter(s => s.status === 'implemented');
+                
+                // Also get implemented reviews
+                const allReviews = JSON.parse(localStorage.getItem('user_reviews') || '[]');
+                const implementedReviews = allReviews.filter(r => r.status === 'implemented');
+                
+                const reviewItems = implementedReviews.map(r => ({
+                    id: `review-${r.id}`,
+                    author: r.user_email || 'Anonymous Traveler',
+                    place: r.destination || r.name || 'Unknown Place',
+                    tip: r.review_text || r.description || '',
+                    category: r.category || 'general',
+                    location: r.location_info || r.district || '',
+                    district: r.district || 'Unknown',
+                    type: 'review',
+                    suggestion_type: 'review',
+                    status: 'implemented',
+                    created_at: r.created_at || new Date().toISOString(),
+                    image: r.image || null,
+                    description: r.review_text || r.description || '',
+                    originalType: 'review',
+                    rating: r.rating || null,
+                    destination: r.destination,
+                    review_text: r.review_text,
+                    tips: r.tips,
+                    best_time: r.best_time,
+                }));
+                
+                const combined = [...implementedItems, ...reviewItems];
+                
+                const insightsData = combined.map(s => ({
+                    id: s.id,
+                    author: s.user_email || 'Anonymous Traveler',
+                    place: s.name || s.place || s.destination || 'Unknown Place',
+                    tip: s.description || s.tip || s.review_text || '',
+                    category: s.category || 'general',
+                    location: s.location_info || s.location || '',
+                    district: s.district || 'Unknown',
+                    type: s.type || s.suggestion_type || 'insight',
+                    status: s.status || 'implemented',
+                    created_at: s.created_at || new Date().toISOString(),
+                    image: s.image || null,
+                    description: s.description || s.review_text || '',
+                    originalType: s.type || s.suggestion_type || 'insight',
+                    rating: s.rating || null,
+                    destination: s.destination,
+                    review_text: s.review_text,
+                    tips: s.tips,
+                    best_time: s.best_time,
+                }));
+                
+                insightsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                setInsights(insightsData);
+                
+                const uniquePlaces = new Set(insightsData.map(i => i.place));
+                const uniqueCategories = new Set(insightsData.map(i => i.category).filter(Boolean));
+                setStats({
+                    insights: insightsData.length,
+                    places: uniquePlaces.size,
+                    categories: uniqueCategories.size
+                });
+            } catch (e) {
+                setInsights([]);
+                setStats({ insights: 0, places: 0, categories: 0 });
+            }
         } finally {
             setLoading(false);
         }
     };
 
+    // ✅ Listen for storage changes
+    useEffect(() => {
+        const handleStorageChange = (e) => {
+            if (e.key === 'hidden_gems_suggestions' || e.key === 'implemented_insights' || e.key === 'user_reviews') {
+                console.log('🔄 Storage changed, refreshing insights...');
+                fetchInsights();
+            }
+        };
+        window.addEventListener('storage', handleStorageChange);
+        window.addEventListener('implementedInsightsUpdated', () => {
+            console.log('🔄 Implemented insights updated, refreshing...');
+            fetchInsights();
+        });
+        
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+            window.removeEventListener('implementedInsightsUpdated', () => {});
+        };
+    }, []);
+
     useEffect(() => {
         if (isLoggedIn) {
             fetchInsights();
+            
+            const interval = setInterval(() => {
+                fetchInsights();
+            }, 30000);
+            
+            return () => clearInterval(interval);
         }
     }, [isLoggedIn]);
 
-    const handleImageChange = (e) => {
+    const handleImageChange = async (e) => {
         const file = e.target.files[0];
         if (file) {
             if (!file.type.startsWith('image/')) {
@@ -112,12 +324,15 @@ const LocalInsights = () => {
                 alert('Image size must be less than 5MB');
                 return;
             }
-            setFormData({ ...formData, image: file });
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setImagePreview(reader.result);
-            };
-            reader.readAsDataURL(file);
+            
+            try {
+                const compressedImage = await compressImage(file, 600, 600, 0.6);
+                setFormData({ ...formData, image: compressedImage });
+                setImagePreview(compressedImage);
+            } catch (error) {
+                console.error('Error compressing image:', error);
+                alert('Failed to process image. Please try again.');
+            }
         }
     };
 
@@ -142,14 +357,39 @@ const LocalInsights = () => {
 
         setSubmitting(true);
         try {
+            try {
+                const suggestionData = {
+                    name: formData.name,
+                    description: formData.description,
+                    category: formData.category,
+                    location_info: formData.location_info,
+                    district: formData.district,
+                    type: 'insight',
+                    user_email: user?.email || 'anonymous',
+                    image: formData.image || null,
+                };
+                
+                const response = await api.post('/suggestions/create/', suggestionData);
+                if (response.data?.success) {
+                    alert('✅ Your insight suggestion has been sent to the guides!');
+                    setShowSuggestionModal(false);
+                    resetForm();
+                    setSubmitting(false);
+                    fetchInsights();
+                    return;
+                }
+            } catch (apiError) {
+                console.log('⚠️ API suggestion failed, using localStorage:', apiError.message);
+            }
+
             const existingSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
             
-            let userEmail = 'anonymous';
-            try {
-                const userData = JSON.parse(localStorage.getItem('user') || '{}');
-                userEmail = userData.email || 'anonymous';
-            } catch (e) {
-                userEmail = 'anonymous';
+            const MAX_STORAGE_ITEMS = 100;
+            if (existingSuggestions.length > MAX_STORAGE_ITEMS) {
+                existingSuggestions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                const trimmedSuggestions = existingSuggestions.slice(0, MAX_STORAGE_ITEMS);
+                existingSuggestions.length = 0;
+                existingSuggestions.push(...trimmedSuggestions);
             }
             
             const newSuggestion = {
@@ -161,10 +401,10 @@ const LocalInsights = () => {
                 district: formData.district,
                 status: 'pending',
                 type: 'insight',
-                user_email: userEmail,
+                suggestion_type: 'insight',
+                user_email: user?.email || 'anonymous',
                 created_at: new Date().toISOString(),
-                suggestion_type: 'new',
-                image: imagePreview,
+                image: formData.image || null,
             };
             
             existingSuggestions.push(newSuggestion);
@@ -172,26 +412,34 @@ const LocalInsights = () => {
 
             alert('✅ Your insight suggestion has been sent to the guides!');
             setShowSuggestionModal(false);
-            setFormData({
-                name: '',
-                description: '',
-                category: '',
-                location_info: '',
-                district: '',
-                suggestion_type: 'new',
-                image: null,
-            });
-            setImagePreview(null);
+            resetForm();
             fetchInsights();
         } catch (error) {
             console.error('Error submitting suggestion:', error);
-            alert('Failed to submit suggestion. Please try again.');
+            
+            if (error.name === 'QuotaExceededError' || error.code === 22) {
+                alert('❌ Storage limit exceeded. Please clear some old suggestions or use smaller images.');
+            } else {
+                alert('Failed to submit suggestion. Please try again.');
+            }
         } finally {
             setSubmitting(false);
         }
     };
 
-    // ✅ Open detail modal
+    const resetForm = () => {
+        setFormData({
+            name: '',
+            description: '',
+            category: '',
+            location_info: '',
+            district: '',
+            suggestion_type: 'new',
+            image: null,
+        });
+        setImagePreview(null);
+    };
+
     const openDetailModal = (insight) => {
         setSelectedInsight(insight);
         setShowDetailModal(true);
@@ -361,17 +609,6 @@ const LocalInsights = () => {
                     transform: translateY(-2px);
                     box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                 }
-                .approved-badge {
-                    display: inline-block;
-                    padding: 2px 10px;
-                    border-radius: 999px;
-                    font-size: 8px;
-                    letter-spacing: 0.05em;
-                    text-transform: uppercase;
-                    background: rgba(46, 125, 50, 0.15);
-                    color: #2E7D32;
-                    border: 1px solid rgba(46, 125, 50, 0.2);
-                }
                 .type-badge {
                     display: inline-block;
                     padding: 2px 10px;
@@ -398,9 +635,22 @@ const LocalInsights = () => {
                     border-radius: 8px;
                     border: 1px solid rgba(199,154,62,0.2);
                 }
+                .refresh-btn {
+                    transition: transform 0.3s ease;
+                }
+                .refresh-btn:hover {
+                    transform: rotate(180deg);
+                }
+                .action-btn {
+                    transition: all 0.3s ease;
+                }
+                .action-btn:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+                }
             `}</style>
 
-            {/* Header */}
+            {/* ==================== HEADER ==================== */}
             <div style={{ background: "#072E2A", padding: "40px 20px 30px", position: "relative", overflow: "hidden" }}>
                 <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 90% 0%, rgba(199,154,62,0.15), transparent 55%)" }} />
                 <div style={{ maxWidth: 860, margin: "0 auto", position: "relative" }}>
@@ -410,14 +660,93 @@ const LocalInsights = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
                             </svg>
                         </Link>
-                        <Link to="/" className="li-font-mono" style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "#E4C77B", textDecoration: "none" }}>
-                            Back to home
-                        </Link>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <button
+                                onClick={fetchInsights}
+                                className="refresh-btn"
+                                style={{
+                                    background: 'transparent',
+                                    border: '1px solid rgba(199,154,62,0.3)',
+                                    borderRadius: '50%',
+                                    width: 32,
+                                    height: 32,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    color: '#E4C77B',
+                                }}
+                                title="Refresh insights"
+                            >
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                            </button>
+                            <Link to="/" className="li-font-mono" style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "#E4C77B", textDecoration: "none" }}>
+                                Back to home
+                            </Link>
+                        </div>
                     </div>
-                    <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#E4C77B", marginBottom: 8 }}>Field notes from the ground</p>
-                    <h1 className="li-font-display" style={{ fontStyle: "italic", fontSize: 34, fontWeight: 500, color: "#fff", margin: "0 0 8px", lineHeight: 1.05 }}>Local Insights</h1>
-                    <p style={{ fontSize: 13, color: "rgba(237,226,196,0.75)", maxWidth: 460, lineHeight: 1.5 }}>
-                        Hidden gems and honest tips, written by fellow travelers and locals who know Kerala best.
+
+                    {/* ==================== HEADING WITH REVIEW BUTTON ON RIGHT ==================== */}
+                    <div style={{ 
+                        display: "flex", 
+                        alignItems: "center", 
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: 12
+                    }}>
+                        <div>
+                            <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#E4C77B", marginBottom: 8 }}>
+                                Field notes from the ground
+                            </p>
+                            <h1 className="li-font-display" style={{ fontStyle: "italic", fontSize: 34, fontWeight: 500, color: "#fff", margin: 0, lineHeight: 1.05 }}>
+                                Local Insights
+                            </h1>
+                        </div>
+                        
+                        {/* ✅ Review Button - Beside Heading on Right */}
+                        <button
+                            onClick={() => navigate('/reviews')}
+                            className="action-btn"
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                padding: "10px 22px",
+                                borderRadius: 999,
+                                border: "2px solid rgba(228,199,123,0.6)",
+                                background: "rgba(228,199,123,0.12)",
+                                color: "#E4C77B",
+                                fontSize: 12,
+                                letterSpacing: "0.15em",
+                                textTransform: "uppercase",
+                                cursor: "pointer",
+                                fontFamily: "'IBM Plex Mono', monospace",
+                                transition: "all 0.3s ease",
+                                backdropFilter: "blur(4px)",
+                            }}
+                            onMouseEnter={(e) => {
+                                e.target.style.background = "rgba(228,199,123,0.25)";
+                                e.target.style.borderColor = "#E4C77B";
+                                e.target.style.transform = "translateY(-2px)";
+                                e.target.style.boxShadow = "0 4px 20px rgba(228,199,123,0.2)";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.background = "rgba(228,199,123,0.12)";
+                                e.target.style.borderColor = "rgba(228,199,123,0.6)";
+                                e.target.style.transform = "translateY(0)";
+                                e.target.style.boxShadow = "none";
+                            }}
+                        >
+                            <span style={{ fontSize: 16 }}>⭐</span>
+                            Reviews
+                        </button>
+                    </div>
+
+                    <p style={{ fontSize: 13, color: "rgba(237,226,196,0.75)", maxWidth: 460, lineHeight: 1.5, marginTop: 10 }}>
+                        Hidden gems and honest tips from travelers across Kerala.
+                        {stats.insights > 0 && ` Currently showing ${stats.insights} gems.`}
                     </p>
 
                     <div style={{ display: "flex", gap: 22, marginTop: 24 }}>
@@ -440,44 +769,87 @@ const LocalInsights = () => {
                 </svg>
             </div>
 
+            {/* ==================== MAIN CONTENT ==================== */}
             <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px 0" }}>
-                {/* Suggest Destination Button */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 12 }}>
-                    <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#0E5C53", margin: 0 }}>
-                        Latest notes from travelers ({filteredInsights.length})
-                    </p>
+                
+                {/* ==================== ACTION BUTTONS ==================== */}
+                <div style={{ 
+                    display: "flex", 
+                    justifyContent: "flex-end", 
+                    alignItems: "center", 
+                    marginBottom: 20, 
+                    flexWrap: "wrap", 
+                    gap: 12 
+                }}>
                     <button
                         onClick={() => setShowSuggestionModal(true)}
+                        className="action-btn"
                         style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "10px 22px",
+                            borderRadius: 999,
+                            border: "2px solid #072E2A",
                             background: "#072E2A",
                             color: "#E4C77B",
-                            border: "none",
-                            padding: "8px 20px",
-                            borderRadius: 999,
-                            fontSize: 11,
+                            fontSize: 12,
                             letterSpacing: "0.15em",
                             textTransform: "uppercase",
                             cursor: "pointer",
                             fontFamily: "'IBM Plex Mono', monospace",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            transition: "all 0.3s ease"
+                            transition: "all 0.3s ease",
                         }}
-                        onMouseEnter={(e) => e.target.style.background = "#0B2422"}
-                        onMouseLeave={(e) => e.target.style.background = "#072E2A"}
+                        onMouseEnter={(e) => {
+                            e.target.style.background = "#0B2422";
+                            e.target.style.borderColor = "#0B2422";
+                            e.target.style.transform = "translateY(-2px)";
+                            e.target.style.boxShadow = "0 4px 16px rgba(7,46,42,0.3)";
+                        }}
+                        onMouseLeave={(e) => {
+                            e.target.style.background = "#072E2A";
+                            e.target.style.borderColor = "#072E2A";
+                            e.target.style.transform = "translateY(0)";
+                            e.target.style.boxShadow = "none";
+                        }}
                     >
-                        <span>+</span> Suggest Destination
+                        <span style={{ fontSize: 16 }}>+</span>
+                        Suggest
                     </button>
+                </div>
+
+                {/* Stats Bar */}
+                <div style={{ 
+                    display: "flex", 
+                    justifyContent: "space-between", 
+                    alignItems: "center", 
+                    marginBottom: 14,
+                    flexWrap: "wrap",
+                    gap: 8
+                }}>
+                    <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#0E5C53", margin: 0 }}>
+                        Latest insights from travelers ({filteredInsights.length})
+                    </p>
+                    <p style={{ fontSize: 11, color: "#8A9A95", margin: 0 }}>
+                        {stats.insights} total gems
+                    </p>
                 </div>
 
                 <div style={{ marginBottom: 20 }}>
                     <ZariDivider />
                 </div>
 
-                {/* Category filter chips */}
+                {/* ==================== CATEGORY FILTER ==================== */}
                 {insights.length > 0 && (
-                    <div style={{ display: "flex", gap: 8, marginBottom: 20, overflowX: "auto", paddingBottom: 4 }}>
+                    <div style={{ 
+                        display: "flex", 
+                        gap: 8, 
+                        marginBottom: 20, 
+                        overflowX: "auto", 
+                        paddingBottom: 8,
+                        scrollbarWidth: "thin",
+                        WebkitOverflowScrolling: "touch"
+                    }}>
                         {categories.map((cat) => (
                             <button
                                 key={cat}
@@ -487,6 +859,15 @@ const LocalInsights = () => {
                                     border: activeCategory === cat ? '2px solid #0E5C53' : '1px solid rgba(199,154,62,0.35)',
                                     background: activeCategory === cat ? '#0E5C53' : 'transparent',
                                     color: activeCategory === cat ? '#fff' : '#5C6E69',
+                                    padding: "6px 18px",
+                                    borderRadius: 999,
+                                    fontSize: 11,
+                                    letterSpacing: "0.05em",
+                                    textTransform: "uppercase",
+                                    cursor: "pointer",
+                                    transition: "all 0.25s ease",
+                                    fontFamily: "'IBM Plex Mono', monospace",
+                                    whiteSpace: "nowrap",
                                 }}
                             >
                                 {cat === 'all' ? 'All' : cat}
@@ -495,17 +876,50 @@ const LocalInsights = () => {
                     </div>
                 )}
 
+                {/* ==================== INSIGHTS LIST ==================== */}
                 {loading ? (
-                    <div style={{ textAlign: "center", padding: "40px 0" }}>
+                    <div style={{ textAlign: "center", padding: "60px 0" }}>
                         <div style={{ display: "inline-block", width: 30, height: 30, border: "2px solid #C79A3E", borderTop: "2px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                        <p style={{ marginTop: 12, color: "#5C6E69", fontSize: 13 }}>Loading insights...</p>
                     </div>
                 ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
                         {filteredInsights.length === 0 ? (
-                            <div style={{ textAlign: "center", padding: "40px 0", color: "#5C6E69" }}>
-                                <p>No insights yet. Be the first to suggest one!</p>
-                                <p style={{ fontSize: 12, marginTop: 8 }}>Suggestions approved by guides will appear here.</p>
+                            <div style={{ 
+                                textAlign: "center", 
+                                padding: "60px 20px", 
+                                color: "#5C6E69",
+                                background: "#fff",
+                                borderRadius: 8,
+                                border: "1px solid rgba(199,154,62,0.15)"
+                            }}>
+                                <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>
+                                    {insights.length === 0 ? 'No insights yet' : 'No insights in this category'}
+                                </p>
+                                <p style={{ fontSize: 13, marginTop: 8 }}>
+                                    {insights.length === 0 
+                                        ? 'Suggestions and reviews approved by guides will appear here. Share a hidden gem or write a review to help us grow!' 
+                                        : 'Try selecting a different category'}
+                                </p>
+                                {insights.length === 0 && (
+                                    <button
+                                        onClick={() => setShowSuggestionModal(true)}
+                                        style={{
+                                            marginTop: 16,
+                                            padding: "10px 24px",
+                                            borderRadius: 999,
+                                            border: "1px solid #072E2A",
+                                            background: "#072E2A",
+                                            color: "#E4C77B",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                            fontFamily: "'IBM Plex Mono', monospace"
+                                        }}
+                                    >
+                                        + Suggest a Destination
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             filteredInsights.map((insight) => (
@@ -515,81 +929,91 @@ const LocalInsights = () => {
                                     onClick={() => openDetailModal(insight)}
                                     style={{
                                         background: "#fff",
-                                        borderRadius: 4,
-                                        padding: "18px 20px",
-                                        border: "1px solid rgba(199,154,62,0.3)",
-                                        position: 'relative'
+                                        borderRadius: 8,
+                                        padding: "20px 24px",
+                                        border: "1px solid rgba(199,154,62,0.25)",
+                                        position: 'relative',
+                                        transition: "all 0.3s ease",
+                                        cursor: "pointer"
                                     }}
                                 >
-                                    <div style={{ display: "flex", gap: 6, position: 'absolute', top: 12, right: 12 }}>
-                                        <span className="approved-badge">✅ Approved</span>
-                                        {insight.type === 'hidden_gem' ? (
-                                            <span className="type-badge">💎 From Traveler</span>
+                                    {/* Type Badge */}
+                                    <div style={{ display: "flex", gap: 6, position: 'absolute', top: 14, right: 16 }}>
+                                        {insight.originalType === 'hidden_gem' || insight.type === 'hidden_gem' ? (
+                                            <span className="type-badge" style={{ background: "rgba(14,92,83,0.15)", color: "#0E5C53" }}>💎 Hidden Gem</span>
+                                        ) : insight.originalType === 'review' || insight.type === 'review' ? (
+                                            <span className="type-badge" style={{ background: "rgba(255,152,0,0.15)", color: "#FF9800" }}>⭐ Review</span>
                                         ) : (
-                                            <span className="type-badge">✨ From Expert</span>
+                                            <span className="type-badge" style={{ background: "rgba(199,154,62,0.15)", color: "#0E5C53" }}>✨ Local Insight</span>
                                         )}
                                     </div>
-                                    <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+
+                                    <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
                                         {insight.image && (
                                             <div style={{ flexShrink: 0 }}>
                                                 <img 
                                                     src={insight.image} 
                                                     alt={insight.place} 
                                                     style={{ 
-                                                        width: 60, 
-                                                        height: 60, 
+                                                        width: 72, 
+                                                        height: 72, 
                                                         borderRadius: 8, 
                                                         objectFit: 'cover',
-                                                        border: '1px solid rgba(199,154,62,0.2)'
+                                                        border: '1px solid rgba(199,154,62,0.15)'
                                                     }} 
                                                 />
                                             </div>
                                         )}
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{
-                                                width: 38,
-                                                height: 38,
-                                                borderRadius: "50%",
-                                                border: "1px solid #C79A3E",
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                fontSize: 15,
-                                                color: "#0E5C53",
-                                                flexShrink: 0,
-                                                fontStyle: "italic"
-                                            }}>
-                                                {insight.author?.[0]?.toUpperCase() || 'U'}
-                                            </div>
-                                            <div>
-                                                <p style={{ fontWeight: 600, fontSize: 13, color: "#0B2422", margin: 0 }}>
-                                                    {insight.author || 'Anonymous Traveler'}
-                                                </p>
-                                                <p className="li-font-mono" style={{ fontSize: 10, color: "#5C6E69", margin: "2px 0 0" }}>
-                                                    📍 {insight.place || insight.location}
-                                                    {insight.district && ` · ${insight.district}`}
-                                                </p>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                                                <div style={{
+                                                    width: 36,
+                                                    height: 36,
+                                                    borderRadius: "50%",
+                                                    border: "1px solid #C79A3E",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    fontSize: 14,
+                                                    color: "#0E5C53",
+                                                    flexShrink: 0,
+                                                    fontStyle: "italic",
+                                                    background: "#FBF6EA"
+                                                }}>
+                                                    {insight.author?.[0]?.toUpperCase() || 'U'}
+                                                </div>
+                                                <div>
+                                                    <p style={{ fontWeight: 600, fontSize: 14, color: "#0B2422", margin: 0 }}>
+                                                        {insight.author || 'Anonymous Traveler'}
+                                                    </p>
+                                                    <p className="li-font-mono" style={{ fontSize: 10, color: "#5C6E69", margin: "2px 0 0" }}>
+                                                        📍 {insight.place || insight.location}
+                                                        {insight.district && ` · ${insight.district}`}
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <p style={{ fontSize: 13, color: "#4A5F5A", margin: "0 0 8px 0", lineHeight: 1.55 }}>
+
+                                    <p style={{ fontSize: 13, color: "#4A5F5A", margin: "0 0 10px 0", lineHeight: 1.6 }}>
                                         {insight.tip || insight.description}
                                     </p>
-                                    {insight.category && insight.category !== 'other' && (
-                                        <span className="category-badge">
-                                            {insight.category}
-                                        </span>
-                                    )}
-                                    <div style={{ marginTop: 8, fontSize: 11, color: "#8A9A95" }}>
-                                        <span>✅ Approved by {insight.processed_by || 'Guide'}</span>
-                                        {insight.processed_at && (
-                                            <span style={{ marginLeft: 12 }}>
-                                                📅 {new Date(insight.processed_at).toLocaleDateString()}
+
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                                        {insight.category && insight.category !== 'other' && (
+                                            <span className="category-badge">
+                                                {insight.category}
+                                            </span>
+                                        )}
+                                        {insight.rating && (
+                                            <span className="category-badge" style={{ background: 'rgba(255,152,0,0.15)', color: '#FF9800' }}>
+                                                {'★'.repeat(Math.round(insight.rating))} {insight.rating}/5
                                             </span>
                                         )}
                                     </div>
-                                    <div style={{ marginTop: 6, fontSize: 11, color: "#C79A3E" }}>
-                                        👆 Click to view details
+
+                                    <div style={{ marginTop: 10, fontSize: 11, color: "#C79A3E", display: "flex", alignItems: "center", gap: 4 }}>
+                                        <span>👆 Click to view details</span>
                                     </div>
                                 </div>
                             ))
@@ -597,22 +1021,94 @@ const LocalInsights = () => {
                     </div>
                 )}
 
-                {/* CTA Section */}
-                <div style={{ marginTop: 28, borderRadius: 4, border: "2px dashed rgba(199,154,62,0.5)", padding: "34px 24px", textAlign: "center", background: "radial-gradient(circle at top right, rgba(199,154,62,0.06), transparent 60%)" }}>
-                    <div style={{ width: 48, height: 48, borderRadius: "50%", border: "1px solid #C79A3E", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, margin: "0 auto 14px" }}>✨</div>
+                {/* ==================== CTA SECTION ==================== */}
+                <div style={{ 
+                    marginTop: 32, 
+                    borderRadius: 8, 
+                    border: "2px dashed rgba(199,154,62,0.4)", 
+                    padding: "40px 24px", 
+                    textAlign: "center", 
+                    background: "radial-gradient(circle at top right, rgba(199,154,62,0.05), transparent 60%)" 
+                }}>
+                    <div style={{ 
+                        width: 56, 
+                        height: 56, 
+                        borderRadius: "50%", 
+                        border: "1px solid #C79A3E", 
+                        display: "flex", 
+                        alignItems: "center", 
+                        justifyContent: "center", 
+                        fontSize: 24, 
+                        margin: "0 auto 14px" 
+                    }}>✨</div>
                     <h3 className="li-font-display" style={{ fontSize: 22, color: "#0B2422", margin: "0 0 6px" }}>Know a hidden gem?</h3>
-                    <p style={{ fontSize: 13, color: "#5C6E69", margin: "0 0 18px" }}>Suggest a destination to our local guides. They'll review and add it to our collection.</p>
-                    <button
-                        onClick={() => setShowSuggestionModal(true)}
-                        className="li-font-mono"
-                        style={{ padding: "12px 28px", borderRadius: 999, border: "1px solid #0B2422", background: "transparent", color: "#0B2422", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer" }}
-                    >
-                        Suggest Destination
-                    </button>
+                    <p style={{ fontSize: 14, color: "#5C6E69", margin: "0 0 20px", maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
+                        Suggest a destination or write a review to help fellow travelers!
+                    </p>
+                    <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+                        <button
+                            onClick={() => setShowSuggestionModal(true)}
+                            className="li-font-mono"
+                            style={{ 
+                                padding: "12px 32px", 
+                                borderRadius: 999, 
+                                border: "1px solid #0B2422", 
+                                background: "#0B2422", 
+                                color: "#fff", 
+                                fontSize: 11, 
+                                letterSpacing: "0.15em", 
+                                textTransform: "uppercase", 
+                                cursor: "pointer",
+                                transition: "all 0.3s ease"
+                            }}
+                            onMouseEnter={(e) => {
+                                e.target.style.background = "#072E2A";
+                                e.target.style.transform = "translateY(-2px)";
+                                e.target.style.boxShadow = "0 4px 16px rgba(7,46,42,0.3)";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.background = "#0B2422";
+                                e.target.style.transform = "translateY(0)";
+                                e.target.style.boxShadow = "none";
+                            }}
+                        >
+                            ✨ Suggest Destination
+                        </button>
+                        <button
+                            onClick={() => navigate('/reviews')}
+                            className="li-font-mono"
+                            style={{ 
+                                padding: "12px 32px", 
+                                borderRadius: 999, 
+                                border: "1px solid #0E5C53", 
+                                background: "transparent", 
+                                color: "#0E5C53", 
+                                fontSize: 11, 
+                                letterSpacing: "0.15em", 
+                                textTransform: "uppercase", 
+                                cursor: "pointer",
+                                transition: "all 0.3s ease"
+                            }}
+                            onMouseEnter={(e) => {
+                                e.target.style.background = "#0E5C53";
+                                e.target.style.color = "#fff";
+                                e.target.style.transform = "translateY(-2px)";
+                                e.target.style.boxShadow = "0 4px 16px rgba(14,92,83,0.2)";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.target.style.background = "transparent";
+                                e.target.style.color = "#0E5C53";
+                                e.target.style.transform = "translateY(0)";
+                                e.target.style.boxShadow = "none";
+                            }}
+                        >
+                            ⭐ Write a Review
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {/* Suggest Destination Modal with District & Image */}
+            {/* ==================== SUGGEST DESTINATION MODAL ==================== */}
             {showSuggestionModal && (
                 <div className="modal-overlay" onClick={() => setShowSuggestionModal(false)}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -716,62 +1212,101 @@ const LocalInsights = () => {
                                 />
                             </div>
 
-                            {/* Image Upload */}
                             <div>
                                 <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Upload Photo</label>
-                                <div className="flex items-center gap-4">
-                                    <label className="cursor-pointer bg-[#FBF6EA] border border-[#C79A3E]/30 rounded-lg px-4 py-3 hover:bg-[#F5EFE0] transition text-sm text-[#0B2422] flex items-center gap-2">
-                                        <span>📷</span>
-                                        <span>Choose Image</span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                    <label style={{ 
+                                        cursor: "pointer", 
+                                        background: "#FBF6EA", 
+                                        border: "1px solid rgba(199,154,62,0.3)", 
+                                        borderRadius: 8, 
+                                        padding: "10px 16px", 
+                                        transition: "all 0.3s ease",
+                                        fontSize: 13,
+                                        color: "#0B2422"
+                                    }}
+                                    onMouseEnter={(e) => e.target.style.background = "#F5EFE0"}
+                                    onMouseLeave={(e) => e.target.style.background = "#FBF6EA"}>
+                                        <span>📷 Choose Image</span>
                                         <input
                                             type="file"
                                             accept="image/*"
                                             onChange={handleImageChange}
-                                            className="hidden"
+                                            style={{ display: "none" }}
                                         />
                                     </label>
                                     {imagePreview && (
                                         <button
                                             type="button"
                                             onClick={removeImage}
-                                            className="text-red-500 text-sm hover:text-red-700 transition"
+                                            style={{ 
+                                                background: "none", 
+                                                border: "none", 
+                                                color: "#DC2626", 
+                                                fontSize: 13, 
+                                                cursor: "pointer" 
+                                            }}
                                         >
                                             Remove
                                         </button>
                                     )}
                                 </div>
-                                <p className="text-xs text-gray-400 mt-1">Max 5MB. JPG, PNG, GIF accepted</p>
+                                <p style={{ fontSize: 11, color: "#8A9A95", marginTop: 4 }}>Max 5MB. Image will be compressed for storage</p>
                                 {imagePreview && (
-                                    <div className="mt-3">
+                                    <div style={{ marginTop: 8 }}>
                                         <img
                                             src={imagePreview}
                                             alt="Preview"
-                                            className="image-preview"
-                                            style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8, border: '1px solid rgba(199,154,62,0.2)' }}
+                                            style={{ 
+                                                maxWidth: '100%', 
+                                                maxHeight: 180, 
+                                                objectFit: 'cover', 
+                                                borderRadius: 8, 
+                                                border: '1px solid rgba(199,154,62,0.2)' 
+                                            }}
                                         />
                                     </div>
                                 )}
                             </div>
 
-                            <div style={{ background: "#f0f7f5", padding: "12px", borderRadius: 4, fontSize: 12, color: "#0E5C53" }}>
+                            <div style={{ 
+                                background: "#f0f7f5", 
+                                padding: "14px", 
+                                borderRadius: 8, 
+                                fontSize: 12, 
+                                color: "#0E5C53",
+                                lineHeight: 1.5
+                            }}>
                                 💡 Your suggestion will be sent to our local guides for review.
-                                Once approved, it will appear in the insights section for all travelers to see.
+                                Once implemented, it will appear in the insights section for all travelers to see.
                             </div>
 
                             <button
                                 type="submit"
                                 disabled={submitting}
                                 style={{
-                                    padding: "12px 28px",
+                                    padding: "14px 28px",
                                     borderRadius: 999,
                                     border: "none",
-                                    background: "#072E2A",
+                                    background: submitting ? "#9CA3AF" : "#072E2A",
                                     color: "#E4C77B",
-                                    fontSize: 11,
+                                    fontSize: 12,
                                     letterSpacing: "0.15em",
                                     textTransform: "uppercase",
                                     cursor: submitting ? "not-allowed" : "pointer",
-                                    opacity: submitting ? 0.6 : 1
+                                    opacity: submitting ? 0.6 : 1,
+                                    fontFamily: "'IBM Plex Mono', monospace",
+                                    transition: "all 0.3s ease"
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (!submitting) {
+                                        e.target.style.background = "#0B2422";
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (!submitting) {
+                                        e.target.style.background = "#072E2A";
+                                    }
                                 }}
                             >
                                 {submitting ? 'Submitting...' : '📤 Submit Suggestion'}
@@ -781,7 +1316,7 @@ const LocalInsights = () => {
                 </div>
             )}
 
-            {/* ✅ Detail Modal */}
+            {/* ==================== DETAIL MODAL ==================== */}
             {showDetailModal && selectedInsight && (
                 <div className="modal-overlay" onClick={closeDetailModal}>
                     <div className="modal-content-detail" onClick={(e) => e.stopPropagation()}>
@@ -792,9 +1327,14 @@ const LocalInsights = () => {
                             <button onClick={closeDetailModal} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#5C6E69" }}>×</button>
                         </div>
 
-                        {/* Status Badge */}
                         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                            <span className="approved-badge">✅ Approved</span>
+                            {selectedInsight.originalType === 'hidden_gem' || selectedInsight.type === 'hidden_gem' ? (
+                                <span className="type-badge" style={{ background: "rgba(14,92,83,0.15)", color: "#0E5C53" }}>💎 Hidden Gem</span>
+                            ) : selectedInsight.originalType === 'review' || selectedInsight.type === 'review' ? (
+                                <span className="type-badge" style={{ background: "rgba(255,152,0,0.15)", color: "#FF9800" }}>⭐ Review</span>
+                            ) : (
+                                <span className="type-badge" style={{ background: "rgba(199,154,62,0.15)", color: "#0E5C53" }}>✨ Local Insight</span>
+                            )}
                             {selectedInsight.category && (
                                 <span className="category-badge">{selectedInsight.category}</span>
                             )}
@@ -803,9 +1343,13 @@ const LocalInsights = () => {
                                     📍 {selectedInsight.district}
                                 </span>
                             )}
+                            {selectedInsight.rating && (
+                                <span className="category-badge" style={{ background: 'rgba(255,152,0,0.15)', color: '#FF9800' }}>
+                                    {'★'.repeat(Math.round(selectedInsight.rating))} {selectedInsight.rating}/5
+                                </span>
+                            )}
                         </div>
 
-                        {/* Image */}
                         {selectedInsight.image && (
                             <div style={{ marginBottom: 16 }}>
                                 <img 
@@ -823,7 +1367,6 @@ const LocalInsights = () => {
                             </div>
                         )}
 
-                        {/* Author Info */}
                         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
                             <div style={{
                                 width: 40,
@@ -835,6 +1378,7 @@ const LocalInsights = () => {
                                 justifyContent: "center",
                                 fontSize: 16,
                                 color: "#0E5C53",
+                                background: "#FBF6EA"
                             }}>
                                 {selectedInsight.author?.[0]?.toUpperCase() || 'U'}
                             </div>
@@ -848,7 +1392,6 @@ const LocalInsights = () => {
                             </div>
                         </div>
 
-                        {/* Location */}
                         {selectedInsight.location && (
                             <div style={{ marginBottom: 12 }}>
                                 <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>📍 Location</h4>
@@ -856,7 +1399,6 @@ const LocalInsights = () => {
                             </div>
                         )}
 
-                        {/* Description */}
                         <div style={{ marginBottom: 12 }}>
                             <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>📝 Description</h4>
                             <p style={{ fontSize: 13, color: "#4A5F5A", lineHeight: 1.6, margin: 0 }}>
@@ -864,33 +1406,20 @@ const LocalInsights = () => {
                             </p>
                         </div>
 
-                        {/* Tips */}
                         {selectedInsight.tip && selectedInsight.tip !== selectedInsight.description && (
-                            <div style={{ marginBottom: 12 }}>
-                                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>💡 Tips</h4>
+                            <div style={{ marginBottom: 12, background: "#F0F7F5", padding: "14px", borderRadius: 8 }}>
+                                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0E5C53", margin: "0 0 4px" }}>💡 Tips</h4>
                                 <p style={{ fontSize: 13, color: "#4A5F5A", lineHeight: 1.6, margin: 0 }}>
                                     {selectedInsight.tip}
                                 </p>
                             </div>
                         )}
 
-                        {/* Approval Info */}
-                        <div style={{ padding: 12, background: "#E6F0EA", borderRadius: 8, marginTop: 8 }}>
-                            <p style={{ fontSize: 12, color: "#3F7A5E", margin: 0 }}>
-                                ✅ Approved by {selectedInsight.processed_by || 'Guide'}
-                                {selectedInsight.processed_at && (
-                                    <span style={{ marginLeft: 8 }}>
-                                        on {new Date(selectedInsight.processed_at).toLocaleDateString()}
-                                    </span>
-                                )}
-                            </p>
-                        </div>
-
                         <button
                             onClick={closeDetailModal}
                             style={{
                                 marginTop: 16,
-                                padding: "10px 24px",
+                                padding: "12px 24px",
                                 borderRadius: 999,
                                 border: "1px solid #0B2422",
                                 background: "transparent",
@@ -900,6 +1429,8 @@ const LocalInsights = () => {
                                 textTransform: "uppercase",
                                 cursor: "pointer",
                                 width: "100%",
+                                fontFamily: "'IBM Plex Mono', monospace",
+                                transition: "all 0.3s ease"
                             }}
                             onMouseEnter={(e) => {
                                 e.target.style.background = "#0B2422";
@@ -916,6 +1447,7 @@ const LocalInsights = () => {
                 </div>
             )}
 
+            {/* ==================== BOTTOM NAV ==================== */}
             <BottomNav />
             <div className="fixed bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#051F1C]/10 via-transparent to-transparent pointer-events-none" />
         </div>

@@ -1,8 +1,8 @@
-// pages/Login.jsx - COMPLETE FIXED VERSION
+// pages/Login.jsx - COMPLETE FIXED VERSION (Keeping your working functions)
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api'; // ✅ Import default api
+import api from '../services/api';
 import ReCAPTCHA from 'react-google-recaptcha';
 
 const Login = () => {
@@ -47,7 +47,6 @@ const Login = () => {
     }
   }, [isLoggedIn, navigate]);
 
-  // ✅ Regular Login Handler - FIXED
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -63,7 +62,6 @@ const Login = () => {
     try {
       console.log('📤 Sending login request for:', email);
       
-      // ✅ Use api directly (not AuthAPI.login)
       const response = await api.post('/auth/login/', {
         email: email.trim(),
         password: password,
@@ -126,7 +124,6 @@ const Login = () => {
     }
   };
 
-  // ✅ Google Login Handler - FIXED
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     setError('');
@@ -147,19 +144,6 @@ const Login = () => {
       setError('Failed to connect to Google login. Please try again.');
       setIsGoogleLoading(false);
     }
-  };
-
-  // ✅ Demo accounts for quick testing
-  const demoAccounts = [
-    { email: 'admin@discoverease.com', password: 'admin123', label: 'Admin' },
-    { email: 'staff@staff.com', password: 'staff123', label: 'Staff' },
-    { email: 'guide@guide.com', password: 'guide123', label: 'Guide' },
-    { email: 'user@example.com', password: 'user123', label: 'Tourister' },
-  ];
-
-  const fillDemo = (demoEmail, demoPassword) => {
-    setEmail(demoEmail);
-    setPassword(demoPassword);
   };
 
   return (
@@ -572,40 +556,8 @@ const Login = () => {
           }
         `}</style>
 
-        {/* Demo Accounts */}
-        <div style={{ marginTop: 24 }}>
-          <p style={{ textAlign: "center", fontSize: 12, color: "#8A9A95", marginBottom: 10 }}>
-            🔑 Quick Login (Click to auto-fill)
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {demoAccounts.map((demo) => (
-              <button
-                key={demo.label}
-                onClick={() => fillDemo(demo.email, demo.password)}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  border: "1px solid rgba(199,154,62,0.2)",
-                  background: "transparent",
-                  fontSize: 11,
-                  color: "#0B2422",
-                  cursor: "pointer",
-                  transition: "all 0.3s ease",
-                  fontFamily: "'Inter', sans-serif",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(199,154,62,0.08)"}
-                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-              >
-                <span style={{ fontWeight: 600 }}>{demo.label}</span>
-                <br />
-                <span style={{ fontSize: 9, color: "#8A9A95" }}>{demo.email}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Register Link */}
-        <div style={{ textAlign: "center", marginTop: 20 }}>
+        <div style={{ textAlign: "center", marginTop: 24 }}>
           <p style={{ color: "#6B7280", fontSize: 14, margin: 0 }}>
             Don't have an account?{' '}
             <Link to="/register" style={{ color: "#C79A3E", textDecoration: "none", fontWeight: 600 }}>

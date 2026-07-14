@@ -1,10 +1,12 @@
-// src/pages/Register.jsx - FINAL VERSION
+// pages/Register.jsx - COMPLETE FIXED VERSION
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 
 const Register = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -56,15 +58,46 @@ const Register = () => {
         first_name: formData.first_name,
         last_name: formData.last_name,
         phone: formData.phone,
-        // No username - backend auto-generates
-        // No role - backend defaults to 'tourister'
       });
       
       console.log('Registration response:', response.data);
 
       if (response.data.success) {
-        setSuccess('✅ Registration successful! Please check your email to verify your account.');
+        // Check if auto-verified (development mode)
+        if (response.data.auto_verified) {
+          // User is already logged in
+          const user = response.data.user;
+          const role = response.data.role || 'tourister';
+          const session_key = response.data.session_key;
+          
+          if (user) {
+            const userToStore = {
+              id: user.id,
+              email: user.email,
+              first_name: user.first_name || '',
+              last_name: user.last_name || '',
+              role: role,
+              phone: user.phone || '',
+              profile_picture: user.profile_picture || null,
+              email_verified: true,
+            };
+            
+            sessionStorage.setItem('user', JSON.stringify(userToStore));
+            sessionStorage.setItem('role', role);
+            if (session_key) {
+              sessionStorage.setItem('session_key', session_key);
+            }
+            
+            login(userToStore, session_key);
+          }
+          
+          // Redirect to home
+          navigate('/');
+          return;
+        }
         
+        // Normal registration with email verification
+        setSuccess('✅ Registration successful! Please check your email to verify your account.');
         setFormData({
           email: '',
           password: '',

@@ -1,4 +1,4 @@
-// pages/Home.jsx - COMPLETE WITH IMAGE UPLOAD
+// pages/Home.jsx - UPDATED WITH CLICKABLE FEATURE CARDS
 
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -240,6 +240,33 @@ export default function Home() {
     navigate(path);
   };
 
+  // ✅ NEW: Handle feature card clicks with login check
+  const handleFeatureClick = (featureTitle) => {
+    if (!isLoggedIn) {
+      alert('⚠️ Login required to access this feature. Please login first.');
+      navigate('/login');
+      return;
+    }
+
+    // Map feature titles to their respective routes
+    const routeMap = {
+      'Hidden Destinations': '/categories',
+      'Local Guides': '/guides',
+      'AI Trip Planner': '/ai-trip-planner',
+      'Local Insights': '/local-insights',
+      'Verified Reviews': '/reviews',
+      'Sustainable Travel': '/sustainable-travel',
+    };
+
+    const path = routeMap[featureTitle];
+    if (path) {
+      navigate(path);
+    } else {
+      // Default fallback
+      navigate('/dashboard');
+    }
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -318,14 +345,14 @@ export default function Home() {
     { key: "houseboats", label: "Houseboats", image: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?w=400&q=80", count: "20+" }
   ];
 
-  // ✅ Features
+  // ✅ Features with routing information
   const whyChooseUs = [
-    { title: "Hidden Destinations", description: "Discover off-the-beaten-path locations that most tourists never see" },
-    { title: "Local Guides", description: "Connect with knowledgeable locals who share authentic experiences" },
-    { title: "AI Trip Planner", description: "Personalize itineraries based on your interests, budget & time" },
-    { title: "Local Insights", description: "Get insider tips and recommendations from fellow travelers" },
-    { title: "Verified Reviews", description: "Real traveler reviews to help you make informed decisions" },
-    { title: "Sustainable Travel", description: "Eco-friendly travel options that respect nature and local communities" }
+    { title: "Hidden Destinations", description: "Discover off-the-beaten-path locations that most tourists never see", route: "/categories" },
+    { title: "Local Guides", description: "Connect with knowledgeable locals who share authentic experiences", route: "/guides" },
+    { title: "AI Trip Planner", description: "Personalize itineraries based on your interests, budget & time", route: "/ai-trip-planner" },
+    { title: "Local Insights", description: "Get insider tips and recommendations from fellow travelers", route: "/local-insights" },
+    { title: "Verified Reviews", description: "Real traveler reviews to help you make informed decisions", route: "/reviews" },
+    { title: "Sustainable Travel", description: "Eco-friendly travel options that respect nature and local communities", route: "/sustainable-travel" }
   ];
 
   const travelerTips = [
@@ -428,8 +455,18 @@ export default function Home() {
         .font-display { font-family: 'Fraunces', serif; }
         .font-mono { font-family: 'IBM Plex Mono', monospace; }
         .category-tile { transition: all 0.3s ease; }
-        .feature-card { transition: all 0.3s ease; }
-        .feature-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(11,36,34,0.15); }
+        .feature-card { 
+          transition: all 0.3s ease; 
+          cursor: pointer;
+        }
+        .feature-card:hover { 
+          transform: translateY(-4px); 
+          box-shadow: 0 20px 40px -12px rgba(11,36,34,0.15);
+          border-color: #C79A3E;
+        }
+        .feature-card:active {
+          transform: scale(0.98);
+        }
         .insights-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px -12px rgba(199,154,62,0.15); }
         .image-preview:hover { opacity: 0.8; }
       `}</style>
@@ -674,7 +711,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* WHY CHOOSE DISCOVEREASE? */}
+      {/* ✅ WHY CHOOSE DISCOVEREASE? - NOW WITH CLICKABLE CARDS */}
       <section className="relative">
         <RippleDivider fill="#072E2A" />
         <div className="bg-[#072E2A] py-20">
@@ -691,15 +728,24 @@ export default function Home() {
               {whyChooseUs.map((feature) => (
                 <div
                   key={feature.title}
-                  className="feature-card bg-[#0B3A34] rounded-xl p-8 border border-[#C79A3E]/15 hover:border-[#C79A3E]/50 transition-all duration-300"
+                  onClick={() => handleFeatureClick(feature.title)}
+                  className="feature-card bg-[#0B3A34] rounded-xl p-8 border border-[#C79A3E]/15 hover:border-[#C79A3E]/50 transition-all duration-300 cursor-pointer group"
                 >
-                  <FeatureIcon type={feature.title} />
+                  <div className="flex items-start justify-between">
+                    <FeatureIcon type={feature.title} />
+                    <svg className="w-5 h-5 text-[#C79A3E] opacity-0 group-hover:opacity-100 transition-opacity duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                   <h3 className="font-display text-lg text-white mt-4 mb-2">
                     {feature.title}
                   </h3>
                   <p className="text-[#B9CFC9] text-sm leading-relaxed">
                     {feature.description}
                   </p>
+                  <div className="mt-4 text-[#C79A3E] text-xs font-mono uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    Explore →
+                  </div>
                 </div>
               ))}
             </div>

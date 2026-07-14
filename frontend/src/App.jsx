@@ -17,6 +17,8 @@ import Guides from './pages/Guides';
 import GuideDashboard from './pages/GuideDashboard';
 import StaffDashboard from './pages/StaffDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import MyBookings from './pages/MyBookings';
+import Reviews from './pages/Reviews';
 
 import './index.css';
 
@@ -173,6 +175,7 @@ function App() {
                                 <LocalInsights />
                             </ProtectedRoute>
                         }
+                        
                     />
                     <Route
                         path="/guides"
@@ -182,6 +185,8 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+                    <Route path="/my-bookings" element={<MyBookings />} />
+
                     <Route
                         path="/categories"
                         element={
@@ -268,6 +273,7 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+<Route path="/reviews" element={<Reviews />} />
 
                     {/* ========================================== */}
                     {/* CATCH ALL - 404                           */}

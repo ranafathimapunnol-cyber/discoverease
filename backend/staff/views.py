@@ -1,4 +1,5 @@
 # staff/views.py - COMPLETE FIXED VERSION
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -25,7 +26,6 @@ class StaffViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def _check_staff_access(self, request_or_user):
-        """Check if user has staff or admin access - accepts request or user object"""
         if hasattr(request_or_user, 'user'):
             user = request_or_user.user
         else:
@@ -38,7 +38,6 @@ class StaffViewSet(viewsets.ViewSet):
         return False
 
     def _log_activity(self, request, action, model_name, object_id='', details=None):
-        """Log staff activity"""
         try:
             from .models import StaffActivityLog
             StaffActivityLog.objects.create(
@@ -53,24 +52,26 @@ class StaffViewSet(viewsets.ViewSet):
             logger.error(f"Error logging activity: {e}")
 
     def _get_client_ip(self, request):
-        """Get client IP address"""
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
             return x_forwarded_for.split(',')[0]
         return request.META.get('REMOTE_ADDR')
 
     # ============================================
-    # STAFF STATS - URL: /api/staff/stats/
+    # STAFF STATS - /api/staff/stats/
     # ============================================
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
-        """Get staff dashboard statistics"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
+            total_suggestions = Suggestion.objects.count()
+            pending_suggestions = Suggestion.objects.filter(status='pending').count()
+            
             stats = {
-                'pendingSuggestions': Suggestion.objects.filter(status='pending').count(),
+                'pendingSuggestions': pending_suggestions,
+                'totalSuggestions': total_suggestions,
                 'totalGuides': Guide.objects.filter(is_active=True).count(),
                 'totalBookings': GuideBooking.objects.count(),
                 'confirmedBookings': GuideBooking.objects.filter(status='confirmed').count(),
@@ -83,6 +84,7 @@ class StaffViewSet(viewsets.ViewSet):
             logger.error(f"Staff stats error: {e}")
             return Response({'success': True, 'stats': {
                 'pendingSuggestions': 0,
+                'totalSuggestions': 0,
                 'totalGuides': 0,
                 'totalBookings': 0,
                 'confirmedBookings': 0,
@@ -92,11 +94,134 @@ class StaffViewSet(viewsets.ViewSet):
             }})
 
     # ============================================
-    # STAFF GUIDES - URL: /api/staff/guides/
+    # STAFF SUGGESTIONS - /api/staff/suggestions/
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='suggestions')
+    def suggestions(self, request):
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            status_filter = request.query_params.get('status')
+            
+            if status_filter:
+                suggestions = Suggestion.objects.filter(status=status_filter).order_by('-created_at')
+            else:
+                suggestions = Suggestion.objects.all().order_by('-created_at')
+            
+            data = []
+            for s in suggestions.select_related('user', 'processed_by'):
+                user_email = 'Anonymous'
+                user_username = ''
+                if s.user:
+                    user_email = s.user.email
+                    user_username = s.user.username
+                
+                processed_by_email = None
+                if s.processed_by:
+                    processed_by_email = s.processed_by.email
+                
+                data.append({
+                    'id': s.id,
+                    'name': s.name,
+                    'title': s.name,
+                    'description': s.description,
+                    'category': s.category,
+                    'suggestion_type': getattr(s, 'suggestion_type', 'general'),
+                    'status': s.status,
+                    'location_info': getattr(s, 'location_info', ''),
+                    'district': getattr(s, 'district', ''),
+                    'image': getattr(s, 'image', ''),
+                    'images': getattr(s, 'images', []),
+                    'rating': getattr(s, 'rating', None),
+                    'user': {
+                        'email': user_email,
+                        'username': user_username,
+                    },
+                    'user_email': user_email,
+                    'admin_notes': s.admin_notes,
+                    'processed_by': processed_by_email,
+                    'processed_at': s.processed_at.isoformat() if s.processed_at else None,
+                    'created_at': s.created_at.isoformat() if hasattr(s, 'created_at') else timezone.now().isoformat(),
+                    'updated_at': s.updated_at.isoformat() if hasattr(s, 'updated_at') else timezone.now().isoformat(),
+                })
+            
+            logger.info(f"✅ Staff suggestions: Found {len(data)} total suggestions")
+            return Response({'success': True, 'suggestions': data})
+            
+        except Exception as e:
+            logger.error(f"Error fetching staff suggestions: {e}")
+            return Response({'success': True, 'suggestions': []})
+
+    # ============================================
+    # PROCESS SUGGESTION - /api/staff/suggestions/{id}/process/
+    # ============================================
+    @action(detail=True, methods=['post'], url_path='process')
+    def process_suggestion(self, request, pk=None):
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            suggestion = get_object_or_404(Suggestion, id=pk)
+            action = request.data.get('action')
+            notes = request.data.get('notes', '')
+            
+            valid_actions = ['approve', 'reject', 'implement']
+            if action not in valid_actions:
+                return Response({'error': 'Invalid action'}, status=400)
+            
+            status_map = {
+                'approve': 'approved',
+                'reject': 'rejected',
+                'implement': 'implemented'
+            }
+            
+            suggestion.status = status_map[action]
+            if notes:
+                suggestion.admin_notes = notes
+            else:
+                suggestion.admin_notes = f"Processed by {request.user.email}"
+            suggestion.processed_by = request.user
+            suggestion.processed_at = timezone.now()
+            suggestion.save()
+            
+            self._log_activity(request, 'process', 'Suggestion', suggestion.id, {
+                'action': action,
+                'suggestion_name': suggestion.name
+            })
+            
+            if action == 'approve':
+                message = 'Suggestion approved successfully'
+            elif action == 'reject':
+                message = 'Suggestion rejected successfully'
+            elif action == 'implement':
+                message = 'Suggestion implemented successfully'
+            else:
+                message = f'Suggestion {action}ed successfully'
+            
+            return Response({
+                'success': True,
+                'message': message,
+                'suggestion': {
+                    'id': suggestion.id,
+                    'status': suggestion.status,
+                    'admin_notes': suggestion.admin_notes,
+                    'processed_by': request.user.email,
+                    'processed_at': suggestion.processed_at.isoformat()
+                }
+            })
+            
+        except Http404:
+            raise
+        except Exception as e:
+            logger.error(f"Error processing suggestion: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # STAFF GUIDES - /api/staff/guides/
     # ============================================
     @action(detail=False, methods=['get'], url_path='guides')
     def guides(self, request):
-        """Get all guides for staff management"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -130,11 +255,10 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # ADD GUIDE - URL: /api/staff/guides/add/
+    # ADD GUIDE - /api/staff/guides/add/
     # ============================================
     @action(detail=False, methods=['post'], url_path='guides/add')
     def add_guide(self, request):
-        """Add a new guide - each guide gets their own slots"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -177,9 +301,9 @@ class StaffViewSet(viewsets.ViewSet):
                 languages=data.get('languages', ''),
                 price_per_day=float(data.get('price_per_day', 0)),
                 price_per_hour=float(data.get('price_per_hour', 0)),
-                is_verified=True,
+                is_verified=data.get('is_verified', True),
                 is_active=True,
-                verified_by=request.user,
+                verified_by=request.user if data.get('is_verified', True) else None,
             )
 
             district_name = data.get('primary_district')
@@ -243,16 +367,14 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # VERIFY GUIDE - URL: /api/staff/{pk}/verify/
+    # VERIFY GUIDE - /api/staff/guides/{id}/verify/
     # ============================================
-    @action(detail=True, methods=['post'], url_path='verify')
+    @action(detail=True, methods=['post'], url_path='guides/verify')
     def verify_guide(self, request, pk=None):
-        """Verify a guide (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
-            # ✅ Use get_object_or_404 - will raise Http404 if not found
             guide = get_object_or_404(Guide, id=pk)
             guide.is_verified = True
             guide.verified_by = request.user
@@ -273,18 +395,16 @@ class StaffViewSet(viewsets.ViewSet):
                 }
             })
         except Http404:
-            # ✅ Re-raise Http404 to return 404 response
             raise
         except Exception as e:
             logger.error(f"Error verifying guide: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # DELETE GUIDE - URL: /api/staff/{pk}/delete/
+    # DELETE GUIDE - /api/staff/guides/{id}/delete/
     # ============================================
-    @action(detail=True, methods=['delete'], url_path='delete')
+    @action(detail=True, methods=['delete'], url_path='guides/delete')
     def delete_guide(self, request, pk=None):
-        """Delete a guide (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -308,11 +428,10 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF BOOKINGS - URL: /api/staff/bookings/
+    # STAFF BOOKINGS - /api/staff/bookings/
     # ============================================
     @action(detail=False, methods=['get'], url_path='bookings')
     def bookings(self, request):
-        """Get all bookings for staff management"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -338,11 +457,10 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # UPDATE BOOKING - URL: /api/staff/{pk}/update/
+    # UPDATE BOOKING - /api/staff/bookings/{id}/update/
     # ============================================
-    @action(detail=True, methods=['post'], url_path='update')
+    @action(detail=True, methods=['post'], url_path='bookings/update')
     def update_booking(self, request, pk=None):
-        """Update booking status (Staff & Admin)"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -374,93 +492,10 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF SUGGESTIONS - URL: /api/staff/suggestions/
-    # ============================================
-    @action(detail=False, methods=['get'], url_path='suggestions')
-    def suggestions(self, request):
-        """Get suggestions for staff management"""
-        if not self._check_staff_access(request):
-            return Response({'error': 'Staff access required'}, status=403)
-
-        try:
-            status_filter = request.query_params.get('status', 'pending')
-            suggestions = Suggestion.objects.filter(status=status_filter).order_by('-created_at')
-            data = []
-            for s in suggestions.select_related('user', 'processed_by'):
-                data.append({
-                    'id': s.id,
-                    'name': s.name,
-                    'title': s.name,
-                    'description': s.description,
-                    'category': s.category,
-                    'suggestion_type': s.suggestion_type,
-                    'status': s.status,
-                    'location_info': s.location_info,
-                    'user': {'email': s.user.email if s.user else 'Anonymous'},
-                    'admin_notes': s.admin_notes,
-                    'created_at': s.created_at.isoformat(),
-                })
-            return Response({'success': True, 'suggestions': data})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # PROCESS SUGGESTION - URL: /api/staff/{pk}/process/
-    # ============================================
-    @action(detail=True, methods=['post'], url_path='process')
-    def process_suggestion(self, request, pk=None):
-        """Process a suggestion (Staff & Admin)"""
-        if not self._check_staff_access(request):
-            return Response({'error': 'Staff access required'}, status=403)
-
-        try:
-            suggestion = get_object_or_404(Suggestion, id=pk)
-            action = request.data.get('action')
-            notes = request.data.get('notes', '')
-            
-            valid_actions = ['approve', 'reject', 'implement']
-            if action not in valid_actions:
-                return Response({'error': 'Invalid action'}, status=400)
-            
-            status_map = {'approve': 'approved', 'reject': 'rejected', 'implement': 'implemented'}
-            suggestion.status = status_map[action]
-            suggestion.admin_notes = notes
-            suggestion.processed_by = request.user
-            suggestion.processed_at = timezone.now()
-            suggestion.save()
-            
-            self._log_activity(request, 'process', 'Suggestion', suggestion.id, {
-                'action': action,
-                'suggestion_name': suggestion.name
-            })
-            
-            # ✅ FIXED: Explicit message based on action (NO TYPO!)
-            if action == 'approve':
-                message = 'Suggestion approved successfully'
-            elif action == 'reject':
-                message = 'Suggestion rejected successfully'
-            elif action == 'implement':
-                message = 'Suggestion implemented successfully'
-            else:
-                message = f'Suggestion {action}ed successfully'
-            
-            return Response({
-                'success': True,
-                'message': message,
-                'suggestion': {'id': suggestion.id, 'status': suggestion.status}
-            })
-        except Http404:
-            raise
-        except Exception as e:
-            logger.error(f"Error processing suggestion: {e}")
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # STAFF INSIGHTS - URL: /api/staff/insights/
+    # STAFF INSIGHTS - /api/staff/insights/
     # ============================================
     @action(detail=False, methods=['get'], url_path='insights')
     def insights(self, request):
-        """Get staff dashboard insights"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -481,18 +516,25 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # STAFF REVIEWS - URL: /api/staff/reviews/
+    # STAFF REVIEWS - /api/staff/reviews/
     # ============================================
     @action(detail=False, methods=['get'], url_path='reviews')
     def staff_reviews(self, request):
-        """Get reviews for staff management"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
-            from destinations.models import Review
-            reviews = Review.objects.all().order_by('-created_at')
-            data = [{'id': r.id, 'user': {'username': r.user.username if r.user else 'Anonymous'}, 'rating': r.rating, 'comment': r.comment, 'review_text': r.comment, 'is_approved': getattr(r, 'is_approved', False), 'created_at': r.created_at.isoformat()} for r in reviews]
+            from guides.models import GuideReview
+            reviews = GuideReview.objects.all().order_by('-created_at')
+            data = [{
+                'id': r.id,
+                'user': {'username': r.user.username if r.user else 'Anonymous'},
+                'rating': r.rating,
+                'comment': r.comment,
+                'review_text': r.comment,
+                'is_approved': r.is_approved,
+                'created_at': r.created_at.isoformat()
+            } for r in reviews]
             return Response({'success': True, 'reviews': data})
         except ImportError:
             return Response({'success': True, 'reviews': []})
@@ -504,7 +546,6 @@ class StaffViewSet(viewsets.ViewSet):
     # ============================================
     @action(detail=False, methods=['get'], url_path='notifications')
     def notifications(self, request):
-        """Get staff notifications"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -529,7 +570,6 @@ class StaffViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'], url_path='notifications/unread_count')
     def unread_count(self, request):
-        """Get unread notification count"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -545,7 +585,6 @@ class StaffViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['post'], url_path='notifications/mark_read')
     def mark_notification_read(self, request, pk=None):
-        """Mark notification as read"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 

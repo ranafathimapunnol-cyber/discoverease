@@ -1,8 +1,9 @@
-// src/pages/Wishlist.jsx - COMPLETE FIXED VERSION
+// src/pages/Wishlist.jsx - DEBUG VERSION WITH CONSOLE LOGGING
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+// Exact district names as they should appear
 const KERALA_DISTRICTS = [
     { id: 1, name: 'Thiruvananthapuram' },
     { id: 2, name: 'Kollam' },
@@ -20,9 +21,70 @@ const KERALA_DISTRICTS = [
     { id: 14, name: 'Kasaragod' },
 ];
 
-const getDistrictId = (name) => {
-    const found = KERALA_DISTRICTS.find(d => d.name.toLowerCase() === name.toLowerCase());
-    return found ? found.id : null;
+// SIMPLE DIRECT MAPPING - No complex logic
+const DISTRICT_MAP = {
+    'thiruvananthapuram': 'Thiruvananthapuram',
+    'trivandrum': 'Thiruvananthapuram',
+    'tvm': 'Thiruvananthapuram',
+    'kollam': 'Kollam',
+    'quilon': 'Kollam',
+    'pathanamthitta': 'Pathanamthitta',
+    'alappuzha': 'Alappuzha',
+    'alleppey': 'Alappuzha',
+    'kottayam': 'Kottayam',
+    'idukki': 'Idukki',
+    'ernakulam': 'Ernakulam',
+    'kochi': 'Ernakulam',
+    'cochin': 'Ernakulam',
+    'thrissur': 'Thrissur',
+    'trichur': 'Thrissur',
+    'palakkad': 'Palakkad',
+    'palghat': 'Palakkad',
+    'malappuram': 'Malappuram',
+    'kozhikode': 'Kozhikode',
+    'calicut': 'Kozhikode',
+    'wayanad': 'Wayanad',
+    'kannur': 'Kannur',
+    'cannanore': 'Kannur',
+    'kasaragod': 'Kasaragod',
+    'kasargod': 'Kasaragod',
+};
+
+// SIMPLEST POSSIBLE DISTRICT DETECTION
+const findDistrict = (text) => {
+    if (!text) return null;
+    
+    const lowerText = text.toLowerCase().trim();
+    console.log('🔍 Searching for district in:', lowerText);
+    
+    // Check if text itself is a district name
+    if (DISTRICT_MAP[lowerText]) {
+        console.log('✅ Exact match found:', DISTRICT_MAP[lowerText]);
+        return DISTRICT_MAP[lowerText];
+    }
+    
+    // Check each word in the text
+    const words = lowerText.split(/[\s,.-]+/);
+    for (const word of words) {
+        if (DISTRICT_MAP[word]) {
+            console.log('✅ Word match found:', DISTRICT_MAP[word], 'from word:', word);
+            return DISTRICT_MAP[word];
+        }
+    }
+    
+    // Check if any district name appears as substring (but only if it's a whole word)
+    for (const district of KERALA_DISTRICTS) {
+        const districtLower = district.name.toLowerCase();
+        // Use regex with word boundaries
+        const regex = new RegExp(`\\b${districtLower}\\b`, 'i');
+        if (regex.test(lowerText)) {
+            console.log('✅ Regex match found:', district.name);
+            return district.name;
+        }
+    }
+    
+    console.log('❌ No district found in:', text);
+    return null;
 };
 
 export default function Wishlist() {
@@ -38,11 +100,15 @@ export default function Wishlist() {
         window.addEventListener('scroll', handleScroll);
 
         const savedWishlist = localStorage.getItem('wishlist');
+        console.log('📦 Raw wishlist data from localStorage:', savedWishlist);
+        
         if (savedWishlist) {
             try {
                 const parsed = JSON.parse(savedWishlist);
+                console.log('📦 Parsed wishlist:', parsed);
                 setWishlist(Array.isArray(parsed) ? parsed : []);
             } catch (e) {
+                console.error('Error parsing wishlist:', e);
                 setWishlist([]);
             }
         }
@@ -63,40 +129,53 @@ export default function Wishlist() {
         localStorage.setItem('wishlist', JSON.stringify(newWishlist));
     };
 
-    const handleFindGuides = (category, location) => {
-        let districtName = '';
-        const locationParts = location?.split(',') || [];
-
-        for (const part of locationParts) {
-            const trimmed = part.trim();
-            const found = KERALA_DISTRICTS.find(d =>
-                d.name.toLowerCase() === trimmed.toLowerCase()
-            );
-            if (found) {
-                districtName = found.name;
-                break;
-            }
+    const handleFindGuides = (place) => {
+        console.log('🔍 ===== FINDING GUIDES FOR =====');
+        console.log('📌 Place object:', place);
+        
+        // Try multiple sources for district
+        let districtName = null;
+        
+        // Source 1: Direct district field
+        if (place.district) {
+            console.log('📍 Checking district field:', place.district);
+            districtName = findDistrict(place.district);
         }
-
+        
+        // Source 2: Location field
+        if (!districtName && place.location) {
+            console.log('📍 Checking location field:', place.location);
+            districtName = findDistrict(place.location);
+        }
+        
+        // Source 3: Place name
+        if (!districtName && place.name) {
+            console.log('📍 Checking place name:', place.name);
+            districtName = findDistrict(place.name);
+        }
+        
+        // Source 4: Any other field that might contain district
         if (!districtName) {
-            const lowerLocation = location?.toLowerCase() || '';
-            for (const d of KERALA_DISTRICTS) {
-                if (lowerLocation.includes(d.name.toLowerCase())) {
-                    districtName = d.name;
-                    break;
-                }
-            }
+            const allFields = Object.values(place).filter(v => typeof v === 'string').join(' ');
+            console.log('📍 Checking all string fields:', allFields);
+            districtName = findDistrict(allFields);
         }
+        
+        console.log('🎯 FINAL DISTRICT DETECTED:', districtName);
 
+        // Build URL parameters
         const params = new URLSearchParams();
 
         if (districtName) {
             params.append('district', districtName);
             params.append('search', districtName);
-        } else if (location) {
-            params.append('search', location);
+        } else if (place.location) {
+            params.append('search', place.location);
+        } else if (place.name) {
+            params.append('search', place.name);
         }
 
+        // Add specialty based on category
         const categoryToSpecialty = {
             'beach': 'beach',
             'beaches': 'beach',
@@ -144,14 +223,15 @@ export default function Wishlist() {
             'photography': 'photography',
         };
 
-        const specialty = categoryToSpecialty[category?.toLowerCase()] || category?.toLowerCase() || 'local tours';
+        const specialty = categoryToSpecialty[place.category?.toLowerCase()] || place.category?.toLowerCase() || 'local tours';
 
         if (specialty && specialty !== 'local tours') {
             params.append('specialty', specialty);
         }
 
-        console.log('🔍 Navigating to guides with params:', params.toString());
-        navigate(`/guides?${params.toString()}`);
+        const finalUrl = `/guides?${params.toString()}`;
+        console.log('🚀 NAVIGATING TO:', finalUrl);
+        navigate(finalUrl);
     };
 
     const handleProtectedClick = (path) => {
@@ -346,30 +426,10 @@ export default function Wishlist() {
                 ) : (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 20 }}>
                         {wishlist.map((place) => {
-                            let districtName = '';
-                            const locationParts = place.location?.split(',') || [];
-
-                            for (const part of locationParts) {
-                                const trimmed = part.trim();
-                                const found = KERALA_DISTRICTS.find(d =>
-                                    d.name.toLowerCase() === trimmed.toLowerCase()
-                                );
-                                if (found) {
-                                    districtName = found.name;
-                                    break;
-                                }
-                            }
-
-                            if (!districtName) {
-                                const lowerLocation = place.location?.toLowerCase() || '';
-                                for (const d of KERALA_DISTRICTS) {
-                                    if (lowerLocation.includes(d.name.toLowerCase())) {
-                                        districtName = d.name;
-                                        break;
-                                    }
-                                }
-                            }
-
+                            const districtName = findDistrict(
+                                place.district || place.location || place.name || ''
+                            );
+                            
                             return (
                                 <div
                                     key={place.id}
@@ -429,7 +489,8 @@ export default function Wishlist() {
                                             {place.name}
                                         </h3>
                                         <p style={{ fontSize: 13, color: "#0E5C53", margin: "4px 0 8px" }}>
-                                            📍 {place.location}
+                                            📍 {place.location || 'Location not specified'}
+                                            {districtName && ` · ${districtName}`}
                                         </p>
                                         <p style={{ fontSize: 14, color: "#3D5A57", lineHeight: 1.5, marginBottom: 14 }}>
                                             {place.description?.substring(0, 120)}...
@@ -437,7 +498,7 @@ export default function Wishlist() {
 
                                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                                             <button
-                                                onClick={() => handleFindGuides(place.category, place.location)}
+                                                onClick={() => handleFindGuides(place)}
                                                 className="find-guides-btn"
                                                 style={{
                                                     display: 'flex',
@@ -464,11 +525,11 @@ export default function Wishlist() {
                                                 }}
                                             >
                                                 <span>🧭</span>
-                                                {districtName ? `Find Guides in ${districtName}` : `Find Guides for ${place.category || 'this place'}`}
+                                                {districtName ? `Find Guides in ${districtName}` : `Find Guides for ${place.name || 'this place'}`}
                                             </button>
 
                                             <Link
-                                                to={`/category/${place.categoryId || 'beaches'}?district=${encodeURIComponent(districtName)}`}
+                                                to={`/category/${place.categoryId || 'beaches'}?district=${encodeURIComponent(districtName || '')}`}
                                                 style={{
                                                     color: "#C79A3E",
                                                     textDecoration: "none",
