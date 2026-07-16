@@ -1,0 +1,742 @@
+# suggestions/views.py
+from rest_framework import viewsets, status, filters
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db import models
+from django.utils import timezone
+from django.db.models import Q, Prefetch
+import logging
+
+from .models import Suggestion
+from .serializers import (
+    SuggestionSerializer, SuggestionCreateSerializer,
+    SuggestionStatusUpdateSerializer, SuggestionListSerializer
+)
+from accounts.models import User
+from guides.models import Guide
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================
+# PAGINATION CLASS
+# ============================================
+class SuggestionPagination(PageNumberPagination):
+    """Custom pagination for suggestions with optimized page size"""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class SuggestionViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing suggestions.
+    - Users can submit suggestions
+    - Guides can approve/reject based on district
+    - Staff/Admin can process them
+    - Public can view implemented suggestions
+    """
+    queryset = Suggestion.objects.all()
+    permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['status', 'user', 'suggestion_type', 'category', 'district']
+    ordering_fields = ['created_at', 'updated_at', 'name', 'rating']
+    ordering = ['-created_at']
+    pagination_class = SuggestionPagination
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return SuggestionCreateSerializer
+        elif self.action in ['list', 'my_suggestions']:
+            return SuggestionListSerializer
+        elif self.action == 'update_status':
+            return SuggestionStatusUpdateSerializer
+        return SuggestionSerializer
+
+    def get_queryset(self):
+        """Optimize queryset with select_related and prefetch_related"""
+        return super().get_queryset().select_related(
+            'user', 'guide', 'processed_by'
+        ).prefetch_related(
+            'user__profile'  # If profile exists
+        )
+
+    # ============================================
+    # GET /api/suggestions/
+    def list(self, request, *args, **kwargs):
+        """List suggestions with filters - SIMPLIFIED FIXED"""
+        try:
+            # Start with all suggestions
+            queryset = Suggestion.objects.all().order_by('-created_at')
+            
+            # Check if status filter is applied
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                queryset = queryset.filter(status=status_filter)
+                print(f"📊 Filtering by status: {status_filter}, found {queryset.count()}")
+            
+            # If user is authenticated, apply additional filters
+            user = request.user
+            if user.is_authenticated:
+                # Staff and Admin see all
+                if user.role in ['staff', 'admin'] or user.is_staff or user.is_superuser:
+                    pass  # Keep all
+                # Guides see only their district suggestions
+                elif hasattr(user, 'guide_profile') and user.guide_profile:
+                    guide = user.guide_profile
+                    districts = guide.districts.values_list('name', flat=True)
+                    queryset = queryset.filter(district__in=districts)
+                # Tourister sees their own + implemented from others
+                else:
+                    queryset = queryset.filter(
+                        Q(user=user) | Q(status='implemented')
+                    )
+            else:
+                # Public only sees implemented
+                queryset = queryset.filter(status='implemented')
+            
+            # Serialize
+            serializer = self.get_serializer(queryset, many=True)
+            
+            return Response({
+                'success': True,
+                'status': 200,
+                'message': f'Found {queryset.count()} suggestions',
+                'data': serializer.data,
+                'count': queryset.count()
+            })
+            
+        except Exception as e:
+            import traceback
+            print(f"❌ Error in suggestions list: {e}")
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Unable to fetch suggestions',
+                'error': str(e),
+                'data': [],
+                'count': 0
+            })@action(detail=False, methods=['post'], url_path='create')
+    def create_suggestion(self, request):
+        """Create a new suggestion - SINGLE API CALL"""
+        try:
+            # Check authentication
+            if not request.user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Please login to submit a suggestion',
+                    'error': 'Authentication required'
+                })
+            
+            # Prepare data
+            data = request.data.copy()
+            data['user'] = request.user.id
+            
+            # Validate and create
+            serializer = SuggestionCreateSerializer(data=data)
+            
+            if not serializer.is_valid():
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Validation failed',
+                    'errors': serializer.errors
+                })
+            
+            # Find guides for this district
+            district = data.get('district')
+            guides = Guide.objects.filter(
+                districts__name__iexact=district,
+                is_active=True
+            ).select_related('user')
+            
+            suggestion = serializer.save(
+                user=request.user,
+                status=Suggestion.Status.PENDING
+            )
+            
+            # Assign to first available guide for this district
+            if guides.exists():
+                suggestion.guide = guides.first()
+                suggestion.save()
+            
+            # ✅ Single API call - everything done here
+            return Response({
+                'success': True,
+                'status': 201,
+                'message': 'Suggestion submitted successfully!',
+                'data': SuggestionSerializer(suggestion).data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error creating suggestion: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Failed to submit suggestion',
+                'error': str(e) if request.data.get('debug') else None,
+                'data': None
+            })
+
+    # ============================================
+    # GET /api/suggestions/implemented/
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='implemented')
+    def implemented(self, request):
+        """Get all implemented suggestions - FIXED"""
+        try:
+            suggestions = Suggestion.objects.filter(
+                status='implemented'
+            ).select_related('user', 'guide', 'processed_by').order_by('-created_at')
+            
+            # Manual pagination
+            from rest_framework.pagination import PageNumberPagination
+            paginator = PageNumberPagination()
+            paginator.page_size = 20
+            page = paginator.paginate_queryset(suggestions, request)
+            
+            if page is not None:
+                serializer = SuggestionSerializer(page, many=True)
+                return paginator.get_paginated_response({
+                    'success': True,
+                    'status': 200,
+                    'message': f'Showing {len(page)} of {suggestions.count()} implemented suggestions',
+                    'data': serializer.data,
+                    'count': suggestions.count()
+                })
+            
+            serializer = SuggestionSerializer(suggestions, many=True)
+            return Response({
+                'success': True,
+                'status': 200,
+                'message': f'Found {suggestions.count()} implemented suggestions',
+                'data': serializer.data,
+                'count': suggestions.count()
+            })
+            
+        except Exception as e:
+            import traceback
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Error fetching implemented suggestions',
+                'error': str(e),
+                'traceback': traceback.format_exc(),
+                'data': [],
+                'count': 0
+            })@action(detail=False, methods=['get'], url_path='my', permission_classes=[IsAuthenticated])
+    def my_suggestions(self, request):
+        """Get current user's suggestions with status - OPTIMIZED"""
+        try:
+            suggestions = Suggestion.objects.filter(
+                user=request.user
+            ).select_related(
+                'guide', 'processed_by'
+            ).order_by('-created_at')
+            
+            total_count = suggestions.count()
+            
+            # Apply pagination
+            page = self.paginate_queryset(suggestions)
+            
+            # Count by status (using optimized queries)
+            stats = {
+                'total': total_count,
+                'pending': suggestions.filter(status='pending').count(),
+                'approved_by_guide': suggestions.filter(status='approved_by_guide').count(),
+                'rejected_by_guide': suggestions.filter(status='rejected_by_guide').count(),
+                'approved': suggestions.filter(status='approved').count(),
+                'rejected': suggestions.filter(status='rejected').count(),
+                'implemented': suggestions.filter(status='implemented').count(),
+            }
+            
+            if page is not None:
+                serializer = SuggestionListSerializer(page, many=True)
+                return self.get_paginated_response({
+                    'success': True,
+                    'status': 200,
+                    'message': 'Suggestions fetched successfully',
+                    'stats': stats,
+                    'data': serializer.data,
+                    'count': total_count,
+                    'page': page.number,
+                    'total_pages': page.paginator.num_pages
+                })
+            
+            serializer = SuggestionListSerializer(suggestions, many=True)
+            return Response({
+                'success': True,
+                'status': 200,
+                'message': 'Suggestions fetched successfully',
+                'stats': stats,
+                'data': serializer.data,
+                'count': len(serializer.data)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching user suggestions: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Unable to fetch your suggestions',
+                'error': str(e) if request.GET.get('debug') else None,
+                'stats': {'total': 0, 'pending': 0, 'approved': 0, 'rejected': 0, 'implemented': 0},
+                'data': [],
+                'count': 0
+            })
+
+    # ============================================
+    # POST /api/suggestions/{id}/guide-process/
+    # ============================================
+    @action(detail=True, methods=['post'], url_path='guide-process', permission_classes=[IsAuthenticated])
+    def guide_process(self, request, pk=None):
+        """Guide approves/rejects a suggestion - SINGLE API CALL"""
+        try:
+            suggestion = self.get_object()
+            user = request.user
+            
+            # Check if user is a guide
+            if not hasattr(user, 'guide_profile') or not user.guide_profile:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Only guides can process suggestions',
+                    'error': 'Not a guide'
+                })
+            
+            guide = user.guide_profile
+            
+            # Check if suggestion belongs to guide's district
+            if not guide.districts.filter(name__iexact=suggestion.district).exists():
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'This suggestion is not in your district',
+                    'error': 'District mismatch'
+                })
+            
+            # Check if suggestion is pending
+            if suggestion.status != 'pending':
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': f'This suggestion is already {suggestion.status}',
+                    'error': 'Invalid status'
+                })
+            
+            # Get action
+            action = request.data.get('action')
+            notes = request.data.get('guide_notes', '')
+            rejection_reason = request.data.get('rejection_reason', '')
+            
+            if action not in ['approve', 'reject']:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Invalid action. Use approve or reject',
+                    'error': 'Invalid action'
+                })
+            
+            # Process based on action
+            if action == 'approve':
+                suggestion.status = 'approved_by_guide'
+                suggestion.guide_notes = notes or 'Approved by guide'
+                message = 'Suggestion approved by guide'
+            else:
+                suggestion.status = 'rejected_by_guide'
+                suggestion.guide_notes = notes or 'Rejected by guide'
+                suggestion.rejection_reason = rejection_reason or 'No reason provided'
+                message = 'Suggestion rejected by guide'
+            
+            suggestion.guide = guide
+            suggestion.guide_processed_at = timezone.now()
+            suggestion.save()
+            
+            return Response({
+                'success': True,
+                'status': 200,
+                'message': message,
+                'data': {
+                    'id': suggestion.id,
+                    'status': suggestion.status,
+                    'status_display': dict(Suggestion.Status.choices).get(suggestion.status),
+                    'guide_notes': suggestion.guide_notes,
+                    'rejection_reason': suggestion.rejection_reason
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in guide process: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Failed to process suggestion',
+                'error': str(e) if request.data.get('debug') else None
+            })
+
+    # ============================================
+    # POST /api/suggestions/{id}/process/
+    # ============================================
+    @action(detail=True, methods=['post'], url_path='process', permission_classes=[IsAuthenticated])
+    def process(self, request, pk=None):
+        """Staff/Admin process a suggestion - SINGLE API CALL"""
+        try:
+            user = request.user
+            
+            # Check if user is staff or admin
+            if user.role not in ['staff', 'admin'] and not user.is_staff and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Only staff or admin can process suggestions',
+                    'error': 'Permission denied'
+                })
+            
+            suggestion = self.get_object()
+            
+            # Get action
+            action = request.data.get('action')
+            notes = request.data.get('admin_notes', '')
+            rejection_reason = request.data.get('rejection_reason', '')
+            
+            if action not in ['approve', 'reject', 'implement']:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Invalid action. Use approve, reject, or implement',
+                    'error': 'Invalid action'
+                })
+            
+            # Check if suggestion is in valid state
+            if suggestion.status not in ['pending', 'approved_by_guide']:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': f'Cannot process suggestion with status: {suggestion.status}',
+                    'error': 'Invalid status'
+                })
+            
+            # Process based on action
+            if action == 'approve':
+                suggestion.status = 'approved'
+                suggestion.admin_notes = notes or 'Approved by staff'
+                message = 'Suggestion approved successfully'
+            elif action == 'reject':
+                suggestion.status = 'rejected'
+                suggestion.admin_notes = notes or 'Rejected by staff'
+                suggestion.rejection_reason = rejection_reason or 'No reason provided'
+                message = 'Suggestion rejected successfully'
+            else:  # implement
+                suggestion.status = 'implemented'
+                suggestion.admin_notes = notes or 'Implemented by staff'
+                message = 'Suggestion implemented successfully'
+            
+            suggestion.processed_by = user
+            suggestion.processed_at = timezone.now()
+            suggestion.save()
+            
+            return Response({
+                'success': True,
+                'status': 200,
+                'message': message,
+                'data': {
+                    'id': suggestion.id,
+                    'status': suggestion.status,
+                    'status_display': dict(Suggestion.Status.choices).get(suggestion.status),
+                    'admin_notes': suggestion.admin_notes,
+                    'processed_by': user.email,
+                    'processed_at': suggestion.processed_at
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in process: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Failed to process suggestion',
+                'error': str(e) if request.data.get('debug') else None
+            })
+
+    # ============================================
+    # GET /api/suggestions/stats/
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        """Get suggestion statistics - ALWAYS RETURNS 200"""
+        try:
+            stats = {
+                'total': 0,
+                'pending': 0,
+                'approved_by_guide': 0,
+                'rejected_by_guide': 0,
+                'approved': 0,
+                'rejected': 0,
+                'implemented': 0,
+                'by_category': [],
+                'by_district': [],
+                'by_type': []
+            }
+            
+            # Use optimized queries with count() instead of len()
+            try:
+                stats['total'] = Suggestion.objects.count()
+                stats['pending'] = Suggestion.objects.filter(status='pending').count()
+                stats['approved_by_guide'] = Suggestion.objects.filter(status='approved_by_guide').count()
+                stats['rejected_by_guide'] = Suggestion.objects.filter(status='rejected_by_guide').count()
+                stats['approved'] = Suggestion.objects.filter(status='approved').count()
+                stats['rejected'] = Suggestion.objects.filter(status='rejected').count()
+                stats['implemented'] = Suggestion.objects.filter(status='implemented').count()
+            except Exception as e:
+                logger.warning(f"Error counting stats: {e}")
+            
+            # Optimize aggregation queries
+            try:
+                stats['by_category'] = list(
+                    Suggestion.objects.values('category')
+                    .annotate(count=models.Count('id'))
+                    .exclude(category__isnull=True)
+                    .exclude(category='')
+                    .order_by('-count')[:10]  # Limit to top 10
+                )
+            except Exception as e:
+                logger.warning(f"Error getting category stats: {e}")
+            
+            try:
+                stats['by_district'] = list(
+                    Suggestion.objects.values('district')
+                    .annotate(count=models.Count('id'))
+                    .exclude(district__isnull=True)
+                    .exclude(district='')
+                    .order_by('-count')[:10]  # Limit to top 10
+                )
+            except Exception as e:
+                logger.warning(f"Error getting district stats: {e}")
+            
+            try:
+                stats['by_type'] = list(
+                    Suggestion.objects.values('suggestion_type')
+                    .annotate(count=models.Count('id'))
+                    .exclude(suggestion_type__isnull=True)
+                    .exclude(suggestion_type='')
+                    .order_by('-count')[:10]  # Limit to top 10
+                )
+            except Exception as e:
+                logger.warning(f"Error getting type stats: {e}")
+            
+            return Response({
+                'success': True,
+                'status': 200,
+                'data': stats
+            })
+            
+        except Exception as e:
+            logger.error(f"Stats error: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Unable to fetch stats',
+                'data': {
+                    'total': 0, 'pending': 0, 'approved_by_guide': 0,
+                    'rejected_by_guide': 0, 'approved': 0, 'rejected': 0,
+                    'implemented': 0, 'by_category': [], 'by_district': [],
+                    'by_type': []
+                }
+            })
+
+    # ============================================
+    # GET /api/suggestions/guide-stats/
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='guide-stats', permission_classes=[IsAuthenticated])
+    def guide_stats(self, request):
+        """Get stats for guide dashboard - OPTIMIZED"""
+        try:
+            user = request.user
+            
+            if not hasattr(user, 'guide_profile'):
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'User is not a guide',
+                    'data': {
+                        'total': 0, 'pending': 0, 'approved': 0, 'rejected': 0
+                    }
+                })
+            
+            guide = user.guide_profile
+            districts = guide.districts.values_list('name', flat=True)
+            
+            if not districts:
+                return Response({
+                    'success': True,
+                    'status': 200,
+                    'message': 'No districts assigned to you',
+                    'data': {
+                        'total': 0, 'pending': 0, 'approved': 0,
+                        'rejected': 0, 'implemented': 0
+                    }
+                })
+            
+            stats = {
+                'total': 0,
+                'pending': 0,
+                'approved': 0,
+                'rejected': 0,
+                'implemented': 0
+            }
+            
+            # Use optimized queries
+            try:
+                district_filter = Q(district__in=districts)
+                stats['total'] = Suggestion.objects.filter(district_filter).count()
+                stats['pending'] = Suggestion.objects.filter(district_filter, status='pending').count()
+                stats['approved'] = Suggestion.objects.filter(district_filter, status='approved_by_guide').count()
+                stats['rejected'] = Suggestion.objects.filter(district_filter, status='rejected_by_guide').count()
+                stats['implemented'] = Suggestion.objects.filter(district_filter, status='implemented').count()
+            except Exception as e:
+                logger.warning(f"Error counting guide stats: {e}")
+            
+            return Response({
+                'success': True,
+                'status': 200,
+                'data': stats
+            })
+            
+        except Exception as e:
+            logger.error(f"Guide stats error: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Unable to fetch guide stats',
+                'data': {
+                    'total': 0, 'pending': 0, 'approved': 0,
+                    'rejected': 0, 'implemented': 0
+                }
+            })
+
+    # ============================================
+    # GET /api/suggestions/guide-suggestions/
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='guide-suggestions', permission_classes=[IsAuthenticated])
+    def guide_suggestions(self, request):
+        """Get suggestions for guide's district with pagination - OPTIMIZED"""
+        try:
+            user = request.user
+            
+            if not hasattr(user, 'guide_profile'):
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'User is not a guide',
+                    'data': [],
+                    'count': 0
+                })
+            
+            guide = user.guide_profile
+            districts = guide.districts.values_list('name', flat=True)
+            
+            if not districts:
+                return Response({
+                    'success': True,
+                    'status': 200,
+                    'message': 'No districts assigned to you',
+                    'data': [],
+                    'count': 0
+                })
+            
+            # Optimize query with select_related
+            suggestions = Suggestion.objects.filter(
+                district__in=districts,
+                status__in=['pending', 'approved_by_guide']
+            ).select_related(
+                'user', 'guide'
+            ).order_by('-created_at')
+            
+            total_count = suggestions.count()
+            
+            # Apply pagination
+            page = self.paginate_queryset(suggestions)
+            
+            if page is not None:
+                serializer = SuggestionListSerializer(page, many=True)
+                return self.get_paginated_response({
+                    'success': True,
+                    'status': 200,
+                    'message': f'Showing {len(page)} of {total_count} suggestions',
+                    'data': serializer.data,
+                    'count': total_count,
+                    'districts': list(districts),
+                    'page': page.number,
+                    'total_pages': page.paginator.num_pages
+                })
+            
+            serializer = SuggestionListSerializer(suggestions, many=True)
+            return Response({
+                'success': True,
+                'status': 200,
+                'message': f'Found {total_count} suggestions',
+                'data': serializer.data,
+                'count': total_count,
+                'districts': list(districts)
+            })
+            
+        except Exception as e:
+            logger.error(f"Guide suggestions error: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Unable to fetch suggestions',
+                'error': str(e) if request.GET.get('debug') else None,
+                'data': [],
+                'count': 0
+            })
+
+    # ============================================
+    # DELETE /api/suggestions/{id}/
+    # ============================================
+    def destroy(self, request, *args, **kwargs):
+        """Delete a suggestion - ALWAYS RETURNS 204"""
+        try:
+            suggestion = self.get_object()
+            user = request.user
+            
+            # Check permissions: only owner, staff, or admin can delete
+            if suggestion.user != user and user.role not in ['staff', 'admin'] and not user.is_staff and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'You do not have permission to delete this suggestion',
+                    'error': 'Permission denied'
+                })
+            
+            # Soft delete - only if not implemented
+            if suggestion.status == 'implemented':
+                return Response({
+                    'success': False,
+                    'status': 200,
+                    'message': 'Cannot delete implemented suggestions',
+                    'error': 'Protected'
+                })
+            
+            suggestion.delete()
+            
+            return Response({
+                'success': True,
+                'status': 204,
+                'message': 'Suggestion deleted successfully',
+                'data': None
+            })
+            
+        except Exception as e:
+            logger.error(f"Error deleting suggestion: {e}")
+            return Response({
+                'success': False,
+                'status': 200,
+                'message': 'Failed to delete suggestion',
+                'error': str(e) if request.query_params.get('debug') else None
+            })

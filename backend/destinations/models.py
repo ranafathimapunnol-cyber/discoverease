@@ -1,8 +1,10 @@
-# destinations/models.py - COMPLETE WITH CATEGORY DATA MODELS
+# destinations/models.py - COMPLETE FIXED VERSION
 
 from django.db import models
+from django.conf import settings
 from django.utils.text import slugify
 from accounts.models import User
+
 
 class Category(models.Model):
     """Category model for destinations"""
@@ -19,6 +21,7 @@ class Category(models.Model):
     
     def __str__(self):
         return self.label
+
 
 class CategoryData(models.Model):
     """Category metadata and grouping - For your frontend category data"""
@@ -40,6 +43,7 @@ class CategoryData(models.Model):
     def __str__(self):
         return self.title
 
+
 class CategoryPlace(models.Model):
     """Individual places within categories - From your frontend data"""
     category = models.CharField(max_length=100, db_index=True)
@@ -53,8 +57,18 @@ class CategoryPlace(models.Model):
     type = models.CharField(max_length=50, default='well-known')
     hidden_gem = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    # ✅ ADD THIS - Link to Destination model
+    destination = models.ForeignKey(
+        'Destination',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='category_places'
+    )
     
     class Meta:
         db_table = 'category_places'
@@ -66,6 +80,7 @@ class CategoryPlace(models.Model):
     
     def __str__(self):
         return f"{self.name} ({self.category})"
+
 
 class Destination(models.Model):
     """Main Destination Table with Status"""
@@ -134,6 +149,7 @@ class Destination(models.Model):
     def __str__(self):
         return self.name
 
+
 class Review(models.Model):
     """User Reviews"""
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -158,3 +174,31 @@ class Review(models.Model):
     
     def __str__(self):
         return f"{self.user.email} - {self.destination.name} ({self.rating}★)"
+
+
+# ✅ WISHLIST MODEL - FIXED
+class Wishlist(models.Model):
+    """User wishlist for destinations"""
+    user = models.ForeignKey(
+        'accounts.User',
+        on_delete=models.CASCADE,
+        related_name='wishlist_items'
+    )
+    destination = models.ForeignKey(
+        'destinations.Destination',
+        on_delete=models.CASCADE,
+        related_name='wishlisted_by'
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+    notes = models.CharField(max_length=500, blank=True, null=True)
+    
+    class Meta:
+        db_table = 'wishlists'
+        unique_together = ['user', 'destination']
+        ordering = ['-added_at']
+        indexes = [
+            models.Index(fields=['user', 'destination']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.destination.name}"

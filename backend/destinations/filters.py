@@ -1,4 +1,4 @@
-# destinations/filters.py - FIXED
+# destinations/filters.py - COMPLETE FIXED (NO Category class!)
 
 from django_filters import rest_framework as filters
 from django.db.models import Q
@@ -6,7 +6,7 @@ from .models import Destination
 
 class DestinationFilter(filters.FilterSet):
     """Custom filter for destinations"""
-    # ✅ FIXED: Use CategoryChoice instead of Category
+    # ✅ Use the CategoryChoice from Destination model
     category = filters.ChoiceFilter(choices=Destination.CategoryChoice.choices)
     status = filters.ChoiceFilter(choices=Destination.Status.choices)
     district = filters.CharFilter(lookup_expr='icontains')

@@ -1,95 +1,108 @@
-# destinations/serializers.py - FIXED
+# destinations/serializers.py - COMPLETE FIXED VERSION
 
 from rest_framework import serializers
-from .models import Destination, Review, Category
+from .models import Destination, Review, Category, CategoryData, CategoryPlace, Wishlist
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'key', 'label', 'description', 'image', 'created_at', 'updated_at']
+
+
+class CategoryDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CategoryData
+        fields = ['id', 'key', 'title', 'description', 'type', 'icon', 'image', 'is_active', 'order', 'created_at', 'updated_at']
+
+
+class CategoryPlaceSerializer(serializers.ModelSerializer):
+    destination_id = serializers.IntegerField(source='destination.id', read_only=True, allow_null=True)
+    
+    class Meta:
+        model = CategoryPlace
+        fields = [
+            'id', 'category', 'name', 'location', 'description', 
+            'difficulty', 'duration', 'best_time', 'image', 'type', 
+            'hidden_gem', 'destination_id', 'is_active', 'created_at', 'updated_at'
+        ]
+
 
 class ReviewSerializer(serializers.ModelSerializer):
-    user_name = serializers.SerializerMethodField()
-    user_email = serializers.SerializerMethodField()
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
     
     class Meta:
         model = Review
         fields = [
-            'id', 'user', 'user_name', 'user_email', 'destination', 
-            'rating', 'comment', 'image', 'images', 'is_approved',
-            'is_verified_traveler', 'created_at', 'updated_at'
+            'id', 'user', 'user_name', 'user_email', 'destination',
+            'rating', 'comment', 'is_verified_traveler', 'is_approved',
+            'image', 'images', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['user', 'created_at', 'updated_at']
-    
-    def get_user_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
-    
-    def get_user_email(self, obj):
-        return obj.user.email
+        read_only_fields = ['user', 'is_approved', 'created_at', 'updated_at']
+
 
 class DestinationListSerializer(serializers.ModelSerializer):
-    category_label = serializers.SerializerMethodField()
-    status_label = serializers.SerializerMethodField()
-    added_by_name = serializers.SerializerMethodField()
-    reviews_count = serializers.SerializerMethodField()
-    
     class Meta:
         model = Destination
         fields = [
-            'id', 'name', 'slug', 'short_description', 'category', 'category_label',
-            'status', 'status_label', 'district', 'featured_image', 
-            'average_rating', 'total_reviews', 'reviews_count', 'visit_count',
-            'added_by_name', 'created_at'
+            'id', 'name', 'slug', 'short_description', 'category', 'status',
+            'district', 'featured_image', 'average_rating', 'total_reviews',
+            'visit_count', 'created_at', 'updated_at'
         ]
-    
-    def get_category_label(self, obj):
-        return dict(Destination.CategoryChoice.choices).get(obj.category, obj.category)
-    
-    def get_status_label(self, obj):
-        return dict(Destination.Status.choices).get(obj.status, obj.status)
-    
-    def get_added_by_name(self, obj):
-        if obj.added_by:
-            return f"{obj.added_by.first_name} {obj.added_by.last_name}".strip() or obj.added_by.username
-        return 'Anonymous'
-    
-    def get_reviews_count(self, obj):
-        return obj.reviews.filter(is_approved=True).count()
+
 
 class DestinationSerializer(serializers.ModelSerializer):
     reviews = ReviewSerializer(many=True, read_only=True)
-    category_label = serializers.SerializerMethodField()
-    status_label = serializers.SerializerMethodField()
-    added_by_name = serializers.SerializerMethodField()
+    added_by_name = serializers.CharField(source='added_by.get_full_name', read_only=True)
+    verified_by_name = serializers.CharField(source='verified_by.get_full_name', read_only=True)
     
     class Meta:
         model = Destination
         fields = [
             'id', 'name', 'slug', 'short_description', 'long_description',
-            'category', 'category_label', 'status', 'status_label',
-            'latitude', 'longitude', 'address', 'district',
-            'featured_image', 'gallery_images',
-            'average_rating', 'total_reviews', 'visit_count',
-            'added_by', 'added_by_name', 'verified_by', 'verified_at',
-            'created_at', 'updated_at', 'reviews'
+            'category', 'status', 'latitude', 'longitude', 'address', 'district',
+            'featured_image', 'gallery_images', 'average_rating', 'total_reviews',
+            'visit_count', 'added_by', 'added_by_name', 'verified_by', 'verified_by_name',
+            'verified_at', 'reviews', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['slug', 'created_at', 'updated_at', 'average_rating', 'total_reviews']
-    
-    def get_category_label(self, obj):
-        return dict(Destination.CategoryChoice.choices).get(obj.category, obj.category)
-    
-    def get_status_label(self, obj):
-        return dict(Destination.Status.choices).get(obj.status, obj.status)
-    
-    def get_added_by_name(self, obj):
-        if obj.added_by:
-            return f"{obj.added_by.first_name} {obj.added_by.last_name}".strip() or obj.added_by.username
-        return 'Anonymous'
+        read_only_fields = [
+            'id', 'slug', 'average_rating', 'total_reviews', 'visit_count',
+            'added_by', 'verified_by', 'verified_at', 'created_at', 'updated_at'
+        ]
 
-class CategorySerializer(serializers.ModelSerializer):
-    destination_count = serializers.SerializerMethodField()
+
+class WishlistSerializer(serializers.ModelSerializer):
+    destination_id = serializers.IntegerField(source='destination.id', read_only=True)
+    destination_name = serializers.CharField(source='destination.name', read_only=True)
+    destination_image = serializers.CharField(source='destination.featured_image', read_only=True)
+    destination_category = serializers.CharField(source='destination.category', read_only=True)
+    destination_district = serializers.CharField(source='destination.district', read_only=True)
+    destination_rating = serializers.DecimalField(
+        source='destination.average_rating', 
+        read_only=True, 
+        max_digits=3, 
+        decimal_places=2
+    )
+    destination_description = serializers.CharField(
+        source='destination.short_description', 
+        read_only=True
+    )
+    destination_slug = serializers.CharField(source='destination.slug', read_only=True)
     
     class Meta:
-        model = Category
+        model = Wishlist
         fields = [
-            'id', 'key', 'label', 'description', 'image', 
-            'destination_count', 'created_at', 'updated_at'
+            'id',
+            'destination_id',
+            'destination_name',
+            'destination_image',
+            'destination_category',
+            'destination_district',
+            'destination_rating',
+            'destination_description',
+            'destination_slug',
+            'notes',
+            'added_at'
         ]
-    
-    def get_destination_count(self, obj):
-        return Destination.objects.filter(category=obj.key).count()
+        read_only_fields = ['user', 'added_at']

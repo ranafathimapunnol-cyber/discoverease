@@ -1,4 +1,4 @@
-# guides/views.py - COMPLETE FIXED VERSION WITH FULL REVIEW SUPPORT
+# guides/views.py - COMPLETE FIXED VERSION
 
 from django.db.models import Q, Avg
 from django.shortcuts import get_object_or_404
@@ -10,6 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
+
 from .models import (
     District, GuideCategory, Guide, GuideAvailability, 
     GuideBooking, GuideReview
@@ -73,6 +74,11 @@ class GuideViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
+        # ✅ FIX: Get district by NAME, not ID
+        district = self.request.query_params.get('district')
+        if district:
+            queryset = queryset.filter(districts__name__icontains=district)
+        
         date = self.request.query_params.get('date')
         if date:
             available_guides = GuideAvailability.objects.filter(
@@ -81,18 +87,14 @@ class GuideViewSet(viewsets.ModelViewSet):
             ).values_list('guide_id', flat=True)
             queryset = queryset.filter(id__in=available_guides)
         
-        district_id = self.request.query_params.get('district')
-        if district_id:
-            queryset = queryset.filter(districts__id=district_id)
-        
-        category_id = self.request.query_params.get('category')
-        if category_id:
-            queryset = queryset.filter(categories__id=category_id)
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(categories__name__icontains=category)
         
         min_price = self.request.query_params.get('min_price')
-        max_price = self.request.query_params.get('max_price')
         if min_price:
             queryset = queryset.filter(price_per_day__gte=min_price)
+        max_price = self.request.query_params.get('max_price')
         if max_price:
             queryset = queryset.filter(price_per_day__lte=max_price)
         
@@ -884,4 +886,4 @@ class GuideReviewViewSet(viewsets.ModelViewSet):
         return Response({
             'success': True,
             'message': 'Review deleted successfully'
-        })  
+        })

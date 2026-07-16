@@ -1,4 +1,4 @@
-# destinations/views.py - COMPLETE 100% WORKING VERSION
+# destinations/views.py - COMPLETE FIXED VERSION
 
 from django.shortcuts import render
 from rest_framework import viewsets, status, filters, permissions
@@ -9,8 +9,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q, Avg, Count, Sum
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Destination, Review, Category, CategoryData, CategoryPlace
-from .serializers import DestinationSerializer, ReviewSerializer, DestinationListSerializer, CategorySerializer
+from .models import Destination, Review, Category, CategoryData, CategoryPlace, Wishlist
+from .serializers import DestinationSerializer, ReviewSerializer, DestinationListSerializer, CategorySerializer, WishlistSerializer
 from .filters import DestinationFilter
 import logging
 
@@ -417,7 +417,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
         })
 
     # ============================================
-    # ✅ CATEGORY ENDPOINTS - FIXED
+    # CATEGORY ENDPOINTS
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='categories')
@@ -492,30 +492,61 @@ class DestinationViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='category/(?P<category_key>[^/.]+)')
     def get_category_detail(self, request, category_key=None):
-        if category_key in dict(Destination.CategoryChoice.choices):
-            label = dict(Destination.CategoryChoice.choices)[category_key]
-        else:
+        """Get a specific category with its places"""
+        try:
+            from .models import CategoryData, CategoryPlace, Destination
+            
             try:
-                category = Category.objects.get(key=category_key)
-                label = category.label
-            except Category.DoesNotExist:
-                return Response(
-                    {'error': f'Category "{category_key}" not found'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        
-        destinations = self.get_queryset().filter(category=category_key)
-        
-        category_info = {
-            'key': category_key,
-            'label': label,
-            'description': self._get_category_description(category_key),
-            'image': self._get_category_image(category_key),
-            'count': destinations.count(),
-            'destinations': self.get_serializer(destinations, many=True).data
-        }
-        
-        return Response(category_info)
+                category = CategoryData.objects.get(key=category_key, is_active=True)
+            except CategoryData.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': f'Category "{category_key}" not found'
+                }, status=200)
+            
+            places = CategoryPlace.objects.filter(
+                category=category_key,
+                is_active=True
+            )
+            
+            places_data = []
+            for place in places:
+                dest = Destination.objects.filter(name__iexact=place.name).first()
+                
+                places_data.append({
+                    'id': place.id,
+                    'destination_id': dest.id if dest else None,  # ✅ ADD THIS!
+                    'name': place.name,
+                    'location': place.location,
+                    'description': place.description,
+                    'difficulty': place.difficulty,
+                    'duration': place.duration,
+                    'best_time': place.best_time,
+                    'image': place.image,
+                    'type': place.type,
+                    'hidden_gem': place.hidden_gem,
+                })
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'key': category.key,
+                    'title': category.title,
+                    'description': category.description,
+                    'type': category.type,
+                    'icon': category.icon,
+                    'image': category.image,
+                    'count': len(places_data),
+                    'places': places_data
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching category detail: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=200)
 
     @action(detail=False, methods=['get'], url_path='categories/all')
     def get_all_categories_with_destinations(self, request):
@@ -547,20 +578,36 @@ class DestinationViewSet(viewsets.ModelViewSet):
         return Response(default_categories)
 
     # ============================================
-    # ✅ CATEGORY DATA ENDPOINTS - FIXED
+    # ✅ CATEGORY DATA ENDPOINTS - FIXED (NO LIMIT!)
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='category-data')
     def get_category_data(self, request):
+        """Get all category data from database - FIXED: NO 50 PLACE LIMIT!"""
         try:
             categories = CategoryData.objects.filter(is_active=True)
             result = []
             
             for cat in categories:
                 places = CategoryPlace.objects.filter(
-                    category=cat.key, 
+                    category=cat.key,
                     is_active=True
                 )
+                
+                places_data = [{
+                    'id': p.id,
+                    'destination_id': p.destination.id if p.destination else None,  # ✅ CRITICAL!
+                    'name': p.name,
+                    'location': p.location,
+                    'description': p.description,
+                    'difficulty': p.difficulty,
+                    'duration': p.duration,
+                    'best_time': p.best_time,
+                    'image': p.image,
+                    'type': p.type,
+                    'hidden_gem': p.hidden_gem,
+                } for p in places]
+                
                 result.append({
                     'key': cat.key,
                     'title': cat.title,
@@ -568,30 +615,19 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'type': cat.type,
                     'icon': cat.icon,
                     'image': cat.image,
-                    'count': places.count(),
-                    'places': [
-                        {
-                            'id': p.id,
-                            'name': p.name,
-                            'location': p.location,
-                            'description': p.description,
-                            'difficulty': p.difficulty,
-                            'duration': p.duration,
-                            'best_time': p.best_time,
-                            'image': p.image,
-                            'type': p.type,
-                            'hidden_gem': p.hidden_gem,
-                        } for p in places[:50]
-                    ]
+                    'count': CategoryPlace.objects.filter(category=cat.key, is_active=True).count(),
+                    'places': places_data
                 })
             
             return Response({'success': True, 'data': result})
+            
         except Exception as e:
             logger.error(f"Error fetching category data: {e}")
-            return Response({'success': True, 'data': []})
+            return Response({'success': False, 'error': str(e)}, status=200)
 
     @action(detail=False, methods=['get'], url_path='category-data/(?P<category_key>[^/.]+)')
     def get_category_data_detail(self, request, category_key=None):
+        """Get specific category with ALL places - NO LIMIT!"""
         try:
             category = get_object_or_404(CategoryData, key=category_key, is_active=True)
             places = CategoryPlace.objects.filter(category=category_key, is_active=True)
@@ -608,6 +644,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'places': [
                         {
                             'id': p.id,
+                            'destination_id': p.destination.id if p.destination else None,  # ✅ CRITICAL!
                             'name': p.name,
                             'location': p.location,
                             'description': p.description,
@@ -626,7 +663,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # ✅ ADD PLACE ENDPOINT - FIXED
+    # ADD PLACE ENDPOINT
     # ============================================
     
     @action(detail=False, methods=['post'], url_path='add-place')
@@ -663,7 +700,6 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'error': 'Place name is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Check if CategoryData exists, if not create it
             category, created = CategoryData.objects.get_or_create(
                 key=category_key,
                 defaults={
@@ -673,7 +709,6 @@ class DestinationViewSet(viewsets.ModelViewSet):
                 }
             )
 
-            # Check if place already exists in this category
             existing_place = CategoryPlace.objects.filter(
                 category=category_key,
                 name__iexact=name
@@ -685,7 +720,6 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'error': f'Place "{name}" already exists in this category'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Create the place
             place = CategoryPlace.objects.create(
                 category=category_key,
                 name=name,
@@ -702,7 +736,6 @@ class DestinationViewSet(viewsets.ModelViewSet):
                 created_by=request.user
             )
 
-            # Update category count
             category.count = CategoryPlace.objects.filter(category=category_key, is_active=True).count()
             category.save()
 
@@ -862,3 +895,151 @@ class DestinationViewSet(viewsets.ModelViewSet):
             'other': "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80"
         }
         return images.get(key, "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80")
+
+
+# ============================================
+# ✅ WISHLIST VIEWSET - COMPLETE FIXED
+# ============================================
+class WishlistViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing user wishlist"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WishlistSerializer
+    
+    def get_queryset(self):
+        return Wishlist.objects.filter(user=self.request.user).select_related('destination')
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+    
+    @action(detail=False, methods=['post'], url_path='toggle')
+    def toggle_wishlist(self, request):
+        """Toggle destination in wishlist"""
+        destination_id = request.data.get('destination_id')
+        
+        if not destination_id:
+            return Response({
+                'success': False,
+                'error': 'Destination ID is required',
+                'message': 'Please provide a destination_id'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            destination = Destination.objects.get(id=destination_id)
+            print(f"🔍 Toggling destination: {destination.id} - {destination.name}")
+            
+        except Destination.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Destination not found',
+                'message': f'No destination found with id {destination_id}'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        wishlist_item = Wishlist.objects.filter(
+            user=request.user,
+            destination=destination
+        ).first()
+        
+        if wishlist_item:
+            wishlist_item.delete()
+            print(f"🗑️ Removed {destination.name} from wishlist")
+            return Response({
+                'success': True,
+                'action': 'removed',
+                'message': 'Removed from wishlist',
+                'in_wishlist': False,
+                'destination_id': destination_id
+            }, status=status.HTTP_200_OK)
+        else:
+            wishlist_item = Wishlist.objects.create(
+                user=request.user,
+                destination=destination
+            )
+            print(f"❤️ Added {destination.name} to wishlist")
+            return Response({
+                'success': True,
+                'action': 'added',
+                'message': 'Added to wishlist',
+                'in_wishlist': True,
+                'destination_id': destination_id,
+                'data': WishlistSerializer(wishlist_item).data
+            }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'], url_path='check')
+    def check_wishlist(self, request):
+        """Check if destination is in wishlist"""
+        destination_id = request.query_params.get('destination_id')
+        
+        if not destination_id:
+            return Response({
+                'success': False,
+                'error': 'Destination ID is required',
+                'message': 'Please provide a destination_id query parameter',
+                'in_wishlist': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        exists = Wishlist.objects.filter(
+            user=request.user,
+            destination_id=destination_id
+        ).exists()
+        
+        return Response({
+            'success': True,
+            'in_wishlist': exists,
+            'destination_id': int(destination_id)
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['get'], url_path='count')
+    def wishlist_count(self, request):
+        """Get wishlist count for current user"""
+        count = Wishlist.objects.filter(user=request.user).count()
+        return Response({
+            'success': True,
+            'count': count
+        }, status=status.HTTP_200_OK)
+    
+    def list(self, request, *args, **kwargs):
+        """Get all wishlist items for current user"""
+        try:
+            queryset = self.get_queryset()
+            
+            for item in queryset:
+                print(f"📌 Wishlist: {item.id} -> Destination: {item.destination.id} - {item.destination.name} (Category: {item.destination.category})")
+            
+            serializer = self.get_serializer(queryset, many=True)
+            
+            return Response({
+                'success': True,
+                'count': queryset.count(),
+                'results': serializer.data
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(f"❌ Wishlist list error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'count': 0,
+                'results': []
+            }, status=status.HTTP_200_OK)
+    
+    def destroy(self, request, *args, **kwargs):
+        """Remove a specific wishlist item"""
+        try:
+            instance = self.get_object()
+            destination_id = instance.destination.id
+            destination_name = instance.destination.name
+            instance.delete()
+            
+            print(f"🗑️ Removed {destination_name} from wishlist")
+            
+            return Response({
+                'success': True,
+                'action': 'removed',
+                'message': 'Removed from wishlist',
+                'destination_id': destination_id
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            print(f"❌ Wishlist delete error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)

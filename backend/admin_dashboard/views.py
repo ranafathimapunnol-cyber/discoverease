@@ -1,4 +1,4 @@
-# admin_dashboard/views.py - COMPLETE FIXED VERSION
+# admin_dashboard/views.py - COMPLETE FIXED
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -27,7 +27,7 @@ class AdminViewSet(viewsets.ViewSet):
         return request.user.role == 'admin' or request.user.is_superuser
 
     # ============================================
-    # GET /api/admin/stats/
+    # GET /api/admin/stats/ - ✅ FIXED
     # ============================================
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
@@ -35,22 +35,40 @@ class AdminViewSet(viewsets.ViewSet):
             return Response({'error': 'Admin access required'}, status=403)
         try:
             from guides.models import Guide, GuideBooking
+            
+            # ✅ Count ALL users by role
+            total_users = User.objects.filter(is_deleted=False).count()
+            total_touristers = User.objects.filter(role='tourister', is_deleted=False).count()
+            total_staff = User.objects.filter(role='staff', is_deleted=False).count()
+            total_guides = Guide.objects.filter(is_active=True).count()
+            total_admins = User.objects.filter(role='admin', is_deleted=False).count()
+            
             stats = {
-                'totalUsers': User.objects.filter(role='tourister', is_deleted=False).count(),
-                'totalStaff': User.objects.filter(role='staff', is_deleted=False).count(),
-                'totalGuides': Guide.objects.filter(is_active=True).count(),
+                'totalUsers': total_touristers,  # Keep this for backward compatibility
+                'totalTouristers': total_touristers,
+                'totalStaff': total_staff,
+                'totalGuides': total_guides,
+                'totalAdmins': total_admins,
+                'totalAllUsers': total_users,
                 'totalBookings': GuideBooking.objects.count(),
                 'totalSuggestions': Suggestion.objects.count() if SUGGESTIONS_AVAILABLE else 0,
                 'pendingSuggestions': Suggestion.objects.filter(status='pending').count() if SUGGESTIONS_AVAILABLE else 0,
             }
+            
+            print(f"📊 Stats: Touristers={total_touristers}, Staff={total_staff}, Guides={total_guides}, Admins={total_admins}")
+            
             return Response({'success': True, 'stats': stats})
         except Exception as e:
+            logger.error(f"Stats error: {e}")
             return Response({
                 'success': True, 
                 'stats': {
                     'totalUsers': 0, 
+                    'totalTouristers': 0,
                     'totalStaff': 0, 
-                    'totalGuides': 0, 
+                    'totalGuides': 0,
+                    'totalAdmins': 0,
+                    'totalAllUsers': 0,
                     'totalBookings': 0, 
                     'totalSuggestions': 0, 
                     'pendingSuggestions': 0
@@ -58,14 +76,16 @@ class AdminViewSet(viewsets.ViewSet):
             })
 
     # ============================================
-    # GET /api/admin/users/
+    # GET /api/admin/users/ - ✅ FIXED - SHOWS ALL USERS
     # ============================================
     @action(detail=False, methods=['get'], url_path='users')
     def users(self, request):
         if not self._check_admin_access(request):
             return Response({'error': 'Admin access required'}, status=403)
         try:
-            users = User.objects.filter(role='tourister', is_deleted=False)
+            # ✅ Get ALL non-deleted users with ALL roles
+            users = User.objects.filter(is_deleted=False).order_by('-date_joined')
+            
             data = [{
                 'id': u.id, 
                 'email': u.email, 
@@ -74,12 +94,67 @@ class AdminViewSet(viewsets.ViewSet):
                 'last_name': u.last_name, 
                 'phone': u.phone, 
                 'is_active': u.is_active, 
-                'role': u.role, 
-                'date_joined': u.date_joined.isoformat() if u.date_joined else None
+                'role': u.role,
+                'email_verified': u.email_verified,
+                'date_joined': u.date_joined.isoformat() if u.date_joined else None,
+                'last_login': u.last_login.isoformat() if u.last_login else None,
             } for u in users]
-            return Response({'success': True, 'users': data})
+            
+            # Debug logging
+            roles = {}
+            for u in data:
+                roles[u['role']] = roles.get(u['role'], 0) + 1
+            
+            print(f"📊 Admin users API: Total={len(data)}, Roles={roles}")
+            
+            return Response({
+                'success': True, 
+                'users': data,
+                'count': len(data),
+                'roles': roles  # Include role breakdown
+            })
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
+            logger.error(f"Error fetching users: {e}")
+            return Response({
+                'success': False, 
+                'error': str(e)
+            }, status=400)
+
+    # ============================================
+    # GET /api/admin/users/touristers/ - ✅ GET ONLY TOURISTERS
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='users/touristers')
+    def touristers(self, request):
+        if not self._check_admin_access(request):
+            return Response({'error': 'Admin access required'}, status=403)
+        try:
+            users = User.objects.filter(role='tourister', is_deleted=False).order_by('-date_joined')
+            data = [{
+                'id': u.id, 
+                'email': u.email, 
+                'username': u.username, 
+                'first_name': u.first_name, 
+                'last_name': u.last_name, 
+                'phone': u.phone, 
+                'is_active': u.is_active, 
+                'role': u.role,
+                'email_verified': u.email_verified,
+                'date_joined': u.date_joined.isoformat() if u.date_joined else None,
+            } for u in users]
+            
+            print(f"📊 Touristers API: Found {len(data)} touristers")
+            
+            return Response({
+                'success': True, 
+                'users': data,
+                'count': len(data)
+            })
+        except Exception as e:
+            logger.error(f"Error fetching touristers: {e}")
+            return Response({
+                'success': False, 
+                'error': str(e)
+            }, status=400)
 
     # ============================================
     # POST /api/admin/users/{id}/toggle-status/
@@ -90,22 +165,30 @@ class AdminViewSet(viewsets.ViewSet):
             return Response({'error': 'Admin access required'}, status=403)
         try:
             user = get_object_or_404(User, id=pk, is_deleted=False)
+            
             if user.id == request.user.id:
                 return Response({
                     'success': False,
                     'error': 'Cannot change your own status'
                 }, status=400)
+            
             user.is_active = not user.is_active
             user.save()
+            
             return Response({
                 'success': True, 
-                'message': f'User {"activated" if user.is_active else "deactivated"} successfully'
+                'message': f'User {"activated" if user.is_active else "deactivated"} successfully',
+                'is_active': user.is_active
             })
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
+            logger.error(f"Toggle user status error: {e}")
+            return Response({
+                'success': False, 
+                'error': str(e)
+            }, status=400)
 
     # ============================================
-    # DELETE /api/admin/users/{id}/ - ✅ FIXED
+    # DELETE /api/admin/users/{id}/
     # ============================================
     @action(detail=True, methods=['delete'], url_path='users')
     def delete_user(self, request, pk=None):
@@ -114,14 +197,12 @@ class AdminViewSet(viewsets.ViewSet):
         try:
             user = get_object_or_404(User, id=pk)
             
-            # Prevent admin from deleting themselves
             if user.id == request.user.id:
                 return Response({
                     'success': False,
                     'error': 'Cannot delete your own account'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Soft delete - mark as deleted
             user.is_deleted = True
             user.is_active = False
             user.deleted_at = timezone.now()
@@ -154,10 +235,12 @@ class AdminViewSet(viewsets.ViewSet):
                 'first_name': u.first_name, 
                 'last_name': u.last_name, 
                 'phone': u.phone, 
-                'is_active': u.is_active
+                'is_active': u.is_active,
+                'date_joined': u.date_joined.isoformat() if u.date_joined else None,
             } for u in staff]
-            return Response({'success': True, 'staff': data})
+            return Response({'success': True, 'staff': data, 'count': len(data)})
         except Exception as e:
+            logger.error(f"Staff list error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
@@ -170,24 +253,34 @@ class AdminViewSet(viewsets.ViewSet):
         try:
             email = request.data.get('email')
             password = request.data.get('password')
+            
             if not email or not password:
                 return Response({'error': 'Email and password required'}, status=400)
+            
             if User.objects.filter(email=email).exists():
                 return Response({'error': 'User already exists'}, status=400)
+            
             user = User.objects.create_user(
                 email=email, 
                 username=email.split('@')[0], 
                 password=password, 
                 role='staff', 
                 is_active=True, 
-                is_staff=True
+                is_staff=True,
+                email_verified=True
             )
+            
             return Response({
                 'success': True, 
-                'message': 'Staff added', 
-                'staff': {'id': user.id, 'email': user.email}
+                'message': 'Staff added successfully', 
+                'staff': {
+                    'id': user.id, 
+                    'email': user.email,
+                    'is_active': user.is_active
+                }
             })
         except Exception as e:
+            logger.error(f"Add staff error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
@@ -199,18 +292,22 @@ class AdminViewSet(viewsets.ViewSet):
             return Response({'error': 'Admin access required'}, status=403)
         try:
             user = get_object_or_404(User, id=pk, role='staff', is_deleted=False)
+            
             if user.id == request.user.id:
                 return Response({
                     'success': False,
                     'error': 'Cannot change your own status'
                 }, status=400)
+            
             user.is_active = not user.is_active
             user.save()
+            
             return Response({
                 'success': True, 
                 'message': f'Staff {"activated" if user.is_active else "deactivated"} successfully'
             })
         except Exception as e:
+            logger.error(f"Toggle staff status error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
@@ -222,20 +319,24 @@ class AdminViewSet(viewsets.ViewSet):
             return Response({'error': 'Admin access required'}, status=403)
         try:
             user = get_object_or_404(User, id=pk, role='staff')
+            
             if user.id == request.user.id:
                 return Response({
                     'success': False,
                     'error': 'Cannot delete your own account'
                 }, status=400)
+            
             user.is_deleted = True
             user.is_active = False
             user.save()
+            
             return Response({'success': True, 'message': 'Staff deleted successfully'})
         except Exception as e:
+            logger.error(f"Delete staff error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # GET /api/admin/guides/
+    # GET /api/admin/guides/ - ✅ FIXED
     # ============================================
     @action(detail=False, methods=['get'], url_path='guides')
     def guides_list(self, request):
@@ -243,7 +344,14 @@ class AdminViewSet(viewsets.ViewSet):
             return Response({'error': 'Admin access required'}, status=403)
         try:
             from guides.models import Guide
+            
+            # ✅ Get ALL guides including inactive ones
             guides = Guide.objects.all().select_related('user')
+            
+            total_guides = guides.count()
+            active_guides = guides.filter(is_active=True).count()
+            verified_guides = guides.filter(is_verified=True).count()
+            
             data = []
             for g in guides:
                 data.append({
@@ -256,9 +364,84 @@ class AdminViewSet(viewsets.ViewSet):
                     'experience_years': g.years_of_experience or 0,
                     'primary_district': g.districts.first().name if g.districts.exists() else 'N/A',
                     'booking_count': 0,
+                    'user_id': g.user.id if g.user else None,
                 })
-            return Response({'success': True, 'guides': data})
+            
+            print(f"📊 Guides API: Total={total_guides}, Active={active_guides}, Verified={verified_guides}")
+            
+            return Response({
+                'success': True, 
+                'guides': data,
+                'count': total_guides,
+                'active_count': active_guides,
+                'verified_count': verified_guides
+            })
         except Exception as e:
+            logger.error(f"Guides list error: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # GET /api/admin/guides/{id}/bookings/
+    # ============================================
+    @action(detail=True, methods=['get'], url_path='guides/bookings')
+    def guide_bookings(self, request, pk=None):
+        if not self._check_admin_access(request):
+            return Response({'error': 'Admin access required'}, status=403)
+        try:
+            from guides.models import Guide, GuideBooking
+            guide = get_object_or_404(Guide, id=pk)
+            bookings = GuideBooking.objects.filter(guide=guide).order_by('-created_at')
+            data = [{
+                'id': b.id,
+                'booking_id': b.booking_id,
+                'traveler_email': b.user.email if b.user else '',
+                'date': b.date.isoformat() if b.date else None,
+                'time': b.time.strftime('%H:%M') if b.time else None,
+                'status': b.status,
+            } for b in bookings]
+            return Response({'success': True, 'bookings': data, 'guide_name': guide.full_name})
+        except Exception as e:
+            logger.error(f"Guide bookings error: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # POST /api/admin/guides/{id}/toggle-status/
+    # ============================================
+    @action(detail=True, methods=['post'], url_path='guides/toggle-status')
+    def toggle_guide_status(self, request, pk=None):
+        if not self._check_admin_access(request):
+            return Response({'error': 'Admin access required'}, status=403)
+        try:
+            from guides.models import Guide
+            guide = get_object_or_404(Guide, id=pk)
+            guide.is_active = not guide.is_active
+            guide.save()
+            if guide.user:
+                guide.user.is_active = guide.is_active
+                guide.user.save()
+            return Response({
+                'success': True, 
+                'message': f'Guide {"activated" if guide.is_active else "deactivated"} successfully'
+            })
+        except Exception as e:
+            logger.error(f"Toggle guide status error: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # POST /api/admin/guides/{id}/verify/
+    # ============================================
+    @action(detail=True, methods=['post'], url_path='guides/verify')
+    def verify_guide(self, request, pk=None):
+        if not self._check_admin_access(request):
+            return Response({'error': 'Admin access required'}, status=403)
+        try:
+            from guides.models import Guide
+            guide = get_object_or_404(Guide, id=pk)
+            guide.is_verified = True
+            guide.save()
+            return Response({'success': True, 'message': 'Guide verified'})
+        except Exception as e:
+            logger.error(f"Verify guide error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
@@ -419,67 +602,7 @@ class AdminViewSet(viewsets.ViewSet):
                 guide.user.save()
             return Response({'success': True, 'message': 'Guide deleted'})
         except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # POST /api/admin/guides/{id}/toggle-status/
-    # ============================================
-    @action(detail=True, methods=['post'], url_path='guides/toggle-status')
-    def toggle_guide_status(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            from guides.models import Guide
-            guide = get_object_or_404(Guide, id=pk)
-            guide.is_active = not guide.is_active
-            guide.save()
-            if guide.user:
-                guide.user.is_active = guide.is_active
-                guide.user.save()
-            return Response({
-                'success': True, 
-                'message': f'Guide {"activated" if guide.is_active else "deactivated"} successfully'
-            })
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # POST /api/admin/guides/{id}/verify/
-    # ============================================
-    @action(detail=True, methods=['post'], url_path='guides/verify')
-    def verify_guide(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            from guides.models import Guide
-            guide = get_object_or_404(Guide, id=pk)
-            guide.is_verified = True
-            guide.save()
-            return Response({'success': True, 'message': 'Guide verified'})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # GET /api/admin/guides/{id}/bookings/
-    # ============================================
-    @action(detail=True, methods=['get'], url_path='guides/bookings')
-    def guide_bookings(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            from guides.models import Guide, GuideBooking
-            guide = get_object_or_404(Guide, id=pk)
-            bookings = GuideBooking.objects.filter(guide=guide).order_by('-created_at')
-            data = [{
-                'id': b.id,
-                'booking_id': b.booking_id,
-                'traveler_email': b.user.email if b.user else '',
-                'date': b.date.isoformat() if b.date else None,
-                'time': b.time.strftime('%H:%M') if b.time else None,
-                'status': b.status,
-            } for b in bookings]
-            return Response({'success': True, 'bookings': data, 'guide_name': guide.full_name})
-        except Exception as e:
+            logger.error(f"Delete guide error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
@@ -510,75 +633,8 @@ class AdminViewSet(viewsets.ViewSet):
                 })
             return Response({'success': True, 'suggestions': data})
         except Exception as e:
+            logger.error(f"Admin suggestions error: {e}")
             return Response({'success': True, 'suggestions': []})
-
-    # ============================================
-    # POST /api/admin/suggestions/{id}/approve/
-    # ============================================
-    @action(detail=True, methods=['post'], url_path='suggestions/approve')
-    def approve_suggestion(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            suggestion = get_object_or_404(Suggestion, id=pk)
-            suggestion.status = 'approved'
-            suggestion.processed_by = request.user
-            suggestion.processed_at = timezone.now()
-            suggestion.admin_notes = request.data.get('notes', '')
-            suggestion.save()
-            return Response({'success': True, 'message': 'Suggestion approved'})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # POST /api/admin/suggestions/{id}/reject/
-    # ============================================
-    @action(detail=True, methods=['post'], url_path='suggestions/reject')
-    def reject_suggestion(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            suggestion = get_object_or_404(Suggestion, id=pk)
-            suggestion.status = 'rejected'
-            suggestion.processed_by = request.user
-            suggestion.processed_at = timezone.now()
-            suggestion.admin_notes = request.data.get('notes', '')
-            suggestion.save()
-            return Response({'success': True, 'message': 'Suggestion rejected'})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # POST /api/admin/suggestions/{id}/implement/
-    # ============================================
-    @action(detail=True, methods=['post'], url_path='suggestions/implement')
-    def implement_suggestion(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            suggestion = get_object_or_404(Suggestion, id=pk)
-            suggestion.status = 'implemented'
-            suggestion.processed_by = request.user
-            suggestion.processed_at = timezone.now()
-            suggestion.admin_notes = request.data.get('notes', '')
-            suggestion.save()
-            return Response({'success': True, 'message': 'Suggestion implemented'})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # DELETE /api/admin/suggestions/{id}/
-    # ============================================
-    @action(detail=True, methods=['delete'], url_path='suggestions')
-    def delete_suggestion(self, request, pk=None):
-        if not self._check_admin_access(request):
-            return Response({'error': 'Admin access required'}, status=403)
-        try:
-            suggestion = get_object_or_404(Suggestion, id=pk)
-            suggestion.delete()
-            return Response({'success': True, 'message': 'Suggestion deleted'})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
     # GET /api/admin/bookings/
@@ -600,6 +656,7 @@ class AdminViewSet(viewsets.ViewSet):
             } for b in bookings]
             return Response({'success': True, 'bookings': data})
         except Exception as e:
+            logger.error(f"Admin bookings error: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================

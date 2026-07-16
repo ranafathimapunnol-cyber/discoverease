@@ -1,4 +1,4 @@
-# staff/views.py - COMPLETE FIXED VERSION
+# staff/views.py - COMPLETE FIXED VERSION WITH CORRECT URL PATTERNS
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -401,31 +401,60 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # DELETE GUIDE - /api/staff/guides/{id}/delete/
+    # ✅ DELETE GUIDE - /api/staff/guides/{id}/delete/
     # ============================================
     @action(detail=True, methods=['delete'], url_path='guides/delete')
     def delete_guide(self, request, pk=None):
+        """
+        Delete (soft delete) a guide.
+        Sets is_active=False for both Guide and User.
+        """
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
         try:
             guide = get_object_or_404(Guide, id=pk)
+            guide_name = guide.full_name
+            
+            # Soft delete - deactivate instead of hard delete
             guide.is_active = False
             guide.save()
+            
+            # Also deactivate the associated user
             if guide.user:
                 guide.user.is_active = False
                 guide.user.save()
             
+            # Log the activity
             self._log_activity(request, 'delete', 'Guide', guide.id, {
-                'guide_name': guide.full_name
+                'guide_name': guide_name,
+                'guide_email': guide.email
             })
             
-            return Response({'success': True, 'message': 'Guide deleted successfully'})
+            logger.info(f"✅ Guide deleted (deactivated): {guide_name} (ID: {guide.id}) by {request.user.email}")
+            
+            return Response({
+                'success': True,
+                'message': f'Guide "{guide_name}" has been deleted successfully.',
+                'guide': {
+                    'id': guide.id,
+                    'full_name': guide_name,
+                    'email': guide.email,
+                    'is_active': False
+                }
+            })
+            
         except Http404:
-            raise
+            return Response({
+                'success': False,
+                'error': 'Guide not found'
+            }, status=404)
         except Exception as e:
             logger.error(f"Error deleting guide: {e}")
-            return Response({'success': False, 'error': str(e)}, status=400)
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=400)
 
     # ============================================
     # STAFF BOOKINGS - /api/staff/bookings/
