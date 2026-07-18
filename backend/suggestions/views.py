@@ -1,4 +1,4 @@
-# suggestions/views.py - COMPLETE FIXED VERSION (NO DUPLICATE MODEL)
+# suggestions/views.py - COMPLETE FIXED VERSION WITH PROPER IMAGE URLS
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -10,11 +10,12 @@ from django.db.models import Q
 from django.utils import timezone
 import logging
 
-from .models import Suggestion  # ✅ Import the model from models.py
+from .models import Suggestion
 from .serializers import (
     SuggestionSerializer,
     SuggestionCreateSerializer,
-    SuggestionListSerializer
+    SuggestionListSerializer,
+    SuggestionStatusUpdateSerializer
 )
 
 logger = logging.getLogger(__name__)
@@ -36,9 +37,17 @@ class SuggestionViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'create':
             return SuggestionCreateSerializer
-        elif self.action in ['list', 'my_suggestions']:
+        elif self.action in ['list', 'my_suggestions', 'guide_suggestions']:
             return SuggestionListSerializer
+        elif self.action == 'retrieve':
+            return SuggestionSerializer
         return SuggestionSerializer
+
+    def get_serializer_context(self):
+        """✅ Pass request context to serializer for full image URLs"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
     # ✅ CREATE - Returns 200 OK with success message
     def create(self, request, *args, **kwargs):
@@ -55,6 +64,17 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             if not data.get('suggestion_type'):
                 data['suggestion_type'] = 'review'
             
+            # ✅ Handle image from FormData
+            if 'image' in request.FILES:
+                data['image'] = request.FILES['image']
+            
+            # ✅ Handle multiple images
+            if request.FILES.getlist('images'):
+                image_urls = []
+                for img in request.FILES.getlist('images'):
+                    image_urls.append(img.name)
+                data['images'] = image_urls
+            
             serializer = SuggestionCreateSerializer(data=data)
             
             if not serializer.is_valid():
@@ -69,10 +89,10 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                 status='pending'
             )
 
-            # ✅ Return 200 OK
+            # ✅ Return 200 OK with full data
             return Response({
                 'success': True,
-                'message': '✅ Review submitted successfully!',
+                'message': '✅ submission successful    ',
                 'status': suggestion.status,
                 'data': {
                     'id': suggestion.id,
@@ -80,6 +100,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                     'rating': suggestion.rating,
                     'status': suggestion.status,
                     'created_at': suggestion.created_at,
+                    'image_url': suggestion.image.url if suggestion.image else None,
                 }
             }, status=status.HTTP_200_OK)
 
@@ -209,6 +230,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                 'count': 0
             })
 
+    # ✅ FIXED: guide-suggestions - RETURNS FULL DATA WITH CORRECT IMAGE URLS
     @action(detail=False, methods=['get'], url_path='guide-suggestions')
     def guide_suggestions(self, request):
         if not request.user.is_authenticated:
@@ -219,6 +241,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             })
 
         try:
+            # Check if user is a guide
             if not hasattr(request.user, 'guide_profile'):
                 return Response({
                     'success': False,
@@ -234,15 +257,29 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                 return Response({
                     'success': True,
                     'data': [],
-                    'count': 0
+                    'count': 0,
+                    'districts': []
                 })
 
+            # ✅ Get ALL suggestions in the guide's districts
             suggestions = Suggestion.objects.filter(
-                district__in=districts,
-                status__in=['pending', 'approved_by_guide']
-            ).order_by('-created_at').select_related('user')
+                district__in=districts
+            ).select_related('user', 'guide').order_by('-created_at')
 
-            serializer = SuggestionListSerializer(suggestions, many=True)
+            # ✅ Use SuggestionListSerializer with request context
+            serializer = SuggestionListSerializer(
+                suggestions, 
+                many=True,
+                context={'request': request}  # ✅ Pass request for full URLs
+            )
+
+            # ✅ Log for debugging
+            logger.info(f"Guide {request.user.email} fetched {suggestions.count()} suggestions from districts: {list(districts)}")
+            
+            # ✅ Log image URLs for debugging
+            for item in serializer.data:
+                if item.get('image_url'):
+                    logger.info(f"✅ Image URL for {item.get('name')}: {item.get('image_url')}")
 
             return Response({
                 'success': True,
@@ -252,10 +289,12 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             })
 
         except Exception as e:
+            logger.error(f"Error in guide_suggestions: {e}")
             return Response({
                 'success': False,
                 'data': [],
-                'count': 0
+                'count': 0,
+                'error': str(e)
             })
 
     @action(detail=True, methods=['post'], url_path='guide-process')

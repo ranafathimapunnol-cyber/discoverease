@@ -1,6 +1,6 @@
 # guides/views.py - COMPLETE FIXED VERSION
 
-from django.db.models import Q, Avg
+from django.db.models import Q, Avg, Prefetch
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -57,7 +57,7 @@ class GuideCategoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class GuideViewSet(viewsets.ModelViewSet):
-    """Complete Guide ViewSet with Dashboard Endpoints"""
+    """Complete Guide ViewSet with fixed district filtering"""
     queryset = Guide.objects.filter(is_active=True, is_verified=True)
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -74,10 +74,22 @@ class GuideViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # ✅ FIX: Get district by NAME, not ID
+        # ✅ FIXED: Proper district filtering
         district = self.request.query_params.get('district')
         if district:
-            queryset = queryset.filter(districts__name__icontains=district)
+            logger.info(f"🔍 Filtering by district: {district}")
+            
+            # ✅ CRITICAL FIX: Get the district object first, then filter
+            try:
+                # Try exact match first (case insensitive)
+                district_obj = District.objects.get(name__iexact=district)
+                # Filter guides that have this district in their many-to-many relationship
+                queryset = queryset.filter(districts=district_obj)
+                logger.info(f"✅ Found {queryset.count()} guides for district: {district}")
+            except District.DoesNotExist:
+                logger.warning(f"❌ District '{district}' not found in database")
+                # Return empty queryset if district doesn't exist
+                return queryset.none()
         
         date = self.request.query_params.get('date')
         if date:
@@ -102,7 +114,25 @@ class GuideViewSet(viewsets.ModelViewSet):
         if language:
             queryset = queryset.filter(languages__icontains=language)
         
-        return queryset
+        # Add distinct to avoid duplicates from many-to-many joins
+        return queryset.distinct()
+
+    def list(self, request, *args, **kwargs):
+        """Override list to add debug logging"""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Log the query for debugging
+        logger.info(f"📊 Total guides found: {queryset.count()}")
+        if queryset.count() > 0:
+            logger.info(f"📊 First guide: {queryset.first().full_name if queryset.first() else 'None'}")
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     @action(detail=True, methods=['get'])
     def availability(self, request, pk=None):
@@ -190,30 +220,6 @@ class GuideViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'success': False, 'error': str(e)}, status=400)
 
-    @action(detail=False, methods=['get'], url_path='stats', permission_classes=[IsAuthenticated])
-    def guide_stats(self, request):
-        """Get guide dashboard stats"""
-        try:
-            guide = Guide.objects.get(user=request.user)
-            
-            bookings = GuideBooking.objects.filter(guide=guide)
-            reviews = GuideReview.objects.filter(guide=guide)
-            
-            stats = {
-                'totalBookings': bookings.count(),
-                'pendingBookings': bookings.filter(status='pending').count(),
-                'confirmedBookings': bookings.filter(status='confirmed').count(),
-                'completedBookings': bookings.filter(status='completed').count(),
-                'totalReviews': reviews.count(),
-                'pendingReviews': reviews.filter(is_approved=False).count(),
-                'rating': float(guide.rating),
-            }
-            return Response({'success': True, 'stats': stats})
-        except Guide.DoesNotExist:
-            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
-
     @action(detail=False, methods=['get'], url_path='bookings', permission_classes=[IsAuthenticated])
     def guide_bookings(self, request):
         """Get guide's bookings"""
@@ -285,7 +291,6 @@ class GuideViewSet(viewsets.ModelViewSet):
             start_time = datetime.strptime(data.get('start_time'), '%H:%M').time()
             end_time = datetime.strptime(data.get('end_time'), '%H:%M').time()
             
-            # Check if slot already exists for THIS guide
             existing = GuideAvailability.objects.filter(
                 guide=guide,
                 date=date,
@@ -298,7 +303,6 @@ class GuideViewSet(viewsets.ModelViewSet):
                     'error': 'Slot already exists for this date and time'
                 }, status=400)
             
-            # Create slot for THIS guide only
             slot = GuideAvailability.objects.create(
                 guide=guide,
                 date=date,
@@ -446,10 +450,6 @@ class BookingViewSet(viewsets.ModelViewSet):
             booking.availability = availability
             booking.save()
 
-    # ============================================
-    # ✅ BOOKING PROCESSING ENDPOINTS
-    # ============================================
-    
     @action(detail=True, methods=['post'], url_path='process')
     def process_booking(self, request, pk=None):
         """Process booking (confirm/reject/complete)"""
@@ -598,64 +598,50 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             }, status=400)
 
-    # ============================================
-    # ✅ REVIEW ENDPOINT - USING FK RELATIONSHIP
-    # ============================================
-    
     @action(detail=True, methods=['post'], url_path='review')
     def add_review(self, request, pk=None):
-        """
-        Add a review for a completed booking.
-        Uses Foreign Key relationships: booking → user, guide
-        """
+        """Add a review for a completed booking"""
         booking = self.get_object()
         
-        # Check permissions - only the user who made the booking can review
         if request.user != booking.user:
             return Response(
                 {'error': 'Only the user who made the booking can review'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Check if booking is completed
         if booking.status != 'completed':
             return Response(
                 {'error': 'Can only review completed bookings'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if review already exists
         if GuideReview.objects.filter(booking=booking).exists():
             return Response(
                 {'error': 'Review already exists for this booking'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Validate data
         serializer = GuideReviewCreateSerializer(
             data=request.data,
             context={'booking_id': booking.id}
         )
         
         if serializer.is_valid():
-            # Create review with Foreign Key relationships
             review = GuideReview.objects.create(
                 booking=booking,
                 user=request.user,
                 guide=booking.guide,
                 rating=serializer.validated_data['rating'],
                 comment=serializer.validated_data['comment'],
-                is_approved=False  # Requires admin/guide approval
+                is_approved=False
             )
             
-            # Update guide rating
             guide = booking.guide
             avg_rating = guide.reviews.aggregate(Avg('rating'))['rating__avg']
             guide.rating = avg_rating or 0
             guide.total_reviews = guide.reviews.count()
             guide.save()
             
-            # Return the created review
             review_data = GuideReviewSerializer(review).data
             return Response({
                 'success': True,
@@ -665,10 +651,6 @@ class BookingViewSet(viewsets.ModelViewSet):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    # ============================================
-    # ✅ GET REVIEW FOR BOOKING
-    # ============================================
-    
     @action(detail=True, methods=['get'], url_path='review')
     def get_review(self, request, pk=None):
         """Get the review for a booking if it exists"""
@@ -688,110 +670,6 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'message': 'No review found for this booking'
             })
 
-    # ============================================
-    # ✅ LEGACY ENDPOINTS (for compatibility)
-    # ============================================
-    
-    @action(detail=True, methods=['post'])
-    def confirm(self, request, pk=None):
-        """Confirm a booking (staff/guide only)"""
-        booking = self.get_object()
-        
-        if request.user != booking.guide.user and not request.user.is_staff:
-            return Response(
-                {'error': 'Permission denied'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if booking.status != 'pending':
-            return Response(
-                {'error': f'Booking is already {booking.status}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        booking.status = 'confirmed'
-        booking.save()
-        return Response({'message': 'Booking confirmed successfully'})
-
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        """Cancel a booking"""
-        booking = self.get_object()
-        
-        if request.user not in [booking.user, booking.guide.user] and not request.user.is_staff:
-            return Response(
-                {'error': 'Permission denied'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if booking.status == 'completed':
-            return Response(
-                {'error': 'Cannot cancel completed booking'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        booking.status = 'cancelled'
-        booking.save()
-        
-        availability = booking.availability
-        if availability:
-            availability.current_bookings -= 1
-            if availability.is_booked and availability.current_bookings < availability.max_bookings:
-                availability.is_booked = False
-            availability.save()
-        
-        return Response({'message': 'Booking cancelled successfully'})
-
-    @action(detail=True, methods=['post'])
-    def complete(self, request, pk=None):
-        """Mark booking as completed (guide only)"""
-        booking = self.get_object()
-        
-        if request.user != booking.guide.user:
-            return Response(
-                {'error': 'Only the guide can complete this booking'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if booking.status != 'confirmed':
-            return Response(
-                {'error': f'Cannot complete booking with status: {booking.status}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        booking.status = 'completed'
-        booking.save()
-        return Response({'message': 'Booking completed successfully'})
-
-    @action(detail=True, methods=['post'])
-    def reject(self, request, pk=None):
-        """Reject a booking (guide only)"""
-        booking = self.get_object()
-        
-        if request.user != booking.guide.user and not request.user.is_staff:
-            return Response(
-                {'error': 'Permission denied'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        if booking.status != 'pending':
-            return Response(
-                {'error': f'Cannot reject booking with status: {booking.status}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        booking.status = 'rejected'
-        booking.save()
-        
-        availability = booking.availability
-        if availability:
-            availability.current_bookings -= 1
-            if availability.is_booked and availability.current_bookings < availability.max_bookings:
-                availability.is_booked = False
-            availability.save()
-        
-        return Response({'message': 'Booking rejected successfully'})
-
 
 class GuideReviewViewSet(viewsets.ModelViewSet):
     """ViewSet for managing guide reviews"""
@@ -799,7 +677,6 @@ class GuideReviewViewSet(viewsets.ModelViewSet):
     serializer_class = GuideReviewSerializer
     
     def get_queryset(self):
-        """Filter reviews by guide_id if provided"""
         queryset = GuideReview.objects.all()
         guide_id = self.request.query_params.get('guide_id')
         user_id = self.request.query_params.get('user_id')
@@ -816,7 +693,6 @@ class GuideReviewViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='my-reviews')
     def my_reviews(self, request):
-        """Get current user's reviews"""
         if not request.user.is_authenticated:
             return Response(
                 {'error': 'Authentication required'},
@@ -832,7 +708,6 @@ class GuideReviewViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'], url_path='for-guide/(?P<guide_id>[^/.]+)')
     def for_guide(self, request, guide_id=None):
-        """Get all reviews for a specific guide"""
         try:
             guide = Guide.objects.get(id=guide_id)
             reviews = GuideReview.objects.filter(guide=guide, is_approved=True)
@@ -855,7 +730,6 @@ class GuideReviewViewSet(viewsets.ModelViewSet):
         """Approve a review (guide or staff only)"""
         review = self.get_object()
         
-        # Check if user is the guide or staff
         if request.user != review.guide.user and not request.user.is_staff:
             return Response(
                 {'error': 'Only the guide or staff can approve reviews'},

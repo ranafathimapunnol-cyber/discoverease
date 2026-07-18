@@ -1,4 +1,5 @@
-# config/settings.py - COMPLETE FIXED VERSION
+# config/settings.py - COMPLETE FIXED VERSION WITH PROPER MEDIA URL
+
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -29,12 +30,6 @@ INSTALLED_APPS = [
     'django_filters',
     'django_celery_beat',
     
-    # Allauth - Only use if you want to use it, otherwise remove
-    # 'allauth',
-    # 'allauth.account',
-    # 'allauth.socialaccount',
-    # 'allauth.socialaccount.providers.google',
-    
     # Local apps
     'accounts.apps.AccountsConfig',
     'destinations',
@@ -56,7 +51,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    # 'allauth.account.middleware.AccountMiddleware',  # Remove if not using allauth
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -117,12 +111,20 @@ USE_I18N = True
 USE_TZ = True
 
 # =============================================
-# Static & Media files
+# ✅ FIXED: Static & Media files
 # =============================================
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+
+# ✅ CRITICAL FIX: Media URL without /api/ prefix
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# Create media directory if it doesn't exist
+MEDIA_ROOT.mkdir(exist_ok=True)
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'accounts.User'
@@ -211,39 +213,10 @@ REST_FRAMEWORK = {
 # =============================================
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
-    # 'allauth.account.auth_backends.AuthenticationBackend',  # Remove if not using allauth
 ]
 
 # =============================================
-# Django Allauth - COMMENTED OUT (using manual OAuth)
-# =============================================
-# SITE_ID = 1
-# ACCOUNT_EMAIL_VERIFICATION = 'optional'
-# ACCOUNT_EMAIL_REQUIRED = True
-# ACCOUNT_USERNAME_REQUIRED = True
-# ACCOUNT_AUTHENTICATION_METHOD = 'email'
-# ACCOUNT_UNIQUE_EMAIL = True
-# ACCOUNT_USER_MODEL_USERNAME_FIELD = 'username'
-# ACCOUNT_USERNAME_MIN_LENGTH = 3
-# ACCOUNT_LOGOUT_ON_GET = True
-# ACCOUNT_LOGIN_METHODS = ['email']
-# ACCOUNT_SIGNUP_FIELDS = ['email*', 'username*', 'password1*', 'password2*']
-
-# SOCIALACCOUNT_PROVIDERS = {
-#     'google': {
-#         'APP': {
-#             'client_id': GOOGLE_CLIENT_ID,
-#             'secret': GOOGLE_CLIENT_SECRET,
-#         },
-#         'SCOPE': ['profile', 'email', 'openid'],
-#         'AUTH_PARAMS': {'access_type': 'online'},
-#         'OAUTH_PKCE_ENABLED': True,
-#         'FETCH_USERINFO': True,
-#     }
-# }
-
-# =============================================
-# Google OAuth - MANUAL CONFIGURATION (Use this)
+# Google OAuth - MANUAL CONFIGURATION
 # =============================================
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -329,6 +302,11 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': True,
         },
+        'suggestions': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
     },
 }
 
@@ -350,14 +328,11 @@ if 'test' in sys.argv and sys.version_info >= (3, 14):
     
     def safe_copy(x):
         """Safely copy objects without causing AttributeError"""
-        # If it's a Django Context or has dicts attribute
         if hasattr(x, 'dicts'):
             try:
-                # Try to use __copy__ first
                 if hasattr(x, '__copy__'):
                     return x.__copy__()
             except AttributeError:
-                # Manual shallow copy for Django Context
                 new = type(x)()
                 new.dicts = x.dicts[:] if x.dicts else []
                 if hasattr(x, 'current_app'):
@@ -370,7 +345,6 @@ if 'test' in sys.argv and sys.version_info >= (3, 14):
                     new.autoescape = x.autoescape
                 return new
             except Exception:
-                # If anything fails, try manual copy
                 new = type(x)()
                 new.dicts = x.dicts[:] if x.dicts else []
                 if hasattr(x, 'current_app'):
@@ -383,14 +357,11 @@ if 'test' in sys.argv and sys.version_info >= (3, 14):
                     new.autoescape = x.autoescape
                 return new
         
-        # For everything else, use standard copy
         try:
             return copy._copy(x)
         except AttributeError:
-            # Last resort - return the original object
             return x
     
-    # Monkey patch the test client
     try:
         import django.test.client
         django.test.client.copy = safe_copy

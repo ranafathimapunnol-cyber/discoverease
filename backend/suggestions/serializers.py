@@ -1,4 +1,4 @@
-# suggestions/serializers.py - COMPLETE FIXED VERSION (NO MINIMUM VALIDATORS)
+# suggestions/serializers.py - FIXED WITH ABSOLUTE IMAGE URLS
 
 from rest_framework import serializers
 from django.core.validators import MaxLengthValidator
@@ -56,101 +56,19 @@ class SuggestionSerializer(serializers.ModelSerializer):
         return dict(Suggestion.SuggestionType.choices).get(obj.suggestion_type, obj.suggestion_type)
     
     def get_image_url(self, obj):
+        """✅ FIXED: Return absolute URL for image"""
         if obj.image and hasattr(obj.image, 'url'):
             try:
+                request = self.context.get('request')
+                if request:
+                    # Build absolute URI with request
+                    return request.build_absolute_uri(obj.image.url)
+                # Fallback: return the URL as is
                 return obj.image.url
-            except:
+            except Exception as e:
+                print(f"Error getting image URL: {e}")
                 return None
         return None
-    
-    # ✅ ONLY MAX LIMIT VALIDATIONS
-    def validate_name(self, value):
-        if value and len(value) > 200:
-            raise serializers.ValidationError("Name cannot exceed 200 characters")
-        return value
-    
-    def validate_description(self, value):
-        if value and len(value) > 5000:
-            raise serializers.ValidationError("Description cannot exceed 5000 characters")
-        return value
-    
-    def validate_category(self, value):
-        if value and len(value) > 50:
-            raise serializers.ValidationError("Category cannot exceed 50 characters")
-        return value
-    
-    def validate_location_info(self, value):
-        if value and len(value) > 1000:
-            raise serializers.ValidationError("Location info cannot exceed 1000 characters")
-        return value
-    
-    def validate_district(self, value):
-        if value and len(value) > 100:
-            raise serializers.ValidationError("District cannot exceed 100 characters")
-        return value
-    
-    def validate_admin_notes(self, value):
-        if value and len(value) > 2000:
-            raise serializers.ValidationError("Admin notes cannot exceed 2000 characters")
-        return value
-    
-    def validate_guide_notes(self, value):
-        if value and len(value) > 1000:
-            raise serializers.ValidationError("Guide notes cannot exceed 1000 characters")
-        return value
-    
-    def validate_rejection_reason(self, value):
-        if value and len(value) > 500:
-            raise serializers.ValidationError("Rejection reason cannot exceed 500 characters")
-        return value
-    
-    def validate_rating(self, value):
-        if value is not None and value > 5:
-            raise serializers.ValidationError("Rating cannot exceed 5")
-        return value
-    
-    def validate(self, data):
-        """Custom validation - only required checks"""
-        suggestion_type = data.get('suggestion_type')
-        name = data.get('name')
-        description = data.get('description')
-        category = data.get('category')
-        district = data.get('district')
-        rating = data.get('rating')
-        
-        # Name is required
-        if not name:
-            raise serializers.ValidationError({
-                'name': 'Name is required'
-            })
-        
-        # Description is required
-        if not description:
-            raise serializers.ValidationError({
-                'description': 'Description is required'
-            })
-        
-        # District is required
-        if not district:
-            raise serializers.ValidationError({
-                'district': 'District is required'
-            })
-        
-        # For new place/hidden gem suggestions, category is required
-        if suggestion_type in ['new', 'hidden_gem']:
-            if not category:
-                raise serializers.ValidationError({
-                    'category': 'Category is required for new place/hidden gem suggestions'
-                })
-        
-        # For review suggestions, rating is required
-        if suggestion_type == 'review':
-            if not rating:
-                raise serializers.ValidationError({
-                    'rating': 'Rating is required for reviews'
-                })
-        
-        return data
 
 
 class SuggestionCreateSerializer(serializers.ModelSerializer):
@@ -271,7 +189,7 @@ class SuggestionStatusUpdateSerializer(serializers.Serializer):
 
 
 class SuggestionListSerializer(serializers.ModelSerializer):
-    """Lightweight serializer for listing suggestions"""
+    """✅ FIXED: Lightweight serializer for listing suggestions with ABSOLUTE IMAGE URL"""
     user_email = serializers.EmailField(source='user.email', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
     status_display = serializers.SerializerMethodField()
@@ -296,9 +214,20 @@ class SuggestionListSerializer(serializers.ModelSerializer):
         return dict(Suggestion.SuggestionType.choices).get(obj.suggestion_type, obj.suggestion_type)
     
     def get_image_url(self, obj):
+        """✅ FIXED: Return absolute URL for image with request context"""
         if obj.image and hasattr(obj.image, 'url'):
             try:
+                # Get request from context
+                request = self.context.get('request')
+                if request:
+                    # Build absolute URI
+                    full_url = request.build_absolute_uri(obj.image.url)
+                    print(f"✅ Generated image URL: {full_url}")  # Debug log
+                    return full_url
+                # Fallback: return the URL as is
+                print(f"⚠️ No request context, returning relative URL: {obj.image.url}")
                 return obj.image.url
-            except:
+            except Exception as e:
+                print(f"❌ Error getting image URL: {e}")
                 return None
         return None
