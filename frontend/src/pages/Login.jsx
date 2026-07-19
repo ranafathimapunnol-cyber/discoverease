@@ -1,4 +1,5 @@
-// pages/Login.jsx - COMPLETE FIXED VERSION (Keeping your working functions)
+// pages/Login.jsx - COMPLETE FIXED VERSION (Session-Based)
+
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -18,7 +19,7 @@ const Login = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  
+
   const [captchaValue, setCaptchaValue] = useState(null);
   const [captchaError, setCaptchaError] = useState('');
 
@@ -27,7 +28,7 @@ const Login = () => {
     if (errorMsg) {
       setError(decodeURIComponent(errorMsg).replace(/_/g, ' '));
     }
-    
+
     if (location.state?.message) {
       setSuccessMessage(location.state.message);
       window.history.replaceState({}, document.title);
@@ -61,18 +62,18 @@ const Login = () => {
 
     try {
       console.log('📤 Sending login request for:', email);
-      
+
       const response = await api.post('/auth/login/', {
         email: email.trim(),
         password: password,
         remember_me: rememberMe
       });
-      
+
       console.log('📥 Login response:', response.data);
 
       if (response.data && response.data.success) {
         const { user, role: userRole, session_key } = response.data;
-        
+
         const userToStore = {
           id: user.id,
           email: user.email,
@@ -83,16 +84,9 @@ const Login = () => {
           profile_picture: user.profile_picture || null,
           email_verified: user.email_verified || false,
         };
-        
-        sessionStorage.setItem('user', JSON.stringify(userToStore));
-        sessionStorage.setItem('role', userRole || 'tourister');
-        
-        if (session_key) {
-          sessionStorage.setItem('session_key', session_key);
-        }
-        
+
         const result = login(userToStore, session_key);
-        
+
         if (result && result.success !== false) {
           const roleRoutes = {
             'guide': '/guide-dashboard',
@@ -109,9 +103,6 @@ const Login = () => {
       }
     } catch (err) {
       console.error('❌ Login error:', err);
-      console.error('❌ Error response:', err.response);
-      console.error('❌ Error data:', err.response?.data);
-      
       let errorMsg = 'Login failed. Please try again.';
       if (err.response?.data?.error) {
         errorMsg = err.response.data.error;
@@ -127,12 +118,12 @@ const Login = () => {
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     setError('');
-    
+
     try {
       const response = await api.get('/auth/google-login/');
-      
+
       console.log('Google login response:', response.data);
-      
+
       if (response.data && response.data.success && response.data.auth_url) {
         window.location.href = response.data.auth_url;
       } else {
@@ -147,185 +138,565 @@ const Login = () => {
   };
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "linear-gradient(135deg, #FBF6EA 0%, #F5EDD6 100%)",
-      padding: "20px",
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
-    }}>
-      <div style={{
-        maxWidth: 440,
-        width: "100%",
-        background: "#FFFFFF",
-        padding: "48px 40px",
-        borderRadius: "20px",
-        boxShadow: "0 25px 80px rgba(0,0,0,0.08), 0 10px 30px rgba(0,0,0,0.03)",
-        border: "1px solid rgba(199,154,62,0.08)",
-        position: "relative",
-        overflow: "hidden"
-      }}>
-        {/* Top Gradient Bar */}
-        <div style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: "4px",
-          background: "linear-gradient(90deg, #C79A3E, #E4C77B, #C79A3E)",
-        }} />
+    <div className="gl-page">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <Link to="/" style={{ textDecoration: "none", display: "inline-block" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-              <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: "14px",
-                background: "#072E2A",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 4px 12px rgba(7,46,42,0.2)"
-              }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2C12 2 6 8 6 14a6 6 0 0012 0c0-6-6-12-6-12z" stroke="#E4C77B" strokeWidth="1.5" />
-                  <path d="M12 8v10" stroke="#E4C77B" strokeWidth="1.5" />
-                  <circle cx="12" cy="12" r="2" fill="#E4C77B" />
-                </svg>
-              </div>
-              <span style={{
-                fontSize: 24,
-                fontWeight: 700,
-                color: "#0B2422",
-                letterSpacing: "-0.5px"
-              }}>
-                Discover<span style={{ color: "#C79A3E" }}>Ease</span>
-              </span>
-            </div>
-          </Link>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        .gl-page {
+          height: 100vh;
+          width: 100vw;
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+          background: linear-gradient(135deg, #FDF9EF 0%, #F3ECD8 45%, #EAF3EE 100%);
+        }
+
+        /* Soft blurred color blobs floating behind the glass */
+        .gl-blob {
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(60px);
+          pointer-events: none;
+        }
+        .gl-blob.b1 { width: 420px; height: 420px; top: -140px; left: -100px; background: rgba(199,154,62,0.35); }
+        .gl-blob.b2 { width: 380px; height: 380px; bottom: -160px; right: -100px; background: rgba(11,77,66,0.28); }
+        .gl-blob.b3 { width: 260px; height: 260px; top: 40%; right: 8%; background: rgba(228,199,123,0.30); }
+
+        .gl-grain {
+          position: absolute;
+          inset: 0;
+          background-image: radial-gradient(rgba(11,36,34,0.05) 1px, transparent 1px);
+          background-size: 26px 26px;
+          pointer-events: none;
+        }
+
+        /* ---------- GLASS CARD ---------- */
+        .gl-card {
+          position: relative;
+          z-index: 1;
+          width: 100%;
+          max-width: 400px;
+          max-height: 95vh;
+          overflow-y: auto;
+          background: rgba(255,255,255,0.55);
+          backdrop-filter: blur(22px) saturate(160%);
+          -webkit-backdrop-filter: blur(22px) saturate(160%);
+          border: 1px solid rgba(255,255,255,0.6);
+          border-radius: 24px;
+          box-shadow: 0 24px 70px rgba(11,36,34,0.16), inset 0 1px 0 rgba(255,255,255,0.7);
+          padding: 32px 34px 28px;
+        }
+
+        /* Hide scrollbar but keep functionality */
+        .gl-card::-webkit-scrollbar {
+          width: 0px;
+          background: transparent;
+        }
+        .gl-card {
+          scrollbar-width: none;
+        }
+
+        .gl-brandmark {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 20px;
+        }
+        .gl-brandmark-icon {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          background: rgba(199,154,62,0.18);
+          border: 1px solid rgba(199,154,62,0.4);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .gl-brandmark-text {
+          font-size: 15px;
+          font-weight: 600;
+          color: #0B2422;
+          letter-spacing: 0.2px;
+        }
+        .gl-brandmark-text em {
+          font-style: normal;
+          color: #A9781E;
+        }
+
+        .gl-heading {
+          margin: 0 0 18px;
+        }
+        .gl-heading-eyebrow {
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 9px;
+          letter-spacing: 2.5px;
+          text-transform: uppercase;
+          color: #A9781E;
+          margin: 0 0 4px;
+        }
+        .gl-heading-title {
+          font-family: 'Fraunces', serif;
+          font-style: italic;
+          font-weight: 500;
+          font-size: 24px;
+          color: #0B2422;
+          margin: 0 0 2px;
+        }
+        .gl-heading-sub {
+          font-size: 12px;
+          color: #5A5548;
+          margin: 0;
+        }
+
+        .gl-banner {
+          padding: 8px 12px;
+          border-radius: 10px;
+          font-size: 11.5px;
+          margin-bottom: 14px;
+          display: flex;
+          align-items: flex-start;
+          gap: 6px;
+          line-height: 1.4;
+          backdrop-filter: blur(6px);
+        }
+        .gl-banner.success {
+          background: rgba(240,251,245,0.75);
+          color: #166534;
+          border: 1px solid rgba(191,231,205,0.8);
+        }
+        .gl-banner.error {
+          background: rgba(253,243,239,0.8);
+          color: #9A3412;
+          border: 1px solid rgba(243,210,190,0.8);
+        }
+
+        .gl-field {
+          margin-bottom: 12px;
+        }
+        .gl-field-label {
+          display: block;
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 9px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: #6B5B36;
+          margin-bottom: 5px;
+        }
+        .gl-field-wrap {
+          position: relative;
+        }
+        .gl-field-input {
+          width: 100%;
+          padding: 9px 12px;
+          border-radius: 10px;
+          border: 1px solid rgba(199,154,62,0.28);
+          background: rgba(255,255,255,0.45);
+          backdrop-filter: blur(8px);
+          font-size: 13px;
+          font-family: 'Inter', sans-serif;
+          color: #0B2422;
+          outline: none;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+        }
+        .gl-field-input::placeholder {
+          color: #9C8A6E;
+        }
+        .gl-field-input:focus {
+          border-color: #C79A3E;
+          background: rgba(255,255,255,0.75);
+          box-shadow: 0 0 0 3px rgba(199,154,62,0.14);
+        }
+        .gl-pw-toggle {
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #8A7B54;
+          font-size: 14px;
+          padding: 2px;
+          line-height: 1;
+        }
+
+        .gl-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin: 2px 0 12px;
+        }
+        .gl-remember {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11.5px;
+          color: #4B5563;
+          cursor: pointer;
+        }
+        .gl-remember input {
+          accent-color: #C79A3E;
+          width: 13px;
+          height: 13px;
+          cursor: pointer;
+        }
+        .gl-forgot {
+          color: #A9781E;
+          font-size: 11.5px;
+          text-decoration: none;
+          font-weight: 500;
+        }
+        .gl-forgot:hover {
+          text-decoration: underline;
+        }
+
+        /* CAPTCHA — glass checkpoint, right above submit */
+        .gl-checkpoint {
+          margin-bottom: 12px;
+        }
+        .gl-checkpoint-label {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 9px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: #6B5B36;
+          margin-bottom: 7px;
+        }
+        .gl-checkpoint-inner {
+          display: flex;
+          justify-content: center;
+          padding: 8px;
+          background: rgba(255,255,255,0.35);
+          backdrop-filter: blur(10px);
+          border: 1px dashed rgba(199,154,62,0.5);
+          border-radius: 12px;
+          transform: scale(0.85);
+          transform-origin: center;
+        }
+        .gl-captcha-err {
+          color: #B4472A;
+          font-size: 10.5px;
+          margin: 4px 0 0;
+          text-align: center;
+        }
+
+        .gl-submit {
+          width: 100%;
+          padding: 11px;
+          border-radius: 11px;
+          border: 1px solid rgba(7,46,42,0.15);
+          background: linear-gradient(135deg, rgba(11,77,66,0.92), rgba(7,46,42,0.95));
+          backdrop-filter: blur(10px);
+          color: #FBF6EA;
+          font-size: 13.5px;
+          font-weight: 600;
+          letter-spacing: 0.3px;
+          cursor: pointer;
+          transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.2s ease;
+        }
+        .gl-submit:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 26px rgba(7,46,42,0.28);
+          filter: brightness(1.06);
+        }
+        .gl-submit:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+        .gl-submit:focus-visible,
+        .gl-google-btn:focus-visible,
+        .gl-field-input:focus-visible {
+          outline: 2px solid #C79A3E;
+          outline-offset: 2px;
+        }
+
+        .gl-divider {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin: 16px 0 12px;
+        }
+        .gl-divider-line {
+          flex: 1;
+          height: 1px;
+          background: rgba(199,154,62,0.25);
+        }
+        .gl-divider-text {
+          font-family: 'IBM Plex Mono', monospace;
+          font-size: 8.5px;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: #9C8A5C;
+          white-space: nowrap;
+        }
+
+        .gl-google-btn {
+          width: 100%;
+          padding: 9.5px 14px;
+          border-radius: 10px;
+          border: 1px solid rgba(199,154,62,0.28);
+          background: rgba(255,255,255,0.45);
+          backdrop-filter: blur(8px);
+          color: #0B2422;
+          font-size: 12.5px;
+          font-weight: 500;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
+        }
+        .gl-google-btn:hover:not(:disabled) {
+          border-color: #C79A3E;
+          background: rgba(255,255,255,0.7);
+          box-shadow: 0 6px 16px rgba(199,154,62,0.16);
+          transform: translateY(-1px);
+        }
+        .gl-google-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .gl-register {
+          text-align: center;
+          margin-top: 16px;
+          font-size: 11.5px;
+          color: #6B6553;
+        }
+        .gl-register a {
+          color: #A9781E;
+          font-weight: 600;
+          text-decoration: none;
+        }
+        .gl-register a:hover {
+          text-decoration: underline;
+        }
+
+        @keyframes gl-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @keyframes gl-drift {
+          0%, 100% {
+            transform: translate(0, 0);
+          }
+          50% {
+            transform: translate(14px, -10px);
+          }
+        }
+        .gl-blob {
+          animation: gl-drift 12s ease-in-out infinite;
+        }
+        .gl-blob.b2 {
+          animation-duration: 15s;
+          animation-delay: -3s;
+        }
+        .gl-blob.b3 {
+          animation-duration: 10s;
+          animation-delay: -6s;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .gl-blob {
+            animation: none;
+          }
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 440px) {
+          .gl-card {
+            padding: 24px 20px 20px;
+            border-radius: 18px;
+            max-height: 98vh;
+          }
+          .gl-heading-title {
+            font-size: 21px;
+          }
+          .gl-checkpoint-inner {
+            transform: scale(0.75);
+          }
+        }
+
+        @media (max-height: 700px) {
+          .gl-card {
+            padding: 20px 28px 18px;
+          }
+          .gl-brandmark {
+            margin-bottom: 14px;
+          }
+          .gl-heading {
+            margin-bottom: 12px;
+          }
+          .gl-field {
+            margin-bottom: 8px;
+          }
+          .gl-row {
+            margin: 0 0 8px;
+          }
+          .gl-checkpoint {
+            margin-bottom: 8px;
+          }
+          .gl-divider {
+            margin: 10px 0 8px;
+          }
+          .gl-register {
+            margin-top: 10px;
+          }
+        }
+      `}</style>
+
+      <div className="gl-blob b1" />
+      <div className="gl-blob b2" />
+      <div className="gl-blob b3" />
+      <div className="gl-grain" />
+
+      <div className="gl-card">
+        <div className="gl-brandmark">
+          <div className="gl-brandmark-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C12 2 6 8 6 14a6 6 0 0012 0c0-6-6-12-6-12z" stroke="#A9781E" strokeWidth="1.5" />
+              <path d="M12 8v10" stroke="#A9781E" strokeWidth="1.5" />
+              <circle cx="12" cy="12" r="2" fill="#A9781E" />
+            </svg>
+          </div>
+          <span className="gl-brandmark-text">Discover<em>Ease</em></span>
         </div>
 
-        {/* Welcome Text */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h1 style={{
-            fontSize: 28,
-            fontWeight: 700,
-            color: "#0B2422",
-            margin: 0,
-            marginBottom: 8,
-            letterSpacing: "-0.5px"
-          }}>
-            Welcome Back
-          </h1>
-          <p style={{
-            color: "#6B7280",
-            fontSize: 15,
-            margin: 0,
-            lineHeight: 1.5
-          }}>
-            Sign in to continue your Kerala journey
-          </p>
+        <div className="gl-heading">
+          <p className="gl-heading-eyebrow">Access · Traveler Portal</p>
+          <h1 className="gl-heading-title">Welcome back</h1>
+          <p className="gl-heading-sub">Sign in to continue your Kerala journey</p>
         </div>
 
-        {/* Success Message */}
         {successMessage && (
-          <div style={{
-            padding: "14px 16px",
-            background: "#F0FDF4",
-            borderRadius: 12,
-            color: "#16A34A",
-            marginBottom: 24,
-            fontSize: 14,
-            border: "1px solid #BBF7D0",
-            display: "flex",
-            alignItems: "center",
-            gap: 8
-          }}>
-            <span style={{ fontSize: 18 }}>✅</span>
-            {successMessage}
+          <div className="gl-banner success">
+            <span>✓</span>
+            <span>{successMessage}</span>
           </div>
         )}
-
-        {/* Error Message */}
         {error && (
-          <div style={{
-            padding: "14px 16px",
-            background: "#FEF2F2",
-            borderRadius: 12,
-            color: "#DC2626",
-            marginBottom: 24,
-            fontSize: 14,
-            border: "1px solid #FECACA",
-            display: "flex",
-            alignItems: "center",
-            gap: 8
-          }}>
-            <span style={{ fontSize: 18 }}>⚠️</span>
-            {error}
+          <div className="gl-banner error">
+            <span>!</span>
+            <span>{error}</span>
           </div>
         )}
 
-        {/* CAPTCHA */}
-        <div style={{ marginBottom: 16 }}>
-          <ReCAPTCHA
-            sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'}
-            onChange={(value) => {
-              setCaptchaValue(value);
-              setCaptchaError('');
-            }}
-            onExpired={() => {
-              setCaptchaValue(null);
-              setCaptchaError('CAPTCHA expired. Please try again.');
-            }}
-            onErrored={() => setCaptchaError('reCAPTCHA error occurred')}
-          />
-          {captchaError && (
-            <p style={{ color: '#DC2626', fontSize: 12, marginTop: 4 }}>{captchaError}</p>
-          )}
+        <form onSubmit={handleSubmit}>
+          <div className="gl-field">
+            <label className="gl-field-label">Email address</label>
+            <div className="gl-field-wrap">
+              <input
+                className="gl-field-input"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoComplete="email"
+              />
+            </div>
+          </div>
+
+          <div className="gl-field">
+            <label className="gl-field-label">Password</label>
+            <div className="gl-field-wrap">
+              <input
+                className="gl-field-input"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+                autoComplete="current-password"
+                style={{ paddingRight: 34 }}
+              />
+              <button
+                type="button"
+                className="gl-pw-toggle"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? '◠' : '◡'}
+              </button>
+            </div>
+          </div>
+
+          <div className="gl-row">
+            <label className="gl-remember">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+              />
+              Remember me
+            </label>
+            <Link to="/forgot-password" className="gl-forgot">Forgot password?</Link>
+          </div>
+
+          {/* CAPTCHA sits right above the submit button */}
+          <div className="gl-checkpoint">
+            <p className="gl-checkpoint-label">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                <rect x="4" y="10" width="16" height="10" rx="2" stroke="#6B5B36" strokeWidth="1.5" />
+                <path d="M8 10V7a4 4 0 018 0v3" stroke="#6B5B36" strokeWidth="1.5" />
+              </svg>
+              Security check
+            </p>
+            <div className="gl-checkpoint-inner">
+              <ReCAPTCHA
+                sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'}
+                onChange={(value) => {
+                  setCaptchaValue(value);
+                  setCaptchaError('');
+                }}
+                onExpired={() => {
+                  setCaptchaValue(null);
+                  setCaptchaError('CAPTCHA expired. Please try again.');
+                }}
+                onErrored={() => setCaptchaError('reCAPTCHA error occurred')}
+              />
+            </div>
+            {captchaError && <p className="gl-captcha-err">{captchaError}</p>}
+          </div>
+
+          <button type="submit" className="gl-submit" disabled={loading}>
+            {loading ? (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ animation: 'gl-spin 0.8s linear infinite' }}>
+                  <circle cx="12" cy="12" r="10" stroke="rgba(251,246,234,0.3)" strokeWidth="4" />
+                  <path d="M4 12a8 8 0 018-8" stroke="#FBF6EA" strokeWidth="4" strokeLinecap="round" />
+                </svg>
+                Signing in...
+              </span>
+            ) : 'Sign in'}
+          </button>
+        </form>
+
+        <div className="gl-divider">
+          <div className="gl-divider-line" />
+          <span className="gl-divider-text">or continue with</span>
+          <div className="gl-divider-line" />
         </div>
 
-        {/* Google Login Button */}
         <button
+          type="button"
+          className="gl-google-btn"
           onClick={handleGoogleLogin}
           disabled={isGoogleLoading}
-          style={{
-            width: "100%",
-            padding: "14px 20px",
-            borderRadius: 12,
-            border: "1px solid #E5E7EB",
-            background: "#FFFFFF",
-            color: "#1F2937",
-            fontSize: 15,
-            fontWeight: 500,
-            cursor: isGoogleLoading ? "not-allowed" : "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            transition: "all 0.3s ease",
-            opacity: isGoogleLoading ? 0.7 : 1,
-            fontFamily: "'Inter', sans-serif"
-          }}
-          onMouseEnter={(e) => {
-            if (!isGoogleLoading) {
-              e.currentTarget.style.borderColor = "#C79A3E";
-              e.currentTarget.style.boxShadow = "0 4px 12px rgba(199,154,62,0.15)";
-              e.currentTarget.style.transform = "translateY(-1px)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isGoogleLoading) {
-              e.currentTarget.style.borderColor = "#E5E7EB";
-              e.currentTarget.style.boxShadow = "none";
-              e.currentTarget.style.transform = "translateY(0)";
-            }
-          }}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24">
+          <svg width="16" height="16" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
@@ -334,236 +705,8 @@ const Login = () => {
           {isGoogleLoading ? 'Redirecting to Google...' : 'Continue with Google'}
         </button>
 
-        {/* Divider */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          margin: "24px 0"
-        }}>
-          <div style={{ flex: 1, height: 1, background: "#E5E7EB" }} />
-          <span style={{
-            color: "#9CA3AF",
-            fontSize: 13,
-            fontWeight: 500,
-            letterSpacing: "0.5px",
-            textTransform: "uppercase"
-          }}>
-            or sign in with email
-          </span>
-          <div style={{ flex: 1, height: 1, background: "#E5E7EB" }} />
-        </div>
-
-        {/* Email/Password Form */}
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ 
-              display: "block", 
-              marginBottom: 6, 
-              color: "#374151", 
-              fontSize: 14, 
-              fontWeight: 500 
-            }}>
-              Email Address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-              autoComplete="email"
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                borderRadius: 10,
-                border: "1px solid #D1D5DB",
-                fontSize: 14,
-                outline: "none",
-                transition: "all 0.3s ease",
-                background: "#FAFAFA",
-                fontFamily: "'Inter', sans-serif",
-                boxSizing: "border-box"
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = "#C79A3E";
-                e.currentTarget.style.background = "#FFFFFF";
-                e.currentTarget.style.boxShadow = "0 0 0 4px rgba(199,154,62,0.1)";
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = "#D1D5DB";
-                e.currentTarget.style.background = "#FAFAFA";
-                e.currentTarget.style.boxShadow = "none";
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ 
-              display: "block", 
-              marginBottom: 6, 
-              color: "#374151", 
-              fontSize: 14, 
-              fontWeight: 500 
-            }}>
-              Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                required
-                autoComplete="current-password"
-                style={{
-                  width: "100%",
-                  padding: "12px 16px",
-                  paddingRight: "48px",
-                  borderRadius: 10,
-                  border: "1px solid #D1D5DB",
-                  fontSize: 14,
-                  outline: "none",
-                  transition: "all 0.3s ease",
-                  background: "#FAFAFA",
-                  fontFamily: "'Inter', sans-serif",
-                  boxSizing: "border-box"
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = "#C79A3E";
-                  e.currentTarget.style.background = "#FFFFFF";
-                  e.currentTarget.style.boxShadow = "0 0 0 4px rgba(199,154,62,0.1)";
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = "#D1D5DB";
-                  e.currentTarget.style.background = "#FAFAFA";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position: "absolute",
-                  right: 14,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "#9CA3AF",
-                  fontSize: 18,
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center"
-                }}
-              >
-                {showPassword ? '👁️' : '👁️‍🗨️'}
-              </button>
-            </div>
-          </div>
-
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 24
-          }}>
-            <label style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 14,
-              color: "#4B5563",
-              cursor: "pointer"
-            }}>
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                style={{
-                  width: 16,
-                  height: 16,
-                  accentColor: "#C79A3E",
-                  cursor: "pointer",
-                  borderRadius: 4
-                }}
-              />
-              Remember me
-            </label>
-            <Link 
-              to="/forgot-password" 
-              style={{
-                color: "#C79A3E",
-                fontSize: 14,
-                textDecoration: "none",
-                fontWeight: 500
-              }}
-            >
-              Forgot password?
-            </Link>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "14px",
-              borderRadius: 12,
-              border: "none",
-              background: loading ? "#9CA3AF" : "#072E2A",
-              color: "#FFFFFF",
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: loading ? "not-allowed" : "pointer",
-              transition: "all 0.3s ease",
-              opacity: loading ? 0.7 : 1,
-              fontFamily: "'Inter', sans-serif",
-              letterSpacing: "0.3px"
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) {
-                e.currentTarget.style.background = "#0B2422";
-                e.currentTarget.style.transform = "translateY(-1px)";
-                e.currentTarget.style.boxShadow = "0 4px 16px rgba(7,46,42,0.3)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!loading) {
-                e.currentTarget.style.background = "#072E2A";
-                e.currentTarget.style.transform = "translateY(0)";
-                e.currentTarget.style.boxShadow = "none";
-              }
-            }}
-          >
-            {loading ? (
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ animation: "spin 0.8s linear infinite" }}>
-                  <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="4" />
-                  <path d="M4 12a8 8 0 018-8" stroke="#fff" strokeWidth="4" strokeLinecap="round" />
-                </svg>
-                Signing in...
-              </span>
-            ) : 'Sign In'}
-          </button>
-        </form>
-
-        <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
-
-        {/* Register Link */}
-        <div style={{ textAlign: "center", marginTop: 24 }}>
-          <p style={{ color: "#6B7280", fontSize: 14, margin: 0 }}>
-            Don't have an account?{' '}
-            <Link to="/register" style={{ color: "#C79A3E", textDecoration: "none", fontWeight: 600 }}>
-              Create one
-            </Link>
-          </p>
+        <div className="gl-register">
+          Don't have an account? <Link to="/register">Create one</Link>
         </div>
       </div>
     </div>

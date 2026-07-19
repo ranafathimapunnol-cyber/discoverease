@@ -13,7 +13,7 @@ class Command(BaseCommand):
         # Find all places without destinations
         places_without_dest = []
         for place in CategoryPlace.objects.filter(is_active=True):
-            dest = Destination.objects.filter(name__iexact=place.name).first()
+            dest = Destination.objects.filter(name__in=place.name).first()
             if not dest:
                 places_without_dest.append(place)
         

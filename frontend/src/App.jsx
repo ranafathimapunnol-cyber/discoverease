@@ -1,4 +1,5 @@
 // App.jsx - COMPLETE FIXED VERSION
+
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -23,12 +24,12 @@ import Reviews from './pages/Reviews';
 import './index.css';
 
 // ============================================
-// PROTECTED ROUTE COMPONENT
+// PROTECTED ROUTE COMPONENT - FIXED
 // ============================================
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     const { isLoggedIn, role, loading } = useAuth();
 
-    // Show loading spinner while checking auth
+    // ✅ Show loading spinner while checking auth
     if (loading) {
         return (
             <div
@@ -58,12 +59,12 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
         );
     }
 
-    // Not logged in - redirect to login
+    // ✅ Not logged in - redirect to login
     if (!isLoggedIn) {
         return <Navigate to="/login" replace />;
     }
 
-    // Check if user has required role
+    // ✅ Check if user has required role
     if (allowedRoles.length > 0) {
         const userRole = role || 'tourister';
         const hasAccess = allowedRoles.some(r => {
@@ -167,26 +168,7 @@ function App() {
                     {/* PROTECTED ROUTES - Login required          */}
                     {/* ========================================== */}
                     
-                    {/* Tourister Routes */}
-                    <Route
-                        path="/local-insights"
-                        element={
-                            <ProtectedRoute allowedRoles={['tourister']}>
-                                <LocalInsights />
-                            </ProtectedRoute>
-                        }
-                        
-                    />
-                    <Route
-                        path="/guides"
-                        element={
-                            <ProtectedRoute allowedRoles={['tourister', 'guide']}>
-                                <Guides />
-                            </ProtectedRoute>
-                        }
-                    />
-                    <Route path="/my-bookings" element={<MyBookings />} />
-
+                    {/* ✅ Tourister Routes - Fixed */}
                     <Route
                         path="/categories"
                         element={
@@ -195,6 +177,8 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+                    
+                    {/* ✅ CategoryDetail - Fixed with correct route */}
                     <Route
                         path="/category/:categoryId"
                         element={
@@ -203,6 +187,16 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+                    
+                    <Route
+                        path="/local-insights"
+                        element={
+                            <ProtectedRoute allowedRoles={['tourister']}>
+                                <LocalInsights />
+                            </ProtectedRoute>
+                        }
+                    />
+                    
                     <Route
                         path="/ai-trip-planner"
                         element={
@@ -211,6 +205,7 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+                    
                     <Route
                         path="/wishlist"
                         element={
@@ -219,6 +214,34 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
+                    
+                    <Route
+                        path="/guides"
+                        element={
+                            <ProtectedRoute allowedRoles={['tourister', 'guide']}>
+                                <Guides />
+                            </ProtectedRoute>
+                        }
+                    />
+                    
+                    <Route
+                        path="/my-bookings"
+                        element={
+                            <ProtectedRoute allowedRoles={['tourister', 'guide']}>
+                                <MyBookings />
+                            </ProtectedRoute>
+                        }
+                    />
+                    
+                    <Route
+                        path="/reviews"
+                        element={
+                            <ProtectedRoute allowedRoles={['tourister', 'guide']}>
+                                <Reviews />
+                            </ProtectedRoute>
+                        }
+                    />
+                    
                     <Route
                         path="/profile"
                         element={
@@ -273,7 +296,6 @@ function App() {
                             </ProtectedRoute>
                         }
                     />
-<Route path="/reviews" element={<Reviews />} />
 
                     {/* ========================================== */}
                     {/* CATCH ALL - 404                           */}

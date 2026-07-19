@@ -506,7 +506,7 @@ class AdminViewSet(viewsets.ViewSet):
 
             if primary_district_name:
                 try:
-                    district = District.objects.filter(name__iexact=primary_district_name).first()
+                    district = District.objects.filter(name__exact=primary_district_name).first()
                     if district:
                         guide.districts.add(district)
                 except Exception as e:

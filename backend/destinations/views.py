@@ -511,7 +511,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
             
             places_data = []
             for place in places:
-                dest = Destination.objects.filter(name__iexact=place.name).first()
+                dest = Destination.objects.filter(name____in=place.name).first()
                 
                 places_data.append({
                     'id': place.id,
@@ -711,7 +711,7 @@ class DestinationViewSet(viewsets.ModelViewSet):
 
             existing_place = CategoryPlace.objects.filter(
                 category=category_key,
-                name__iexact=name
+                name____in=name
             ).first()
             
             if existing_place:

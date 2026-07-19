@@ -1,4 +1,4 @@
-# guides/serializers.py - COMPLETE FIXED SERIALIZERS
+# guides/serializers.py - COMPLETE FIXED VERSION
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
@@ -26,16 +26,28 @@ class GuideAvailabilitySerializer(serializers.ModelSerializer):
     """Serializer for guide availability slots"""
     guide_name = serializers.CharField(source='guide.full_name', read_only=True)
     is_available = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
     
     class Meta:
         model = GuideAvailability
         fields = [
             'id', 'guide', 'guide_name', 'date', 'start_time', 'end_time',
-            'is_booked', 'is_available', 'max_bookings', 'current_bookings'
+            'max_bookings', 'current_bookings',
+            'is_booked', 'is_available', 'status',
+            'created_at', 'updated_at'
         ]
+        read_only_fields = ['guide', 'current_bookings', 'is_booked', 'created_at', 'updated_at']
     
     def get_is_available(self, obj):
         return obj.is_available()
+    
+    def get_status(self, obj):
+        if obj.is_booked:
+            return 'full'
+        elif obj.current_bookings > 0:
+            return 'booked'
+        else:
+            return 'available'
 
 
 class GuideListSerializer(serializers.ModelSerializer):
@@ -53,7 +65,7 @@ class GuideListSerializer(serializers.ModelSerializer):
             'rating', 'total_reviews', 'price_per_day', 'price_per_hour',
             'is_available', 'is_verified', 'is_active',
             'districts', 'categories', 'specialties',
-            'availabilities',  # ✅ ADDED
+            'availabilities',
             'created_at'
         ]
     
@@ -61,10 +73,8 @@ class GuideListSerializer(serializers.ModelSerializer):
         return [c.name for c in obj.categories.all()]
     
     def get_availabilities(self, obj):
-        """Get upcoming availabilities for this guide"""
         from datetime import datetime, timedelta
         
-        # Get next 14 days of availabilities
         start_date = datetime.now().date()
         end_date = start_date + timedelta(days=14)
         

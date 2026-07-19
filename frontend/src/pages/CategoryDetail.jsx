@@ -1,8 +1,9 @@
-// pages/CategoryDetail.jsx - COMPLETE FIXED VERSION
+// pages/CategoryDetail.jsx - COMPLETE FIXED VERSION (With useRef to prevent double calls)
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { categoryData } from '../data/categoryData';
+import { AuthAPI } from '../services/api';
 
 // All 14 districts
 const districts = [
@@ -41,13 +42,22 @@ export default function CategoryDetail() {
   const [selectedType, setSelectedType] = useState("all");
   const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  const [places, setPlaces] = useState([]);
   const [filteredPlaces, setFilteredPlaces] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [wishlist, setWishlist] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [categoryInfo, setCategoryInfo] = useState(null);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
+  const [error, setError] = useState(null);
   
-  // ✅ Refs for dropdown click outside detection
   const districtRef = useRef(null);
   const typeRef = useRef(null);
+  
+  // ✅ useRef to prevent double API calls (React Strict Mode)
+  const dataLoadedRef = useRef(false);
+  const wishlistFetchedRef = useRef(false);
+  const abortControllerRef = useRef(null);
 
   // ✅ Redirect if not logged in
   useEffect(() => {
@@ -73,43 +83,106 @@ export default function CategoryDetail() {
     };
   }, []);
 
-  // Load wishlist from localStorage
-  useEffect(() => {
-    const savedWishlist = localStorage.getItem('wishlist');
-    if (savedWishlist) {
-      try {
-        setWishlist(JSON.parse(savedWishlist));
-      } catch (e) {
-        setWishlist([]);
+  // ✅ Fetch wishlist from backend - with useRef
+  const fetchWishlist = async () => {
+    if (!isLoggedIn) return;
+    
+    // ✅ Prevent duplicate calls
+    if (wishlistFetchedRef.current) {
+      console.log('⏳ Wishlist already fetched, skipping...');
+      return;
+    }
+    
+    try {
+      console.log('🔍 Fetching wishlist...');
+      const response = await AuthAPI.getWishlist();
+      console.log('📊 Wishlist API Response:', response);
+      
+      let items = [];
+      if (response && response.results) {
+        items = response.results.map(item => ({
+          id: item.destination_id || item.destination || item.id,
+          wishlistId: item.id,
+          name: item.destination_name || '',
+          location: item.destination_district || '',
+          district: item.destination_district || '',
+          image: item.destination_image || '',
+          category: item.destination_category || '',
+          rating: item.destination_rating || 0,
+        }));
       }
+      console.log('✅ Formatted wishlist items:', items.length);
+      console.log('📋 Wishlist destination IDs:', items.map(i => i.id));
+      setWishlist(items);
+      wishlistFetchedRef.current = true;
+    } catch (error) {
+      console.error('Error fetching wishlist:', error);
+      setWishlist([]);
     }
-  }, []);
-
-  // Save wishlist to localStorage
-  const saveWishlist = (newWishlist) => {
-    localStorage.setItem('wishlist', JSON.stringify(newWishlist));
-    setWishlist(newWishlist);
   };
 
-  // Toggle wishlist
-  const toggleWishlist = (place, e) => {
+  // ✅ Toggle wishlist - FIXED
+  const toggleWishlist = async (place, e) => {
     e.stopPropagation();
-    const isInWishlist = wishlist.some(item => item.id === place.id);
-    let newWishlist;
-    if (isInWishlist) {
-      newWishlist = wishlist.filter(item => item.id !== place.id);
-    } else {
-      newWishlist = [...wishlist, { ...place, categoryId }];
+    
+    if (!isLoggedIn) {
+      alert('⚠️ Please login to add to wishlist');
+      navigate('/login');
+      return;
     }
-    saveWishlist(newWishlist);
+
+    // ✅ CRITICAL FIX: Use destination_id, NOT place.id!
+    const destinationId = place.destination_id;
+    
+    // ✅ If destination_id is null/undefined, show error
+    if (!destinationId) {
+      console.error('❌ Place has no destination_id:', place);
+      alert('This place is not properly linked. Please contact support.');
+      return;
+    }
+    
+    console.log('🔄 Toggling for place:', place.name);
+    console.log('🔄 Using destination_id:', destinationId);
+    
+    setWishlistLoading(true);
+    try {
+      const response = await AuthAPI.toggleWishlist(destinationId);
+      console.log('📊 Toggle response:', response);
+      
+      if (response && response.success) {
+        // ✅ Reset wishlist fetch flag to refresh
+        wishlistFetchedRef.current = false;
+        await fetchWishlist();
+        const action = response.action || 'toggled';
+        console.log(`✅ ${action} from wishlist:`, place.name);
+      } else {
+        console.error('❌ Toggle failed:', response?.error || 'Unknown error');
+        alert('Failed to update wishlist. Please try again.');
+      }
+    } catch (error) {
+      console.error('❌ Error toggling wishlist:', error);
+      if (error.response?.status === 401) {
+        alert('⚠️ Session expired. Please login again.');
+        navigate('/login');
+      } else {
+        alert('Failed to update wishlist. Please try again.');
+      }
+    } finally {
+      setWishlistLoading(false);
+    }
   };
 
-  // Check if place is in wishlist
+  // ✅ Check if place is in wishlist
   const isInWishlist = (placeId) => {
-    return wishlist.some(item => item.id === placeId);
+    if (!placeId) return false;
+    const found = wishlist.some(item => {
+      const itemId = item.id || item.destination;
+      return String(itemId) === String(placeId);
+    });
+    return found;
   };
 
-  // Get district from URL query params
+  // ✅ Get district from URL query params
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const districtParam = params.get('district');
@@ -118,49 +191,122 @@ export default function CategoryDetail() {
     }
   }, [location.search]);
 
+  // ✅ Scroll handler
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // If category doesn't exist, redirect
-  if (!categoryData || !categoryData[categoryId]) {
-    return (
-      <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
-        <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 48, color: "#072E2A", margin: 0 }}>404</h1>
-        <p style={{ color: "#0E5C53", fontSize: 18 }}>Category not found</p>
-        <Link to="/categories" style={{ color: "#C79A3E", textDecoration: "none", marginTop: 12 }}>
-          ← Back to Categories
-        </Link>
-      </div>
-    );
-  }
-
-  const category = categoryData[categoryId];
-
-  // Filter places by district, type, and search
+  // ✅ Fetch category details - with useRef and AbortController
   useEffect(() => {
-    if (!category || !category.places) {
+    const fetchCategoryDetails = async () => {
+      if (!isLoggedIn) {
+        console.log('⏳ Waiting for login...');
+        return;
+      }
+      
+      // ✅ Prevent duplicate calls
+      if (dataLoadedRef.current) {
+        console.log('⏳ Category data already loaded, skipping...');
+        return;
+      }
+      
+      // ✅ Create abort controller for cleanup
+      abortControllerRef.current = new AbortController();
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        console.log('📊 Fetching category data for:', categoryId);
+        const response = await AuthAPI.getCategoryData();
+        console.log('📊 API Response:', response);
+        
+        if (response && response.success && response.data && response.data.length > 0) {
+          const category = response.data.find(cat => cat.key === categoryId);
+          
+          if (category) {
+            setCategoryInfo({
+              title: category.title || categoryId,
+              description: category.description || `Explore ${categoryId} in Kerala`
+            });
+            
+            // ✅ Use destination_id correctly
+            const formattedPlaces = (category.places || []).map(place => ({
+              id: place.id || Math.random(),
+              destination_id: place.destination_id || null,
+              name: place.name || 'Unknown',
+              location: place.location || '',
+              description: place.description || '',
+              image: place.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+              type: place.type || 'well-known',
+              hiddenGem: place.hidden_gem || '',
+              difficulty: place.difficulty || '',
+              duration: place.duration || '',
+              bestTime: place.best_time || '',
+            }));
+            
+            console.log('✅ Formatted', formattedPlaces.length, 'places');
+            console.log('✅ First place:', formattedPlaces[0]);
+            setPlaces(formattedPlaces);
+            dataLoadedRef.current = true;
+          } else {
+            setError(`Category "${categoryId}" not found`);
+            setCategoryInfo({
+              title: categoryId,
+              description: 'Category not found'
+            });
+            setPlaces([]);
+          }
+        } else {
+          setError('No data received from server');
+        }
+      } catch (error) {
+        // ✅ Ignore aborted errors
+        if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+          console.log('📊 Category fetch was cancelled');
+          return;
+        }
+        console.error('❌ Error:', error);
+        setError(error.message || 'Failed to load category');
+      } finally {
+        setLoading(false);
+        abortControllerRef.current = null;
+      }
+    };
+
+    fetchCategoryDetails();
+    fetchWishlist();
+    
+    // ✅ Cleanup: Abort fetch on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, [categoryId, isLoggedIn]);
+
+  // ✅ Filter places
+  useEffect(() => {
+    if (!places || places.length === 0) {
       setFilteredPlaces([]);
       return;
     }
 
-    let filtered = [...category.places];
+    let filtered = [...places];
     
-    // Filter by district
     if (selectedDistrict !== "All Districts") {
       filtered = filtered.filter(place => 
         place.location && place.location.includes(selectedDistrict)
       );
     }
     
-    // Filter by type (hidden/well-known)
     if (selectedType !== "all") {
       filtered = filtered.filter(place => place.type === selectedType);
     }
 
-    // Filter by search term
     if (searchTerm.trim() !== '') {
       const term = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(place =>
@@ -172,7 +318,7 @@ export default function CategoryDetail() {
     }
     
     setFilteredPlaces(filtered);
-  }, [selectedDistrict, selectedType, searchTerm, category]);
+  }, [selectedDistrict, selectedType, searchTerm, places]);
 
   const handleDistrictSelect = (district) => {
     setSelectedDistrict(district);
@@ -197,12 +343,23 @@ export default function CategoryDetail() {
 
   const handleProtectedClick = (path) => {
     if (!isLoggedIn) {
-      alert('⚠️ Login required to access this page. Please login first.');
+      alert('⚠️ Login required.');
       navigate('/login');
     } else {
       navigate(path);
     }
   };
+
+  // ✅ RENDER CHECK
+  console.log('🎨 RENDER STATE:', {
+    loading,
+    placesLength: places.length,
+    filteredLength: filteredPlaces.length,
+    wishlistLength: wishlist.length,
+    wishlistIds: wishlist.map(i => i.id),
+    error: error,
+    categoryId: categoryId
+  });
 
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
@@ -268,6 +425,56 @@ export default function CategoryDetail() {
     </div>
   );
 
+  // ✅ LOADING
+  if (loading) {
+    return (
+      <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ display: "inline-block", width: 40, height: 40, border: "3px solid #C79A3E", borderTop: "3px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+          <style>{`
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+          <p style={{ marginTop: 12, color: "#5C6E69", fontFamily: "'Inter', sans-serif" }}>Loading places...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ ERROR
+  if (error) {
+    return (
+      <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: "20px" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+          <h2 style={{ color: "#072E2A" }}>Error Loading Category</h2>
+          <p style={{ color: "#5C6E69" }}>{error}</p>
+          <Link to="/categories" style={{ display: "inline-block", marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", borderRadius: 999, textDecoration: "none" }}>
+            Back to Categories
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ ERROR
+  if (error) {
+    return (
+      <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: "20px" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+          <h2 style={{ color: "#072E2A" }}>Error Loading Category</h2>
+          <p style={{ color: "#5C6E69" }}>{error}</p>
+          <Link to="/categories" style={{ display: "inline-block", marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", borderRadius: 999, textDecoration: "none" }}>
+            Back to Categories
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // ✅ RENDER - Full Design
   return (
     <div style={{ background: "#FBF6EA", minHeight: "100vh", paddingBottom: 100, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#0B2422" }}>
       <style>{`
@@ -276,7 +483,6 @@ export default function CategoryDetail() {
         .cd-font-mono { font-family: 'IBM Plex Mono', monospace; }
         .cd-place-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(7,46,42,0.15); }
         
-        /* ✅ Dropdown Styles - Fixed */
         .dropdown-wrapper {
           position: relative;
           display: inline-block;
@@ -443,27 +649,40 @@ export default function CategoryDetail() {
         }
       `}</style>
 
-      {/* ✅ Header - Added position relative with z-index */}
+      {/* Header */}
       <div style={{ background: "#072E2A", padding: "48px 0 28px", position: "relative", zIndex: 10 }}>
         <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 85% 0%, rgba(199,154,62,0.15), transparent 55%)" }} />
         <div className="content-wrapper" style={{ position: "relative", zIndex: 11 }}>
           <div className="cd-header-row" style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div style={{ flex: 1 }}>
-              <Link to="/categories" style={{ color: "rgba(237,226,196,0.6)", textDecoration: "none", fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: "'IBM Plex Mono', monospace", display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <Link 
+                to="/categories" 
+                style={{ 
+                  color: "rgba(237,226,196,0.6)", 
+                  textDecoration: "none", 
+                  fontSize: 12, 
+                  letterSpacing: 1.5, 
+                  textTransform: "uppercase", 
+                  fontFamily: "'IBM Plex Mono', monospace", 
+                  display: "inline-flex", 
+                  alignItems: "center", 
+                  gap: 8 
+                }}
+              >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M19 12H5M12 19l-7-7 7-7"/>
                 </svg>
                 Back to Categories
               </Link>
               <h1 className="cd-font-display" style={{ fontStyle: "italic", fontSize: "clamp(36px, 5vw, 52px)", fontWeight: 500, color: "#fff", margin: "12px 0 6px", lineHeight: 1.05 }}>
-                {category.title}
+                {categoryInfo?.title || categoryId}
               </h1>
               <p style={{ fontSize: "clamp(14px, 1.2vw, 17px)", color: "rgba(237,226,196,0.75)", maxWidth: 600 }}>
-                {category.description}
+                {categoryInfo?.description || `Explore ${categoryId} in Kerala`}
               </p>
             </div>
             
-            {/* ✅ Filter Group */}
+            {/* Filter Group */}
             <div className="filter-group" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignSelf: "flex-start", marginTop: "12px", flex: 1 }}>
               <input 
                 type="text"
@@ -473,7 +692,7 @@ export default function CategoryDetail() {
                 className="search-input"
               />
 
-              {/* ✅ District Dropdown */}
+              {/* District Dropdown */}
               <div className="dropdown-wrapper" ref={districtRef}>
                 <button className="dropdown-btn" onClick={() => { setShowDistrictDropdown(!showDistrictDropdown); setShowTypeDropdown(false); }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -498,7 +717,7 @@ export default function CategoryDetail() {
                 )}
               </div>
 
-              {/* ✅ Type Dropdown */}
+              {/* Type Dropdown */}
               <div className="dropdown-wrapper" ref={typeRef}>
                 <button className="dropdown-btn" onClick={() => { setShowTypeDropdown(!showTypeDropdown); setShowDistrictDropdown(false); }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -543,162 +762,173 @@ export default function CategoryDetail() {
         {filteredPlaces.length === 0 ? (
           <div style={{ textAlign: "center", padding: "60px 20px" }}>
             <p className="cd-font-display" style={{ fontSize: 24, color: "#072E2A", marginBottom: 8 }}>
-              No places found
+              {places.length === 0 ? 'No places found for this category' : 'No places match your filters'}
             </p>
             <p style={{ color: "#8A9A95", fontSize: 14 }}>
-              {searchTerm.trim() !== '' && `No results matching "${searchTerm}"`}
-              {searchTerm.trim() === '' && selectedDistrict !== "All Districts" && selectedType !== "all" 
-                ? `No ${selectedType === "hidden" ? "hidden gems" : "well-known places"} in ${selectedDistrict}`
-                : selectedDistrict !== "All Districts" 
-                ? `No places found in ${selectedDistrict}`
-                : selectedType !== "all" 
-                ? `No ${selectedType === "hidden" ? "hidden gems" : "well-known places"} found`
-                : "No places found"}
+              {places.length === 0 ? 'Try exploring other categories' : 'Try adjusting your filters'}
             </p>
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                handleDistrictSelect("All Districts");
-                handleTypeSelect("all");
-              }}
-              style={{
-                marginTop: 16,
-                padding: "10px 24px",
-                background: "#C79A3E",
-                color: "#fff",
-                border: "none",
-                borderRadius: 999,
-                fontSize: 14,
-                cursor: "pointer"
-              }}
-            >
-              Reset Filters
-            </button>
+            {places.length === 0 && (
+              <Link to="/categories" style={{ display: "inline-block", marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", borderRadius: 999, textDecoration: "none", fontSize: 14 }}>
+                Browse Categories →
+              </Link>
+            )}
+            {places.length > 0 && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  handleDistrictSelect("All Districts");
+                  handleTypeSelect("all");
+                }}
+                style={{
+                  marginTop: 16,
+                  padding: "10px 24px",
+                  background: "#C79A3E",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 999,
+                  fontSize: 14,
+                  cursor: "pointer"
+                }}
+              >
+                Reset Filters
+              </button>
+            )}
           </div>
         ) : (
           <div className="cd-grid">
-            {filteredPlaces.map((place, index) => (
-              <div 
-                key={place.id || index}
-                className="cd-place-card"
-                onClick={() => setSelectedPlace(selectedPlace?.id === place.id ? null : place)}
-              >
-                <button 
-                  className={`wishlist-btn ${isInWishlist(place.id) ? 'active' : ''}`}
-                  onClick={(e) => toggleWishlist(place, e)}
-                  title={isInWishlist(place.id) ? 'Remove from wishlist' : 'Add to wishlist'}
+            {filteredPlaces.map((place, index) => {
+              // ✅ Get the correct ID for wishlist check
+              const placeId = place.destination_id || place.id;
+              const inWishlist = isInWishlist(placeId);
+              
+              return (
+                <div 
+                  key={place.id || index}
+                  className="cd-place-card"
+                  onClick={() => setSelectedPlace(selectedPlace?.id === place.id ? null : place)}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill={isInWishlist(place.id) ? "#C79A3E" : "none"} stroke="#C79A3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-                  </svg>
-                </button>
+                  <button 
+                    className={`wishlist-btn ${inWishlist ? 'active' : ''}`}
+                    onClick={(e) => toggleWishlist(place, e)}
+                    disabled={wishlistLoading}
+                    title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                    style={{
+                      opacity: wishlistLoading ? 0.5 : 1,
+                      cursor: wishlistLoading ? 'wait' : 'pointer',
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill={inWishlist ? "#C79A3E" : "none"} stroke="#C79A3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
+                  </button>
 
-                <img 
-                  src={place.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80'} 
-                  alt={place.name}
-                  style={{ width: "100%", height: 200, objectFit: "cover" }}
-                  onError={(e) => {
-                    e.target.src = 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80';
-                  }}
-                />
-                <div style={{ padding: 18 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div>
-                      <h3 className="cd-font-display" style={{ fontSize: 18, fontWeight: 500, color: "#072E2A", margin: 0 }}>
-                        {place.name}
-                      </h3>
-                      <p style={{ fontSize: 13, color: "#0E5C53", margin: "4px 0 0" }}>
-                        📍 {place.location}
-                      </p>
+                  <img 
+                    src={place.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80'} 
+                    alt={place.name}
+                    style={{ width: "100%", height: 200, objectFit: "cover" }}
+                    onError={(e) => {
+                      e.target.src = 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80';
+                    }}
+                  />
+                  <div style={{ padding: 18 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <h3 className="cd-font-display" style={{ fontSize: 18, fontWeight: 500, color: "#072E2A", margin: 0 }}>
+                          {place.name}
+                        </h3>
+                        <p style={{ fontSize: 13, color: "#0E5C53", margin: "4px 0 0" }}>
+                          📍 {place.location}
+                        </p>
+                      </div>
+                      {place.type && (
+                        <span style={{ 
+                          background: place.type === 'hidden' ? 'rgba(199,154,62,0.15)' : 'rgba(46,125,50,0.1)',
+                          color: place.type === 'hidden' ? '#C79A3E' : '#2E7D32',
+                          padding: "2px 10px",
+                          borderRadius: 999,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          letterSpacing: 0.5,
+                          fontFamily: "'IBM Plex Mono', monospace",
+                          whiteSpace: "nowrap",
+                          border: place.type === 'hidden' ? '1px solid rgba(199,154,62,0.3)' : '1px solid rgba(46,125,50,0.2)'
+                        }}>
+                          {place.type === 'hidden' ? '✨ Hidden' : '⭐ Well Known'}
+                        </span>
+                      )}
                     </div>
-                    {place.type && (
-                      <span style={{ 
-                        background: place.type === 'hidden' ? 'rgba(199,154,62,0.15)' : 'rgba(46,125,50,0.1)',
-                        color: place.type === 'hidden' ? '#C79A3E' : '#2E7D32',
-                        padding: "2px 10px",
-                        borderRadius: 999,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: 0.5,
-                        fontFamily: "'IBM Plex Mono', monospace",
-                        whiteSpace: "nowrap",
-                        border: place.type === 'hidden' ? '1px solid rgba(199,154,62,0.3)' : '1px solid rgba(46,125,50,0.2)'
+                    
+                    <p style={{ fontSize: 14, color: "#3D5A57", lineHeight: 1.6, marginTop: 10 }}>
+                      {place.description}
+                    </p>
+
+                    {place.difficulty && (
+                      <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+                        {place.difficulty && (
+                          <div>
+                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Difficulty</span>
+                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.difficulty}</p>
+                          </div>
+                        )}
+                        {place.duration && (
+                          <div>
+                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Duration</span>
+                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.duration}</p>
+                          </div>
+                        )}
+                        {place.bestTime && (
+                          <div>
+                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Best Time</span>
+                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.bestTime}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedPlace?.id === place.id && place.hiddenGem && (
+                      <div style={{ 
+                        marginTop: 14, 
+                        background: "rgba(199,154,62,0.08)", 
+                        padding: "12px 16px", 
+                        borderRadius: 6,
+                        borderLeft: "3px solid #C79A3E"
                       }}>
-                        {place.type === 'hidden' ? '✨ Hidden' : '⭐ Well Known'}
-                      </span>
+                        <p style={{ fontSize: 12, color: "#C79A3E", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", margin: "0 0 4px" }}>
+                          ✦ Hidden Gem
+                        </p>
+                        <p style={{ fontSize: 14, color: "#3D5A57", margin: 0, lineHeight: 1.5 }}>
+                          {place.hiddenGem}
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedPlace?.id !== place.id && place.hiddenGem && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPlace(place);
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#C79A3E",
+                          fontSize: 13,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                          padding: 0,
+                          marginTop: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6
+                        }}
+                      >
+                        Learn more about this hidden gem →
+                      </button>
                     )}
                   </div>
-                  
-                  <p style={{ fontSize: 14, color: "#3D5A57", lineHeight: 1.6, marginTop: 10 }}>
-                    {place.description}
-                  </p>
-
-                  {place.difficulty && (
-                    <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
-                      {place.difficulty && (
-                        <div>
-                          <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Difficulty</span>
-                          <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.difficulty}</p>
-                        </div>
-                      )}
-                      {place.duration && (
-                        <div>
-                          <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Duration</span>
-                          <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.duration}</p>
-                        </div>
-                      )}
-                      {place.bestTime && (
-                        <div>
-                          <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Best Time</span>
-                          <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.bestTime}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {selectedPlace?.id === place.id && place.hiddenGem && (
-                    <div style={{ 
-                      marginTop: 14, 
-                      background: "rgba(199,154,62,0.08)", 
-                      padding: "12px 16px", 
-                      borderRadius: 6,
-                      borderLeft: "3px solid #C79A3E"
-                    }}>
-                      <p style={{ fontSize: 12, color: "#C79A3E", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", margin: "0 0 4px" }}>
-                        ✦ Hidden Gem
-                      </p>
-                      <p style={{ fontSize: 14, color: "#3D5A57", margin: 0, lineHeight: 1.5 }}>
-                        {place.hiddenGem}
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedPlace?.id !== place.id && place.hiddenGem && (
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedPlace(place);
-                      }}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#C79A3E",
-                        fontSize: 13,
-                        fontWeight: 500,
-                        cursor: "pointer",
-                        padding: 0,
-                        marginTop: 10,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6
-                      }}
-                    >
-                      Learn more about this hidden gem →
-                    </button>
-                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

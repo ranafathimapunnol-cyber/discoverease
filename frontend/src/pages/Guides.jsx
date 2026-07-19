@@ -1,20 +1,37 @@
-// src/pages/Guides.jsx - COMPLETE FIXED VERSION WITH AVAILABILITY SLOTS
-import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+// pages/Guides.jsx - COMPLETE FIXED WITH ONLY AVAILABLE SLOTS
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import { Loader2, Clock, Users, X, CheckCircle, Calendar } from 'lucide-react';
 
-const T = {
-    ink: '#0B2422',
-    deepTeal: '#072E2A',
-    teal2: '#0B3A34',
+// ============================================
+// DESIGN TOKENS
+// ============================================
+const C = {
+    ink: '#072E2A',
+    inkSoft: '#0B2422',
+    paper: '#FFFFFF',
     cream: '#FBF6EA',
+    cream2: '#F5EDD6',
     gold: '#C79A3E',
     goldLight: '#E4C77B',
-    muted: '#5C6E69',
-    muted2: '#8A9A95',
+    goldSoft: 'rgba(199,154,62,0.14)',
+    sage: '#7A7568',
+    sageLight: '#9C8A5C',
+    line: '#EFE6CF',
+    success: '#3F7A5E',
+    successBg: '#EAF3EE',
+    warn: '#B4791F',
+    warnBg: '#FBF1DC',
+    danger: '#B4472A',
+    dangerBg: '#FDF1EC',
 };
 
+// ============================================
+// KERALA DISTRICTS
+// ============================================
 const KERALA_DISTRICTS = [
     { id: 1, name: 'Thiruvananthapuram' },
     { id: 2, name: 'Kollam' },
@@ -29,715 +46,464 @@ const KERALA_DISTRICTS = [
     { id: 11, name: 'Kozhikode' },
     { id: 12, name: 'Wayanad' },
     { id: 13, name: 'Kannur' },
-    { id: 14, name: 'Kasaragod' },
+    { id: 14, name: 'Kasaragod' }
 ];
 
-const getDistrictName = (id) => KERALA_DISTRICTS.find((d) => d.id === Number(id))?.name || null;
-
-const ZariDivider = ({ color = T.gold, opacity = 0.55 }) => (
-    <svg width="100%" height="10" viewBox="0 0 400 10" preserveAspectRatio="none" style={{ display: 'block' }}>
-        <line x1="0" y1="5" x2="400" y2="5" stroke={color} strokeWidth="0.6" strokeOpacity={opacity * 0.7} />
-        {Array.from({ length: 34 }).map((_, i) => (
-            <rect
-                key={i}
-                x={i * 12 + 4}
-                y="2"
-                width="4.5"
-                height="4.5"
-                fill={color}
-                fillOpacity={opacity}
-                transform={`rotate(45 ${i * 12 + 6.25} 4.25)`}
-            />
-        ))}
-    </svg>
-);
-
-const STATUS_COLORS = {
-    confirmed: { bg: '#DCFCE7', text: '#16A34A' },
-    pending: { bg: '#FEF3C7', text: '#D97706' },
-    completed: { bg: '#DBEAFE', text: '#2563EB' },
-    cancelled: { bg: '#FEE2E2', text: '#DC2626' },
-    rejected: { bg: '#FEE2E2', text: '#DC2626' },
-};
-
-const getStatusColor = (status) => STATUS_COLORS[status] || { bg: '#F3F4F6', text: '#6B7280' };
-
-const Guides = () => {
+// ============================================
+// MAIN COMPONENT
+// ============================================
+export default function Guides() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, isLoggedIn } = useAuth();
-
-    const [loading, setLoading] = useState(true);
+    const { isLoggedIn } = useAuth();
+    
+    // State
     const [guides, setGuides] = useState([]);
-    const [selectedGuide, setSelectedGuide] = useState(null);
-    const [selectedSlot, setSelectedSlot] = useState(null);
-    const [destination, setDestination] = useState('');
-    const [notes, setNotes] = useState('');
-    const [bookingLoading, setBookingLoading] = useState(false);
-    const [bookingSuccess, setBookingSuccess] = useState(null);
-    const [bookingError, setBookingError] = useState(null);
-
-    const [myBookings, setMyBookings] = useState([]);
-    const [showMyBookings, setShowMyBookings] = useState(false);
-    const [reviewDialog, setReviewDialog] = useState(null);
-    const [rating, setRating] = useState(0);
-    const [reviewText, setReviewText] = useState('');
-    const [reviewImages, setReviewImages] = useState([]);
-    const [submittingReview, setSubmittingReview] = useState(false);
-
+    const [filteredGuides, setFilteredGuides] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [scrolled, setScrolled] = useState(false);
-    const [activeNav, setActiveNav] = useState('guides');
+    const [activeNav, setActiveNav] = useState('location');
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeSpecialty, setActiveSpecialty] = useState('all');
+    const [selectedDistrict, setSelectedDistrict] = useState(null);
     const [activeDistrict, setActiveDistrict] = useState(null);
-    const [allSpecialties, setAllSpecialties] = useState(['all']);
+    const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
     
-    const isInitialMount = useRef(true);
-    const fetchTimeout = useRef(null);
-    const isFetching = useRef(false);
-
-    // ============================================
-    // FETCH GUIDES FROM API - FIXED AVAILABILITY
-    // ============================================
-    const fetchGuides = async () => {
-        if (isFetching.current) {
-            console.log('⏳ Fetch already in progress, skipping...');
-            return;
-        }
-        
-        isFetching.current = true;
-        setLoading(true);
-        
-        try {
-            const params = {};
-
-            if (activeDistrict) {
-                params.districts = activeDistrict.id;
-                console.log(`📍 Filtering by district: ${activeDistrict.name} (ID: ${activeDistrict.id})`);
-            }
-
-            if (activeSpecialty && activeSpecialty !== 'all') {
-                params.category = activeSpecialty;
-            }
-
-            if (searchTerm && searchTerm !== activeDistrict?.name) {
-                params.search = searchTerm;
-            }
-
-            console.log('📊 Fetching guides with params:', params);
-
-            const response = await api.get('/guides/guides/', { params });
-            
-            console.log('📊 API Response:', response.data);
-
-            let guidesData = [];
-            if (response.data && response.data.results) {
-                guidesData = response.data.results;
-                console.log(`📊 Total guides: ${response.data.count}, Showing: ${guidesData.length}`);
-            } else if (response.data && Array.isArray(response.data)) {
-                guidesData = response.data;
-            } else {
-                guidesData = [];
-            }
-
-            const formattedGuides = guidesData.map((guide) => {
-                // ✅ FIX: Properly format availability slots
-                let availabilitySlots = [];
-                
-                // Check if guide has availabilities from API
-                if (guide.availabilities && Array.isArray(guide.availabilities)) {
-                    availabilitySlots = guide.availabilities.map(slot => ({
-                        id: slot.id || slot.slot_id || Date.now() + Math.random(),
-                        date: slot.date || slot.available_date,
-                        start_time: slot.start_time || slot.startTime || '09:00',
-                        end_time: slot.end_time || slot.endTime || '17:00',
-                        max_bookings: slot.max_bookings || slot.maxBookings || 1,
-                        current_bookings: slot.current_bookings || slot.currentBookings || 0,
-                        is_booked: slot.is_booked || slot.isBooked || false,
-                    }));
-                }
-                
-                // Also check for slots in the guide object directly
-                if (guide.availability && Array.isArray(guide.availability)) {
-                    guide.availability.forEach(slot => {
-                        if (!availabilitySlots.find(s => s.id === (slot.id || slot.slot_id))) {
-                            availabilitySlots.push({
-                                id: slot.id || slot.slot_id || Date.now() + Math.random(),
-                                date: slot.date || slot.available_date,
-                                start_time: slot.start_time || slot.startTime || '09:00',
-                                end_time: slot.end_time || slot.endTime || '17:00',
-                                max_bookings: slot.max_bookings || slot.maxBookings || 1,
-                                current_bookings: slot.current_bookings || slot.currentBookings || 0,
-                                is_booked: slot.is_booked || slot.isBooked || false,
-                            });
-                        }
-                    });
-                }
-
-                // Also check for slots in guide.slots
-                if (guide.slots && Array.isArray(guide.slots)) {
-                    guide.slots.forEach(slot => {
-                        if (!availabilitySlots.find(s => s.id === (slot.id || slot.slot_id))) {
-                            availabilitySlots.push({
-                                id: slot.id || slot.slot_id || Date.now() + Math.random(),
-                                date: slot.date || slot.available_date,
-                                start_time: slot.start_time || slot.startTime || '09:00',
-                                end_time: slot.end_time || slot.endTime || '17:00',
-                                max_bookings: slot.max_bookings || slot.maxBookings || 1,
-                                current_bookings: slot.current_bookings || slot.currentBookings || 0,
-                                is_booked: slot.is_booked || slot.isBooked || false,
-                            });
-                        }
-                    });
-                }
-
-                // Sort slots by date
-                availabilitySlots.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                // Get districts
-                let districts = [];
-                if (guide.districts && Array.isArray(guide.districts)) {
-                    districts = guide.districts;
-                } else if (guide.primary_district) {
-                    districts = [{ id: guide.primary_district, name: guide.primary_district_name || 'District' }];
-                }
-
-                console.log(`📊 Guide ${guide.full_name} has ${availabilitySlots.length} availability slots`);
-
-                return {
-                    id: guide.id,
-                    full_name: guide.full_name || 'Guide',
-                    email: guide.email || '',
-                    bio: guide.bio || 'Experienced guide ready to show you the best of Kerala.',
-                    experience_years: guide.years_of_experience || guide.experience_years || 0,
-                    specialties: guide.categories?.map((c) => c.name) || guide.specialties || ['local tours'],
-                    rating: guide.rating || '4.8',
-                    total_reviews: guide.total_reviews || 0,
-                    is_verified: guide.is_verified || false,
-                    phone: guide.phone_number || guide.phone || '',
-                    districts: districts,
-                    availabilities: availabilitySlots,
-                    price_per_day: guide.price_per_day || 0,
-                    price_per_hour: guide.price_per_hour || 0,
-                    languages: guide.languages || 'English, Malayalam',
-                };
-            });
-
-            setGuides(formattedGuides);
-            console.log(`📊 Formatted guides: ${formattedGuides.length}`);
-
-            const specialties = ['all', ...new Set(formattedGuides.flatMap((g) => g.specialties || []))];
-            setAllSpecialties(specialties);
-        } catch (error) {
-            console.error('Error fetching guides:', error);
-            setGuides([]);
-        } finally {
-            setLoading(false);
-            isFetching.current = false;
-        }
-    };
-
-    // ============================================
-    // FETCH MY BOOKINGS
-    // ============================================
-    const fetchMyBookings = async () => {
-        try {
-            console.log('📊 Fetching my bookings...');
-            
-            if (!user?.email) {
-                console.log('⚠️ No user logged in, skipping bookings fetch');
-                setMyBookings([]);
-                return;
-            }
-            
-            let bookingsData = [];
-            let response = null;
-            
-            try {
-                response = await api.get('/guides/bookings/');
-                console.log('📊 /guides/bookings/ response:', response.data);
-            } catch (e) {
-                console.log('⚠️ /guides/bookings/ failed:', e.message);
-            }
-            
-            if (!response || !response.data || (Array.isArray(response.data) && response.data.length === 0)) {
-                try {
-                    response = await api.get('/bookings/');
-                    console.log('📊 /bookings/ response:', response.data);
-                } catch (e) {
-                    console.log('⚠️ /bookings/ failed:', e.message);
-                }
-            }
-            
-            if (!response || !response.data || (Array.isArray(response.data) && response.data.length === 0)) {
-                try {
-                    response = await api.get('/guides/my-bookings/');
-                    console.log('📊 /guides/my-bookings/ response:', response.data);
-                } catch (e) {
-                    console.log('⚠️ /guides/my-bookings/ failed:', e.message);
-                }
-            }
-            
-            if (response && response.data) {
-                if (response.data.success && response.data.bookings) {
-                    bookingsData = response.data.bookings;
-                } else if (response.data.success && response.data.results) {
-                    bookingsData = response.data.results;
-                } else if (Array.isArray(response.data)) {
-                    bookingsData = response.data;
-                } else if (response.data.results && Array.isArray(response.data.results)) {
-                    bookingsData = response.data.results;
-                } else if (response.data.bookings && Array.isArray(response.data.bookings)) {
-                    bookingsData = response.data.bookings;
-                }
-            }
-            
-            if (bookingsData.length > 0 && user?.email) {
-                const filtered = bookingsData.filter(b => {
-                    const userMatch = 
-                        b.user?.email === user.email ||
-                        b.traveler_email === user.email ||
-                        b.travelerEmail === user.email ||
-                        b.user === user.id ||
-                        b.user_id === user.id ||
-                        b.user?.id === user.id;
-                    
-                    return userMatch;
-                });
-                
-                console.log(`📊 Final filtered bookings: ${filtered.length}`);
-                setMyBookings(filtered);
-            } else {
-                try {
-                    const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
-                    if (user?.email) {
-                        const userBookings = travelerBookings.filter(b => b.travelerEmail === user.email);
-                        console.log(`📊 Found ${userBookings.length} bookings in localStorage`);
-                        setMyBookings(userBookings);
-                    } else {
-                        setMyBookings(travelerBookings);
-                    }
-                } catch (e) {
-                    console.error('Error reading localStorage:', e);
-                    setMyBookings([]);
-                }
-            }
-        } catch (error) {
-            console.error('Error fetching bookings:', error);
-            setMyBookings([]);
-        }
-    };
-
-    // ============================================
-    // SUBMIT REVIEW WITH IMAGES
-    // ============================================
-    const handleImageUpload = (e) => {
-        const files = Array.from(e.target.files);
-        const imagePromises = files.map((file) => {
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    resolve({
-                        id: Date.now() + Math.random(),
-                        file: file,
-                        dataUrl: reader.result,
-                        name: file.name,
-                        size: file.size,
-                    });
-                };
-                reader.readAsDataURL(file);
-            });
-        });
-
-        Promise.all(imagePromises).then((newImages) => {
-            setReviewImages((prev) => [...prev, ...newImages]);
-        });
-    };
-
-    const removeImage = (imageId) => {
-        setReviewImages((prev) => prev.filter((img) => img.id !== imageId));
-    };
-
-    const handleSubmitReview = async (bookingId) => {
-        if (rating === 0) {
-            alert('Please select a rating');
-            return;
-        }
-        if (!reviewText.trim()) {
-            alert('Please write a review');
-            return;
-        }
-
-        setSubmittingReview(true);
-        try {
-            const formData = new FormData();
-            formData.append('rating', rating);
-            formData.append('comment', reviewText);
-            
-            reviewImages.forEach((img) => {
-                if (img.file) {
-                    formData.append('images', img.file);
-                }
-            });
-
-            let response = null;
-            try {
-                response = await api.post(`/guides/bookings/${bookingId}/review/`, formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                });
-            } catch (e) {
-                console.log('⚠️ /guides/bookings/ review failed:', e);
-                try {
-                    response = await api.post(`/bookings/${bookingId}/review/`, formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' },
-                    });
-                } catch (e2) {
-                    console.log('⚠️ /bookings/ review failed:', e2);
-                }
-            }
-            
-            console.log('✅ Review submitted:', response?.data);
-            
-            try {
-                const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
-                const updated = travelerBookings.map(b => {
-                    if (b.id === bookingId) {
-                        return { 
-                            ...b, 
-                            review: { 
-                                rating, 
-                                comment: reviewText, 
-                                images: reviewImages.map(img => img.dataUrl),
-                                created_at: new Date().toISOString() 
-                            },
-                            has_review: true 
-                        };
-                    }
-                    return b;
-                });
-                localStorage.setItem('traveler_bookings', JSON.stringify(updated));
-            } catch (e) {
-                console.log('Error saving review to localStorage:', e);
-            }
-            
-            alert('✅ Review submitted successfully! Thank you for your feedback.');
-            setReviewDialog(null);
-            setRating(0);
-            setReviewText('');
-            setReviewImages([]);
-            fetchMyBookings();
-        } catch (error) {
-            console.error('Error submitting review:', error);
-            alert('Failed to submit review. Please try again.');
-        } finally {
-            setSubmittingReview(false);
-        }
-    };
-
-    // ============================================
-    // BOOKING FUNCTIONS
-    // ============================================
-    const handleBookGuide = async () => {
-        setBookingError(null);
-        if (!selectedGuide || !selectedSlot) {
-            setBookingError('Please select a date slot.');
-            return;
-        }
-        const trimmedDestination = destination.trim();
-        if (!trimmedDestination) {
-            setBookingError('Please enter a destination.');
-            return;
-        }
-
-        setBookingLoading(true);
-        try {
-            const bookingData = {
-                guide: selectedGuide.id,
-                district: activeDistrict?.id || selectedGuide.districts?.[0]?.id,
-                date: selectedSlot.date,
-                time: selectedSlot.start_time,
-                duration_hours: 1,
-                number_of_people: 1,
-                special_requests: notes.trim() || trimmedDestination,
-                destination: trimmedDestination,
-                slot_id: selectedSlot.id,
-            };
-
-            console.log('📝 Creating booking:', bookingData);
-
-            let response = null;
-            let success = false;
-            
-            try {
-                response = await api.post('/guides/bookings/', bookingData);
-                console.log('📝 /guides/bookings/ response:', response.data);
-                if (response.data) success = true;
-            } catch (e) {
-                console.log('⚠️ /guides/bookings/ failed:', e.message);
-            }
-            
-            if (!success) {
-                try {
-                    response = await api.post('/bookings/', bookingData);
-                    console.log('📝 /bookings/ response:', response.data);
-                    if (response.data) success = true;
-                } catch (e) {
-                    console.log('⚠️ /bookings/ failed:', e.message);
-                }
-            }
-            
-            if (!success) {
-                try {
-                    response = await api.post('/guides/bookings/create/', bookingData);
-                    console.log('📝 /guides/bookings/create/ response:', response.data);
-                    if (response.data) success = true;
-                } catch (e) {
-                    console.log('⚠️ /guides/bookings/create/ failed:', e.message);
-                }
-            }
-
-            // Save to localStorage
-            try {
-                const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
-                const newBooking = {
-                    id: response?.data?.id || Date.now(),
-                    guideEmail: selectedGuide.email || selectedGuide.id,
-                    guideName: selectedGuide.full_name,
-                    guideId: selectedGuide.id,
-                    district: activeDistrict?.name || selectedGuide.districts?.[0]?.name,
-                    destination: trimmedDestination,
-                    date: selectedSlot.date,
-                    time: `${selectedSlot.start_time} - ${selectedSlot.end_time}`,
-                    status: 'pending',
-                    createdAt: new Date().toISOString(),
-                    travelerEmail: user?.email,
-                    notes: notes.trim() || trimmedDestination,
-                    has_review: false,
-                    slot_id: selectedSlot.id,
-                };
-                travelerBookings.push(newBooking);
-                localStorage.setItem('traveler_bookings', JSON.stringify(travelerBookings));
-                console.log('✅ Booking saved to localStorage:', newBooking);
-            } catch (e) {
-                console.log('Error saving to localStorage:', e);
-            }
-
-            if (success) {
-                setBookingSuccess(`✅ Booking sent to ${selectedGuide.full_name}! They'll confirm shortly.`);
-            } else {
-                setBookingSuccess(`✅ Booking request saved! ${selectedGuide.full_name} will confirm shortly.`);
-            }
-            
-            setSelectedGuide(null);
-            setSelectedSlot(null);
-            setDestination('');
-            setNotes('');
-            
-            await Promise.all([fetchGuides(), fetchMyBookings()]);
-            
-        } catch (error) {
-            console.error('Booking error:', error);
-            setBookingError(error.response?.data?.error || 'Something went wrong. Please try again.');
-        } finally {
-            setBookingLoading(false);
-        }
-    };
-
-    const handleCancelMyBooking = async (bookingId) => {
-        if (!window.confirm('Cancel this booking?')) return;
-        try {
-            try {
-                await api.post(`/guides/bookings/${bookingId}/cancel/`);
-            } catch (e) {
-                console.log('API cancel failed:', e);
-                try {
-                    await api.post(`/bookings/${bookingId}/cancel/`);
-                } catch (e2) {
-                    console.log('Alternative cancel also failed:', e2);
-                }
-            }
-            
-            try {
-                const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
-                const updated = travelerBookings.map(b => 
-                    b.id === bookingId ? { ...b, status: 'cancelled' } : b
-                );
-                localStorage.setItem('traveler_bookings', JSON.stringify(updated));
-            } catch (e) {
-                console.log('Error updating localStorage:', e);
-            }
-            
-            await fetchMyBookings();
-        } catch (error) {
-            alert('Failed to cancel booking');
-            console.error('Cancel error:', error);
-        }
-    };
-
-    // ============================================
-    // NAVIGATE TO MY BOOKINGS PAGE
-    // ============================================
-    const navigateToMyBookings = () => {
-        navigate('/my-bookings');
-    };
-
-    // ============================================
-    // FILTER GUIDES
-    // ============================================
-    const filteredGuides = guides.filter((g) => {
-        let matchesSearch = true;
-        if (searchTerm && searchTerm !== activeDistrict?.name) {
-            const term = searchTerm.toLowerCase();
-            matchesSearch = 
-                (g.full_name || '').toLowerCase().includes(term) ||
-                (g.bio || '').toLowerCase().includes(term) ||
-                (g.specialties || []).some((s) => s.toLowerCase().includes(term));
-        }
-
-        const matchesSpecialty = activeSpecialty === 'all' || (g.specialties || []).includes(activeSpecialty);
-
-        let matchesDistrict = true;
-        if (activeDistrict) {
-            matchesDistrict = (g.districts || []).some(d => d.id === activeDistrict.id);
-        }
-
-        return matchesSearch && matchesSpecialty && matchesDistrict;
+    // Booking Modal
+    const [selectedGuide, setSelectedGuide] = useState(null);
+    const [bookingData, setBookingData] = useState({
+        date: '',
+        time: '',
+        duration_hours: 4,
+        number_of_people: 1,
+        special_requests: ''
     });
-
-    // ============================================
-    // EFFECTS
-    // ============================================
+    const [showBookingModal, setShowBookingModal] = useState(false);
+    const [bookingLoading, setBookingLoading] = useState(false);
+    const [bookingSuccess, setBookingSuccess] = useState(false);
+    const [bookingError, setBookingError] = useState(null);
     
-    useEffect(() => {
-        const params = new URLSearchParams(location.search);
-        const district = params.get('district');
-        const specialty = params.get('specialty');
-        const search = params.get('search');
+    // ✅ Available Slots only
+    const [availableSlots, setAvailableSlots] = useState([]);
+    const [selectedSlot, setSelectedSlot] = useState(null);
+    const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+    
+    // Availability state
+    const [guideAvailability, setGuideAvailability] = useState({});
+    const [loadingAvailability, setLoadingAvailability] = useState({});
+    const availabilityFetchedRef = useRef({});
+    
+    const districtRef = useRef(null);
+    const initialFetchDone = useRef(false);
+    const fetchTimeoutRef = useRef(null);
 
-        console.log('📍 URL Params:', { district, specialty, search });
-
-        let shouldUpdate = false;
-
-        if (specialty) {
-            setActiveSpecialty(specialty);
-            shouldUpdate = true;
-        }
-        
-        if (search && search !== district) {
-            setSearchTerm(search);
-            shouldUpdate = true;
-        } else if (!district) {
-            if (search) {
-                setSearchTerm(search);
-                shouldUpdate = true;
-            }
-        }
-        
-        if (district) {
-            const found = KERALA_DISTRICTS.find((d) => d.name.toLowerCase() === district.toLowerCase());
-            if (found) {
-                setActiveDistrict(found);
-                console.log(`📍 Set active district: ${found.name} (ID: ${found.id})`);
-                shouldUpdate = true;
-            } else {
-                const foundById = KERALA_DISTRICTS.find((d) => d.id === Number(district));
-                if (foundById) {
-                    setActiveDistrict(foundById);
-                    console.log(`📍 Set active district by ID: ${foundById.name} (ID: ${foundById.id})`);
-                    shouldUpdate = true;
-                }
-            }
-        } else {
-            setActiveDistrict(null);
-            shouldUpdate = true;
-        }
-
-        if (shouldUpdate || isInitialMount.current) {
-            isInitialMount.current = false;
-            if (fetchTimeout.current) {
-                clearTimeout(fetchTimeout.current);
-            }
-            fetchTimeout.current = setTimeout(() => {
-                Promise.all([fetchGuides(), fetchMyBookings()])
-                    .then(() => console.log('✅ Guides and bookings fetched successfully'))
-                    .catch(err => console.error('❌ Error fetching data:', err));
-            }, 300);
-        }
-    }, [location.search]);
-
+    // Redirect if not logged in
     useEffect(() => {
         if (!isLoggedIn) {
             navigate('/login', { replace: true });
         }
     }, [isLoggedIn, navigate]);
 
+    // Parse URL params
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const districtParam = params.get('district');
+        const searchParam = params.get('search');
+        
+        if (districtParam) {
+            const found = KERALA_DISTRICTS.find(
+                d => d.name.toLowerCase() === districtParam.toLowerCase()
+            );
+            if (found) {
+                setActiveDistrict(found);
+                setSelectedDistrict(found);
+            } else {
+                setActiveDistrict(null);
+                setSelectedDistrict(null);
+            }
+        } else {
+            setActiveDistrict(null);
+            setSelectedDistrict(null);
+        }
+        
+        if (searchParam !== undefined) {
+            setSearchTerm(searchParam || '');
+        }
+    }, [location.search]);
+
+    // ✅ Fetch availability for a specific guide
+    const fetchGuideAvailability = useCallback(async (guideId) => {
+        if (availabilityFetchedRef.current[guideId]) return;
+        if (loadingAvailability[guideId]) return;
+        
+        setLoadingAvailability(prev => ({ ...prev, [guideId]: true }));
+        
+        try {
+            const response = await api.get(`/guides/guides/${guideId}/availability/`, {
+                params: { days: 30 }
+            });
+            
+            if (response.data?.success) {
+                const allSlots = response.data.data || [];
+                // ✅ Filter only available slots
+                const available = allSlots.filter(slot => 
+                    !slot.is_booked && slot.current_bookings < slot.max_bookings
+                );
+                setGuideAvailability(prev => ({
+                    ...prev,
+                    [guideId]: available
+                }));
+                availabilityFetchedRef.current[guideId] = true;
+            }
+        } catch (error) {
+            if (error.response?.status === 404) {
+                setGuideAvailability(prev => ({
+                    ...prev,
+                    [guideId]: []
+                }));
+                availabilityFetchedRef.current[guideId] = true;
+            }
+        } finally {
+            setLoadingAvailability(prev => ({ ...prev, [guideId]: false }));
+        }
+    }, [loadingAvailability]);
+
+    // Fetch guides
+    const fetchGuides = useCallback(async () => {
+        if (!isLoggedIn) {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+
+        try {
+            const params = {};
+            if (activeDistrict) params.district = activeDistrict.name;
+            if (searchTerm.trim()) params.search = searchTerm.trim();
+            
+            const response = await api.get('/guides/guides/', { params });
+
+            let guidesData = [];
+            if (response.data) {
+                if (response.data.results) guidesData = response.data.results;
+                else if (Array.isArray(response.data)) guidesData = response.data;
+                else if (response.data.data) guidesData = response.data.data;
+            }
+
+            if (guidesData && guidesData.length > 0) {
+                const formattedGuides = guidesData.map(guide => ({
+                    id: guide.id,
+                    full_name: guide.full_name || guide.name || 'Unnamed Guide',
+                    email: guide.email || '',
+                    phone: guide.phone_number || guide.phone || '',
+                    bio: guide.bio || '',
+                    experience_years: guide.years_of_experience || 0,
+                    rating: parseFloat(guide.rating) || 0,
+                    total_reviews: guide.total_reviews || 0,
+                    price_per_hour: guide.price_per_hour || 500,
+                    price_per_day: guide.price_per_day || 0,
+                    languages: guide.languages ? guide.languages.split(',').map(l => l.trim()) : [],
+                    specialties: guide.categories?.map(c => c.name) || [],
+                    profile_image: guide.profile_image || null,
+                    is_available: guide.is_available !== undefined ? guide.is_available : true,
+                    is_verified: guide.is_verified || false,
+                    districts: guide.districts || [],
+                    district: guide.districts && guide.districts.length > 0 ? guide.districts[0].name : null,
+                    created_at: guide.created_at || new Date().toISOString(),
+                }));
+                
+                setGuides(formattedGuides);
+                setFilteredGuides(formattedGuides);
+                
+                const newGuideIds = formattedGuides
+                    .map(g => g.id)
+                    .filter(id => !availabilityFetchedRef.current[id]);
+                
+                if (newGuideIds.length > 0) {
+                    newGuideIds.forEach(guideId => fetchGuideAvailability(guideId));
+                }
+            } else {
+                setGuides([]);
+                setFilteredGuides([]);
+            }
+        } catch (error) {
+            if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+                setError('Cannot connect to server. Please make sure the Django server is running at http://localhost:8000');
+            } else {
+                setError(error.response?.data?.message || 'Failed to load guides. Please try again.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    }, [activeDistrict, searchTerm, isLoggedIn, fetchGuideAvailability]);
+
+    // Debounced fetch
+    const debouncedFetchGuides = useCallback(() => {
+        if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+        fetchTimeoutRef.current = setTimeout(() => fetchGuides(), 300);
+    }, [fetchGuides]);
+
+    useEffect(() => {
+        if (isLoggedIn) debouncedFetchGuides();
+        return () => {
+            if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+        };
+    }, [activeDistrict, searchTerm, isLoggedIn, debouncedFetchGuides]);
+
+    useEffect(() => {
+        if (isLoggedIn && !initialFetchDone.current) {
+            initialFetchDone.current = true;
+            setTimeout(() => fetchGuides(), 200);
+        }
+    }, [isLoggedIn, fetchGuides]);
+
+    // Scroll handler
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 50);
         window.addEventListener('scroll', handleScroll);
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
+    // Click outside dropdown
     useEffect(() => {
-        if (!isInitialMount.current) {
-            if (fetchTimeout.current) {
-                clearTimeout(fetchTimeout.current);
-            }
-            fetchTimeout.current = setTimeout(() => {
-                fetchGuides();
-            }, 200);
-        }
-    }, [activeSpecialty]);
-
-    useEffect(() => {
-        if (user?.email) {
-            fetchMyBookings();
-        }
-    }, [user?.email]);
-
-    // Listen for storage changes to update availability
-    useEffect(() => {
-        const handleStorageChange = (e) => {
-            if (e.key === 'guide_availability_update' || e.key === 'guide_bookings_update') {
-                console.log('🔄 Availability updated, refreshing guides...');
-                fetchGuides();
+        const handleClickOutside = (event) => {
+            if (districtRef.current && !districtRef.current.contains(event.target)) {
+                setShowDistrictDropdown(false);
             }
         };
-        window.addEventListener('storage', handleStorageChange);
-        window.addEventListener('bookingsUpdated', () => {
-            console.log('🔄 Bookings updated, refreshing guides...');
-            fetchGuides();
-        });
-        return () => {
-            window.removeEventListener('storage', handleStorageChange);
-            window.removeEventListener('bookingsUpdated', () => {});
-        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const StarRating = ({ rating }) => {
-        const r = parseFloat(rating) || 0;
-        return (
-            <span style={{ letterSpacing: 1 }}>
-                {[1, 2, 3, 4, 5].map((i) => (
-                    <span key={i} style={{ color: i <= Math.round(r) ? T.gold : '#E3DCC8', fontSize: 13 }}>
-                        ★
-                    </span>
-                ))}
-            </span>
-        );
+    // ============================================
+    // HANDLERS
+    // ============================================
+
+    const handleDistrictSelect = (district) => {
+        setSelectedDistrict(district);
+        setActiveDistrict(district);
+        setShowDistrictDropdown(false);
+        
+        const params = new URLSearchParams(location.search);
+        if (district) {
+            params.set('district', district.name);
+        } else {
+            params.delete('district');
+        }
+        params.delete('search');
+        setSearchTerm('');
+        navigate(`/guides?${params.toString()}`);
     };
 
+    const handleSearchChange = (e) => {
+        const value = e.target.value;
+        setSearchTerm(value);
+        
+        const params = new URLSearchParams(location.search);
+        if (value.trim()) {
+            params.set('search', value.trim());
+        } else {
+            params.delete('search');
+        }
+        if (activeDistrict) params.set('district', activeDistrict.name);
+        navigate(`/guides?${params.toString()}`);
+    };
+
+    // ✅ Book Guide - Show only available slots
+    const handleBookGuide = (guide) => {
+        setSelectedGuide(guide);
+        setBookingData({
+            date: '',
+            time: '',
+            duration_hours: 4,
+            number_of_people: 1,
+            special_requests: ''
+        });
+        setBookingSuccess(false);
+        setBookingError(null);
+        setSelectedSlot(null);
+        setShowConfirmationModal(false);
+        
+        // ✅ Get only available slots for this guide
+        const slots = guideAvailability[guide.id] || [];
+        setAvailableSlots(slots);
+        setShowBookingModal(true);
+    };
+
+    // ✅ Close booking modal
+    const closeBookingModal = () => {
+        if (!bookingLoading) {
+            setShowBookingModal(false);
+            setBookingError(null);
+            setSelectedSlot(null);
+            setShowConfirmationModal(false);
+        }
+    };
+
+    // ✅ Select time slot and show confirmation
+    const handleSlotSelect = (slot) => {
+        setSelectedSlot(slot);
+        setBookingData({ 
+            ...bookingData, 
+            date: slot.date,
+            time: slot.start_time 
+        });
+        setBookingError(null);
+        setShowConfirmationModal(true);
+    };
+
+    // ✅ Confirm booking
+    const handleConfirmBooking = async () => {
+        if (!selectedGuide || !selectedSlot) {
+            setBookingError('Missing booking information');
+            return;
+        }
+
+        setShowConfirmationModal(false);
+        setBookingLoading(true);
+        setBookingError(null);
+
+        try {
+            let districtId = null;
+            if (selectedGuide.districts && selectedGuide.districts.length > 0) {
+                districtId = selectedGuide.districts[0].id;
+            } else if (selectedGuide.district) {
+                const found = KERALA_DISTRICTS.find(
+                    d => d.name.toLowerCase() === selectedGuide.district.toLowerCase()
+                );
+                if (found) districtId = found.id;
+            }
+
+            const bookingPayload = {
+                guide: selectedGuide.id,
+                date: selectedSlot.date,
+                time: selectedSlot.start_time,
+                duration_hours: parseInt(bookingData.duration_hours) || 4,
+                number_of_people: parseInt(bookingData.number_of_people) || 1,
+                special_requests: bookingData.special_requests || ''
+            };
+
+            if (districtId) {
+                bookingPayload.district = districtId;
+            }
+
+            const response = await api.post('/guides/bookings/', bookingPayload);
+
+            if (response.data) {
+                setBookingSuccess(true);
+                
+                try {
+                    const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
+                    const newBooking = {
+                        id: response.data.id || Date.now(),
+                        booking_id: response.data.booking_id || response.data.id,
+                        guide_name: selectedGuide.full_name,
+                        guideId: selectedGuide.id,
+                        district: selectedGuide.district || selectedGuide.districts?.[0]?.name || '',
+                        destination: bookingData.special_requests || 'Kerala Tour',
+                        date: selectedSlot.date,
+                        time: selectedSlot.start_time,
+                        duration_hours: bookingData.duration_hours,
+                        number_of_people: bookingData.number_of_people,
+                        status: 'pending',
+                        travelerEmail: selectedGuide.email || 'traveler',
+                        created_at: new Date().toISOString(),
+                    };
+                    travelerBookings.push(newBooking);
+                    localStorage.setItem('traveler_bookings', JSON.stringify(travelerBookings));
+                    window.dispatchEvent(new StorageEvent('storage', { key: 'traveler_bookings' }));
+                    window.dispatchEvent(new CustomEvent('bookingsUpdated'));
+                } catch (e) {
+                    console.log('Error saving to localStorage:', e);
+                }
+
+                setTimeout(() => {
+                    setShowBookingModal(false);
+                    setBookingSuccess(false);
+                    setBookingError(null);
+                    setSelectedGuide(null);
+                    setSelectedSlot(null);
+                    setShowConfirmationModal(false);
+                    navigate('/guides');
+                }, 2000);
+            }
+        } catch (error) {
+            let errorMsg = 'Failed to book guide. Please try again.';
+            if (error.response?.data) {
+                const data = error.response.data;
+                if (data.date) errorMsg = `Date: ${Array.isArray(data.date) ? data.date.join(', ') : data.date}`;
+                else if (data.time) errorMsg = `Time: ${Array.isArray(data.time) ? data.time.join(', ') : data.time}`;
+                else if (data.non_field_errors) errorMsg = Array.isArray(data.non_field_errors) ? data.non_field_errors.join(', ') : data.non_field_errors;
+                else if (data.error) errorMsg = data.error;
+                else if (data.message) errorMsg = data.message;
+                else if (data.detail) errorMsg = data.detail;
+            }
+            setBookingError(errorMsg);
+            setBookingLoading(false);
+            setShowConfirmationModal(true);
+        }
+    };
+
+    const handleProtectedClick = (path) => {
+        if (!isLoggedIn) {
+            alert('⚠️ Login required to access this page.');
+            navigate('/login');
+        } else {
+            navigate(path);
+        }
+    };
+
+    const getDistrictName = (guide) => {
+        if (guide.districts && guide.districts.length > 0) {
+            return guide.districts[0].name;
+        }
+        if (guide.district) return guide.district;
+        return 'Location not specified';
+    };
+
+    const formatDate = (dateStr) => {
+        if (!dateStr) return 'N/A';
+        try {
+            return new Date(dateStr).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+            });
+        } catch {
+            return 'N/A';
+        }
+    };
+
+    const formatTime = (timeStr) => {
+        if (!timeStr) return 'N/A';
+        try {
+            const [hours, minutes] = timeStr.split(':');
+            const h = parseInt(hours);
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const h12 = h % 12 || 12;
+            return `${h12}:${minutes} ${ampm}`;
+        } catch {
+            return timeStr;
+        }
+    };
+
+    // ============================================
+    // BOTTOM NAVIGATION
+    // ============================================
     const BottomNav = () => (
-        <div
-            className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
-                scrolled
-                    ? 'bg-[#072E2A]/85 backdrop-blur-2xl shadow-2xl shadow-black/20 border-[#C79A3E]/30'
-                    : 'bg-[#072E2A]/70 backdrop-blur-2xl shadow-xl shadow-black/10 border-[#C79A3E]/20'
-            } rounded-full border px-3 py-2 max-w-md mx-auto`}>
+        <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
+            scrolled
+                ? 'bg-[#072E2A]/85 backdrop-blur-2xl shadow-2xl shadow-black/20 border-[#C79A3E]/30'
+                : 'bg-[#072E2A]/70 backdrop-blur-2xl shadow-xl shadow-black/10 border-[#C79A3E]/20'
+        } rounded-full border px-3 py-2 max-w-md mx-auto`}
+        >
             <div className="flex justify-around items-center">
                 <Link to="/" className="flex flex-col items-center group" onClick={() => setActiveNav('home')}>
                     <div className={`p-2 rounded-full transition-all duration-300 ${activeNav === 'home' ? 'bg-[#C79A3E]/20' : 'group-hover:bg-white/5'}`}>
                         <svg className={`w-6 h-6 transition-all duration-300 ${activeNav === 'home' ? 'text-[#E4C77B]' : 'text-[#B9CFC9] group-hover:text-[#EDE2C4]'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                            <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                            <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
                         </svg>
                     </div>
                     {activeNav === 'home' && <div className="w-1.5 h-1.5 rounded-full bg-[#E4C77B] mt-0.5" />}
@@ -746,8 +512,8 @@ const Guides = () => {
                 <button onClick={() => handleProtectedClick('/categories')} className="flex flex-col items-center group">
                     <div className={`p-2 rounded-full transition-all duration-300 ${activeNav === 'location' ? 'bg-[#C79A3E]/20' : 'group-hover:bg-white/5'}`}>
                         <svg className={`w-6 h-6 transition-all duration-300 ${activeNav === 'location' ? 'text-[#E4C77B]' : 'text-[#B9CFC9] group-hover:text-[#EDE2C4]'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                            <circle cx="12" cy="10" r="3" />
+                            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                            <circle cx="12" cy="10" r="3"/>
                         </svg>
                     </div>
                     {activeNav === 'location' && <div className="w-1.5 h-1.5 rounded-full bg-[#E4C77B] mt-0.5" />}
@@ -756,14 +522,17 @@ const Guides = () => {
                 <button onClick={() => handleProtectedClick('/ai-trip-planner')} className="flex flex-col items-center group">
                     <div className={`p-2 rounded-full transition-all duration-300 ${activeNav === 'ai' ? 'bg-[#C79A3E]/20' : 'group-hover:bg-white/5'}`}>
                         <svg className={`w-6 h-12 transition-all duration-300 ${activeNav === 'ai' ? 'text-[#E4C77B]' : 'text-[#B9CFC9] group-hover:text-[#EDE2C4]'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                            <line x1="7" y1="5" x2="7" y2="1" /><line x1="17" y1="5" x2="17" y2="1" />
-                            <circle cx="7" cy="1" r="1.5"/><circle cx="17" cy="1" r="1.5"/>
+                            <line x1="7" y1="5" x2="7" y2="1" />
+                            <line x1="17" y1="5" x2="17" y2="1" />
+                            <circle cx="7" cy="1" r="1.5"/>
+                            <circle cx="17" cy="1" r="1.5"/>
                             <rect x="3" y="5" width="18" height="16" rx="3"/>
                             <rect x="7" y="9" width="3" height="3" rx="0.5" fill="currentColor" fillOpacity="0.3"/>
                             <rect x="14" y="9" width="3" height="3" rx="0.5" fill="currentColor" fillOpacity="0.3"/>
                             <line x1="9" y1="15" x2="15" y2="15"/>
                             <line x1="10" y1="16" x2="14" y2="16"/>
-                            <circle cx="3.5" cy="12" r="1"/><circle cx="20.5" cy="12" r="1"/>
+                            <circle cx="3.5" cy="12" r="1"/>
+                            <circle cx="20.5" cy="12" r="1"/>
                         </svg>
                     </div>
                     {activeNav === 'ai' && <div className="w-1.5 h-1.5 rounded-full bg-[#E4C77B] mt-0.5" />}
@@ -791,972 +560,653 @@ const Guides = () => {
         </div>
     );
 
-    const handleProtectedClick = (path) => {
-        if (!isLoggedIn) {
-            alert('⚠️ Login required.');
-            navigate('/login');
-        } else navigate(path);
-    };
+    // ============================================
+    // LOADING / ERROR STATES
+    // ============================================
 
-    const openGuide = (guide) => {
-        setSelectedGuide(selectedGuide?.id === guide.id ? null : guide);
-        setSelectedSlot(null);
-        setBookingError(null);
-    };
+    if (loading && guides.length === 0) {
+        return (
+            <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ textAlign: "center" }}>
+                    <div style={{ display: "inline-block", width: 40, height: 40, border: "3px solid #C79A3E", borderTop: "3px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    <p style={{ marginTop: 12, color: "#5C6E69", fontFamily: "'Inter', sans-serif" }}>
+                        {activeDistrict ? `Loading guides in ${activeDistrict.name}...` : 'Loading guides...'}
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
-    // Styles for review dialog with images
-    const reviewDialogStyles = {
-        overlay: {
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: '20px',
-        },
-        dialog: {
-            background: '#fff',
-            borderRadius: 16,
-            padding: '32px',
-            maxWidth: '520px',
-            width: '100%',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-            maxHeight: '90vh',
-            overflow: 'auto',
-        },
-        imageGrid: {
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '8px',
-            margin: '12px 0',
-        },
-        imageContainer: {
-            position: 'relative',
-            paddingBottom: '100%',
-            borderRadius: 8,
-            overflow: 'hidden',
-            border: '1px solid #D1D5DB',
-        },
-        imagePreview: {
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-        },
-        removeImageBtn: {
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            background: 'rgba(0,0,0,0.6)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '50%',
-            width: 24,
-            height: 24,
-            cursor: 'pointer',
-            fontSize: 14,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-        },
-        uploadArea: {
-            border: '2px dashed #D1D5DB',
-            borderRadius: 8,
-            padding: '20px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            transition: 'border-color 0.2s',
-            marginTop: 12,
-        },
-        uploadInput: {
-            display: 'none',
-        },
-    };
+    if (error) {
+        return (
+            <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: "20px" }}>
+                <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
+                    <h2 style={{ color: "#072E2A", fontFamily: "'Fraunces', serif" }}>Error Loading Guides</h2>
+                    <p style={{ color: "#5C6E69" }}>{error}</p>
+                    <p style={{ color: "#5C6E69", fontSize: 13, marginTop: 8 }}>
+                        Make sure the Django server is running at <code style={{ background: "#f0f0f0", padding: "2px 6px", borderRadius: 4 }}>http://localhost:8000</code>
+                    </p>
+                    <button 
+                        onClick={() => { initialFetchDone.current = false; fetchGuides(); }}
+                        style={{ marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", border: "none", borderRadius: 999, cursor: "pointer" }}
+                    >
+                        Try Again
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
+    // ============================================
+    // RENDER
+    // ============================================
     return (
-        <div
-            style={{
-                background: T.cream,
-                minHeight: '100vh',
-                paddingBottom: 100,
-                fontFamily: "'Inter','Segoe UI',sans-serif",
-                color: T.ink,
-            }}>
+        <div style={{ background: "#FBF6EA", minHeight: "100vh", paddingBottom: 100, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#0B2422" }}>
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-                .guide-font-display { font-family: 'Fraunces', serif; }
-                .guide-font-mono { font-family: 'IBM Plex Mono', monospace; }
-                .guide-card { transition: all 0.3s ease; }
-                .guide-card:hover { transform: translateY(-4px); box-shadow: 0 14px 34px rgba(7,46,42,0.14); }
-                .guide-selected { border: 2px solid #0E5C53 !important; }
-                .availability-slot { transition: all 0.2s ease; }
-                .availability-slot:hover:not(:disabled) { background: #0E5C53 !important; color: #fff !important; transform: scale(1.02); }
-                .availability-slot:disabled { opacity: 0.5; cursor: not-allowed; }
-                .guide-search:focus { outline: none; border-color: ${T.gold} !important; box-shadow: 0 0 0 3px rgba(199,154,62,0.15); }
-                .specialty-chip, .district-badge { transition: all 0.25s ease; white-space: nowrap; }
-                .toast-success { color: #16A34A; background: #DCFCE7; border: 1px solid #BBF7D0; }
-                .toast-error { color: #DC2626; background: #FEE2E2; border: 1px solid #FECACA; }
-                .review-image-preview {
+                
+                .gd-font-display { font-family: 'Fraunces', serif; }
+                .gd-font-mono { font-family: 'IBM Plex Mono', monospace; }
+                .gd-guide-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(7,46,42,0.15); }
+                
+                .dropdown-wrapper {
                     position: relative;
-                    padding-bottom: 100%;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    border: 1px solid #D1D5DB;
+                    display: inline-block;
+                    min-width: 160px;
+                    z-index: 1000;
                 }
-                .review-image-preview img {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
+                
+                .dropdown-btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
                     width: 100%;
-                    height: 100%;
-                    object-fit: cover;
-                }
-                .review-image-preview .remove-btn {
-                    position: absolute;
-                    top: 4px;
-                    right: 4px;
-                    background: rgba(0,0,0,0.6);
-                    color: white;
-                    border: none;
-                    border-radius: 50%;
-                    width: 24px;
-                    height: 24px;
+                    padding: 10px 16px;
+                    background: rgba(255,255,255,0.06);
+                    border: 1px solid rgba(199,154,62,0.4);
+                    border-radius: 999px;
+                    color: #fff;
+                    font-size: 13px;
+                    font-family: 'Inter',sans-serif;
                     cursor: pointer;
-                    font-size: 14px;
+                    gap: 8px;
+                    white-space: nowrap;
+                    min-height: 44px;
+                    transition: all 0.2s ease;
+                }
+                
+                .dropdown-btn:hover {
+                    background: rgba(255,255,255,0.1);
+                    border-color: rgba(199,154,62,0.6);
+                }
+                
+                .dropdown-menu {
+                    position: absolute;
+                    top: calc(100% + 8px);
+                    left: 0;
+                    right: 0;
+                    background: #ffffff;
+                    border-radius: 12px;
+                    box-shadow: 0 20px 60px rgba(7,46,42,0.3);
+                    max-height: 280px;
+                    overflow-y: auto;
+                    z-index: 9999;
+                    border: 1px solid rgba(199,154,62,0.15);
+                    min-width: 200px;
+                    padding: 6px 0;
+                    animation: dropdownFade 0.2s ease;
+                }
+                
+                @keyframes dropdownFade {
+                    from { opacity: 0; transform: translateY(-8px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                
+                .dropdown-menu::-webkit-scrollbar { width: 4px; }
+                .dropdown-menu::-webkit-scrollbar-thumb { background: #C79A3E; border-radius: 4px; }
+                .dropdown-menu::-webkit-scrollbar-track { background: transparent; }
+                
+                .dropdown-item {
+                    padding: 10px 16px;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                    font-size: 13px;
+                    color: #072E2A;
+                    border-bottom: 1px solid rgba(0,0,0,0.05);
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                
+                .dropdown-item:last-child { border-bottom: none; }
+                .dropdown-item:hover { background: rgba(199,154,62,0.08); }
+                .dropdown-item.active {
+                    background: rgba(199,154,62,0.12);
+                    color: #C79A3E;
+                    font-weight: 600;
+                }
+                .dropdown-item .check { color: #C79A3E; margin-left: 8px; }
+
+                .gd-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+                .gd-guide-card {
+                    background: #fff;
+                    border-radius: 12px;
+                    overflow: hidden;
+                    border: 1px solid rgba(199,154,62,0.15);
+                    transition: all 0.3s ease;
+                    cursor: pointer;
+                    position: relative;
+                }
+
+                @media (min-width: 768px) {
+                    .gd-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+                }
+                @media (min-width: 1024px) {
+                    .gd-grid { grid-template-columns: repeat(3, 1fr); gap: 24px; }
+                }
+                
+                .search-input {
+                    background: rgba(255,255,255,0.06);
+                    border: 1px solid rgba(199,154,62,0.4);
+                    border-radius: 999px;
+                    padding: 10px 16px;
+                    color: #fff;
+                    font-size: 13px;
+                    font-family: 'Inter',sans-serif;
+                    outline: none;
+                    min-width: 180px;
+                    flex: 1;
+                }
+                .search-input::placeholder {
+                    color: rgba(255,255,255,0.5);
+                }
+                .search-input:focus {
+                    border-color: #E4C77B;
+                }
+
+                .book-btn {
+                    background: linear-gradient(135deg, #C79A3E, #E4C77B);
+                    color: #072E2A;
+                    border: none;
+                    padding: 10px 24px;
+                    border-radius: 999px;
+                    font-weight: 600;
+                    font-size: 13px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    font-family: 'Inter', sans-serif;
+                }
+                .book-btn:hover {
+                    transform: scale(1.03);
+                    box-shadow: 0 4px 16px rgba(199,154,62,0.3);
+                }
+
+                .modal-overlay {
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(7,46,42,0.6);
+                    backdrop-filter: blur(4px);
+                    z-index: 1000;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                }
-                .review-upload-area {
-                    border: 2px dashed #D1D5DB;
-                    border-radius: 8px;
                     padding: 20px;
-                    text-align: center;
-                    cursor: pointer;
-                    transition: border-color 0.2s;
-                    margin-top: 12px;
                 }
-                .review-upload-area:hover {
-                    border-color: ${T.gold};
+                .modal-content {
+                    background: #FBF6EA;
+                    border-radius: 16px;
+                    padding: 28px;
+                    max-width: 560px;
+                    width: 100%;
+                    max-height: 90vh;
+                    overflow-y: auto;
+                    border: 1px solid rgba(199,154,62,0.3);
+                    box-shadow: 0 20px 60px rgba(7,46,42,0.25);
+                }
+                .modal-input {
+                    width: 100%;
+                    padding: 10px 14px;
+                    border: 1px solid rgba(199,154,62,0.3);
+                    border-radius: 8px;
+                    font-size: 14px;
+                    background: #fff;
+                    transition: border-color 0.3s ease;
+                    font-family: 'Inter', sans-serif;
+                }
+                .modal-input:focus {
+                    border-color: #C79A3E;
+                    outline: none;
+                    box-shadow: 0 0 0 3px rgba(199,154,62,0.1);
+                }
+                .modal-error {
+                    background: #FEE2E2;
+                    color: #DC2626;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    margin-bottom: 14px;
+                    border: 1px solid #FCA5A5;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .modal-success {
+                    background: #DCFCE7;
+                    color: #16A34A;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    margin-bottom: 14px;
+                    border: 1px solid #86EFAC;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                
+                .availability-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                    padding: 2px 10px;
+                    border-radius: 999px;
+                    font-size: 10px;
+                    font-weight: 500;
+                }
+                .availability-badge.available {
+                    background: #DCFCE7;
+                    color: #166534;
+                }
+                .availability-badge.unavailable {
+                    background: #FEE2E2;
+                    color: #991B1B;
+                }
+                .availability-badge.loading {
+                    background: #F3F4F6;
+                    color: #6B7280;
+                }
+                
+                /* ✅ Slot Cards */
+                .slot-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                    gap: 10px;
+                    margin-top: 10px;
+                    max-height: 350px;
+                    overflow-y: auto;
+                    padding: 4px;
+                }
+                .slot-card {
+                    background: #FFFFFF;
+                    border-radius: 10px;
+                    border: 2px solid #E2E8F0;
+                    padding: 14px 12px;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    text-align: center;
+                }
+                .slot-card:hover {
+                    border-color: #C79A3E;
+                    box-shadow: 0 4px 16px rgba(199,154,62,0.15);
+                    transform: translateY(-3px);
+                }
+                .slot-card.selected {
+                    border-color: #C79A3E;
+                    background: #C79A3E;
+                    color: #fff;
+                    box-shadow: 0 4px 16px rgba(199,154,62,0.25);
+                    transform: translateY(-3px);
+                }
+                .slot-card .slot-date {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: #0B2422;
+                    margin-bottom: 2px;
+                }
+                .slot-card.selected .slot-date {
+                    color: #fff;
+                }
+                .slot-card .slot-time {
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: #072E2A;
+                }
+                .slot-card.selected .slot-time {
+                    color: #fff;
+                }
+                .slot-card .slot-info {
+                    font-size: 10px;
+                    color: #5A5548;
+                    margin-top: 3px;
+                }
+                .slot-card.selected .slot-info {
+                    color: rgba(255,255,255,0.8);
+                }
+                
+                .no-slots-message {
+                    padding: 30px 20px;
+                    background: #FEF3C7;
+                    border-radius: 10px;
+                    border: 1px solid #FCD34D;
+                    color: #92400E;
+                    font-size: 14px;
+                    text-align: center;
+                }
+                
+                .confirmation-card {
+                    text-align: center;
+                    padding: 10px 0;
+                }
+                .confirmation-card .icon {
+                    font-size: 48px;
+                    margin-bottom: 12px;
+                }
+                .confirmation-card h3 {
+                    font-size: 22px;
+                    color: #0B2422;
+                    margin: 0 0 4px;
+                    font-family: 'Fraunces', serif;
+                    font-style: italic;
+                }
+                .confirmation-card .subtitle {
+                    color: #5C6E69;
+                    font-size: 14px;
+                    margin: 0 0 16px;
+                }
+                .confirmation-card .details {
+                    background: #F8FAFC;
+                    border-radius: 12px;
+                    padding: 16px 20px;
+                    margin: 16px 0;
+                    text-align: left;
+                }
+                .confirmation-card .details .row {
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 8px 0;
+                    border-bottom: 1px solid #E2E8F0;
+                    font-size: 14px;
+                }
+                .confirmation-card .details .row:last-child {
+                    border-bottom: none;
+                }
+                .confirmation-card .details .label {
+                    color: #5A5548;
+                }
+                .confirmation-card .details .value {
+                    color: #0B2422;
+                    font-weight: 600;
+                }
+                .confirmation-card .price {
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: #C79A3E;
+                    margin: 12px 0 4px;
+                }
+                .confirmation-card .price-label {
+                    font-size: 12px;
+                    color: #5A5548;
+                    margin: 0 0 16px;
                 }
             `}</style>
 
             {/* Header */}
-            <div style={{ background: T.deepTeal, padding: '48px 20px 28px', position: 'relative', overflow: 'hidden' }}>
-                <div
-                    style={{
-                        position: 'absolute',
-                        inset: 0,
-                        background: 'radial-gradient(circle at 85% 0%, rgba(199,154,62,0.15), transparent 55%)',
-                    }}
-                />
-                <div style={{ position: 'relative', maxWidth: '1200px', margin: '0 auto', padding: '0 20px' }}>
-                    <div
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            flexWrap: 'wrap',
-                            gap: 16,
-                        }}>
+            <div style={{ background: "#072E2A", padding: "48px 0 28px", position: "relative", zIndex: 10 }}>
+                <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 85% 0%, rgba(199,154,62,0.15), transparent 55%)" }} />
+                <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 40px", position: "relative", zIndex: 11 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                         <div>
-                            <p
-                                className="guide-font-mono"
-                                style={{
-                                    fontSize: 10,
-                                    letterSpacing: 3,
-                                    textTransform: 'uppercase',
-                                    color: T.goldLight,
-                                    marginBottom: 8,
-                                }}>
-                                DiscoverEase · Local Experts
-                            </p>
-                            <h1
-                                className="guide-font-display"
-                                style={{
-                                    fontStyle: 'italic',
-                                    fontSize: 'clamp(32px, 5vw, 48px)',
-                                    fontWeight: 500,
-                                    color: '#fff',
-                                    margin: '0 0 6px',
-                                    lineHeight: 1.05,
-                                }}>
-                                {activeDistrict ? `🧭 Guides in ${activeDistrict.name}` : '🧭 Book a Guide'}
+                            <Link to="/" style={{ color: "rgba(237,226,196,0.6)", textDecoration: "none", fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", fontFamily: "'IBM Plex Mono', monospace", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                </svg>
+                                Back
+                            </Link>
+                            <h1 className="gd-font-display" style={{ fontStyle: "italic", fontSize: "clamp(36px, 5vw, 48px)", fontWeight: 500, color: "#fff", margin: "8px 0 4px", lineHeight: 1.05 }}>
+                                Find Your Guide
                             </h1>
-                            <p style={{ fontSize: 'clamp(13px, 1.2vw, 16px)', color: 'rgba(237,226,196,0.75)' }}>
-                                {activeDistrict
-                                    ? `Verified guides serving ${activeDistrict.name}`
-                                    : 'Connect with verified local guides for an authentic Kerala experience'}
-                            </p>
-                            <div style={{ marginTop: 18, maxWidth: 340 }}>
-                                <ZariDivider />
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                            <button
-                                onClick={navigateToMyBookings}
-                                style={{
-                                    padding: '10px 20px',
-                                    borderRadius: 999,
-                                    border: 'none',
-                                    background: T.gold,
-                                    color: '#fff',
-                                    fontWeight: 500,
-                                    fontSize: 13,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                }}>
-                                📅 My Bookings
-                                {myBookings.length > 0 && (
-                                    <span
-                                        style={{
-                                            background: 'rgba(255,255,255,0.2)',
-                                            padding: '1px 8px',
-                                            borderRadius: 999,
-                                            fontSize: 11,
-                                        }}>
-                                        {myBookings.length}
-                                    </span>
-                                )}
-                            </button>
-                        
-                        </div>
-                    </div>
-                </div>
-                <svg
-                    viewBox="0 0 1200 40"
-                    preserveAspectRatio="none"
-                    style={{ position: 'absolute', bottom: -1, left: 0, width: '100%', height: 26 }}>
-                    <path
-                        d="M0,20 C150,36 300,4 450,18 C600,32 750,4 900,16 C1050,28 1150,10 1200,18 L1200,40 L0,40 Z"
-                        fill={T.cream}
-                    />
-                </svg>
-            </div>
-
-            {bookingSuccess && (
-                <div style={{ maxWidth: '1200px', margin: '16px auto 0', padding: '0 20px' }}>
-                    <div
-                        className="toast-success"
-                        style={{ padding: '14px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span>✅</span>
-                        <span>{bookingSuccess}</span>
-                        <button
-                            onClick={() => setBookingSuccess(null)}
-                            style={{
-                                marginLeft: 'auto',
-                                background: 'none',
-                                border: 'none',
-                                fontSize: 18,
-                                cursor: 'pointer',
-                                color: '#16A34A',
-                            }}>
-                            ×
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            
-
-            {/* REVIEW DIALOG WITH IMAGE UPLOAD */}
-            {reviewDialog && (
-                <div style={reviewDialogStyles.overlay} onClick={() => setReviewDialog(null)}>
-                    <div
-                        style={reviewDialogStyles.dialog}
-                        onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                            <h3 style={{ margin: 0, color: T.ink }}>⭐ Share Your Experience</h3>
-                            <button
-                                onClick={() => setReviewDialog(null)}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    fontSize: 24,
-                                    cursor: 'pointer',
-                                    color: T.muted,
-                                }}>
-                                ×
-                            </button>
-                        </div>
-                        
-                        <p style={{ color: T.muted, fontSize: 14, marginBottom: 16 }}>
-                            How was your trip with <strong>{reviewDialog.guide_name || reviewDialog.guideName || 'the guide'}</strong>?
-                        </p>
-                        
-                        {/* Rating */}
-                        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-                            <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                    <button
-                                        key={star}
-                                        onClick={() => setRating(star)}
-                                        style={{
-                                            fontSize: 32,
-                                            background: 'none',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            transition: 'transform 0.2s',
-                                            transform: rating >= star ? 'scale(1.1)' : 'scale(1)',
-                                        }}>
-                                        <span style={{ 
-                                            color: rating >= star ? '#FFB300' : '#E0E0E0',
-                                            textShadow: rating >= star ? '0 0 20px rgba(255,179,0,0.3)' : 'none',
-                                        }}>
-                                            ★
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                            <p style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>
-                                {rating === 0 && 'Tap a star to rate'}
-                                {rating === 1 && 'Poor'}
-                                {rating === 2 && 'Fair'}
-                                {rating === 3 && 'Good'}
-                                {rating === 4 && 'Very Good'}
-                                {rating === 5 && 'Excellent!'}
+                            <p style={{ fontSize: "clamp(14px, 1.2vw, 17px)", color: "rgba(237,226,196,0.75)", maxWidth: 600 }}>
+                                {activeDistrict ? `Guides available in ${activeDistrict.name}` : 'Connect with experienced guides across Kerala'}
                             </p>
                         </div>
-                        
-                        {/* Review Text */}
-                        <textarea
-                            placeholder="Share your experience with this guide..."
-                            value={reviewText}
-                            onChange={(e) => setReviewText(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '12px 16px',
-                                borderRadius: 8,
-                                border: '1px solid #D1D5DB',
-                                fontSize: 14,
-                                resize: 'vertical',
-                                minHeight: 80,
-                                fontFamily: 'inherit',
-                            }}
-                        />
-                        
-                        {/* Image Upload */}
-                        <div style={{ marginTop: 12 }}>
-                            <label style={{ fontSize: 13, fontWeight: 500, color: T.ink, display: 'block', marginBottom: 4 }}>
-                                📸 Add Photos
-                            </label>
-                            
-                            {reviewImages.length > 0 && (
-                                <div style={reviewDialogStyles.imageGrid}>
-                                    {reviewImages.map((img) => (
-                                        <div key={img.id} style={reviewDialogStyles.imageContainer}>
-                                            <img src={img.dataUrl} alt="Review" style={reviewDialogStyles.imagePreview} />
-                                            <button
-                                                onClick={() => removeImage(img.id)}
-                                                style={reviewDialogStyles.removeImageBtn}>
-                                                ×
-                                            </button>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <Link to="/my-bookings" style={{ padding: "10px 20px", borderRadius: 999, border: "1px solid rgba(199,154,62,0.3)", background: "rgba(255,255,255,0.06)", color: "#E4C77B", cursor: "pointer", fontSize: 13, fontWeight: 500, textDecoration: "none", display: "flex", alignItems: "center", gap: 8, transition: "all 0.3s ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.transform = "scale(1.02)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.transform = "scale(1)"; }}><span>📅</span>My Bookings</Link>
+                            <button onClick={() => navigate('/guides')} className="wl-book-guide-btn" style={{ background: "linear-gradient(135deg, #C79A3E, #E4C77B)", color: "#072E2A", border: "none", padding: "10px 24px", borderRadius: 999, fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all 0.3s ease", boxShadow: "0 4px 16px rgba(199,154,62,0.3)", fontFamily: "'Inter', sans-serif" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.03)"; e.currentTarget.style.boxShadow = "0 6px 24px rgba(199,154,62,0.4)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(199,154,62,0.3)"; }}><span style={{ fontSize: 18 }}>👤</span>Book a Guide</button>
+                        </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 20 }}>
+                        <input type="text" placeholder="🔍 Search guides..." value={searchTerm} onChange={handleSearchChange} className="search-input" style={{ minWidth: 180, flex: 1 }} />
+                        <div className="dropdown-wrapper" ref={districtRef} style={{ minWidth: 160 }}>
+                            <button className="dropdown-btn" onClick={() => { setShowDistrictDropdown(!showDistrictDropdown); }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span>📍</span><span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100px" }}>{selectedDistrict ? selectedDistrict.name : 'All Districts'}</span></span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#E4C77B" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            {showDistrictDropdown && (
+                                <div className="dropdown-menu">
+                                    <div className={`dropdown-item ${!selectedDistrict ? 'active' : ''}`} onClick={() => handleDistrictSelect(null)}><span>All Districts</span>{!selectedDistrict && <span className="check">✓</span>}</div>
+                                    {KERALA_DISTRICTS.map((district) => (
+                                        <div key={district.id} className={`dropdown-item ${selectedDistrict?.id === district.id ? 'active' : ''}`} onClick={() => handleDistrictSelect(district)}>
+                                            <span>{district.name}</span>
+                                            {selectedDistrict?.id === district.id && <span className="check">✓</span>}
                                         </div>
                                     ))}
                                 </div>
                             )}
-                            
-                            <div
-                                style={reviewDialogStyles.uploadArea}
-                                onClick={() => document.getElementById('review-image-input').click()}
-                                onDragOver={(e) => {
-                                    e.preventDefault();
-                                    e.currentTarget.style.borderColor = T.gold;
-                                }}
-                                onDragLeave={(e) => {
-                                    e.currentTarget.style.borderColor = '#D1D5DB';
-                                }}
-                                onDrop={(e) => {
-                                    e.preventDefault();
-                                    e.currentTarget.style.borderColor = '#D1D5DB';
-                                    const files = Array.from(e.dataTransfer.files);
-                                    const imagePromises = files.map((file) => {
-                                        return new Promise((resolve) => {
-                                            const reader = new FileReader();
-                                            reader.onloadend = () => {
-                                                resolve({
-                                                    id: Date.now() + Math.random(),
-                                                    file: file,
-                                                    dataUrl: reader.result,
-                                                    name: file.name,
-                                                    size: file.size,
-                                                });
-                                            };
-                                            reader.readAsDataURL(file);
-                                        });
-                                    });
-                                    Promise.all(imagePromises).then((newImages) => {
-                                        setReviewImages((prev) => [...prev, ...newImages]);
-                                    });
-                                }}>
-                                <p style={{ margin: 0, fontSize: 13, color: T.muted }}>
-                                    📤 Drag & drop photos here, or click to browse
-                                </p>
-                                <p style={{ margin: '4px 0 0', fontSize: 11, color: T.muted2 }}>
-                                    Max 5 photos
-                                </p>
-                                <input
-                                    id="review-image-input"
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    style={reviewDialogStyles.uploadInput}
-                                    onChange={handleImageUpload}
-                                />
-                            </div>
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-                            <button
-                                onClick={() => setReviewDialog(null)}
-                                style={{
-                                    flex: 1,
-                                    padding: '10px',
-                                    borderRadius: 8,
-                                    border: '1px solid #D1D5DB',
-                                    background: 'transparent',
-                                    color: T.muted,
-                                    cursor: 'pointer',
-                                    fontSize: 14,
-                                }}>
-                                Cancel
-                            </button>
-                            <button
-                                onClick={() => handleSubmitReview(reviewDialog.id)}
-                                disabled={submittingReview || rating === 0 || !reviewText.trim()}
-                                style={{
-                                    flex: 2,
-                                    padding: '10px',
-                                    borderRadius: 8,
-                                    border: 'none',
-                                    background: (submittingReview || rating === 0 || !reviewText.trim()) 
-                                        ? '#D1D5DB' 
-                                        : 'linear-gradient(135deg, #FF9800, #FFC107)',
-                                    color: '#fff',
-                                    fontWeight: 600,
-                                    cursor: (submittingReview || rating === 0 || !reviewText.trim()) 
-                                        ? 'not-allowed' 
-                                        : 'pointer',
-                                    fontSize: 14,
-                                }}>
-                                {submittingReview ? 'Submitting...' : '✅ Submit Review'}
-                            </button>
                         </div>
                     </div>
                 </div>
-            )}
-
-            {/* Search + Specialty Filters */}
-            <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '24px 20px 0' }}>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-                    <div style={{ position: 'relative', flex: '1 1 260px' }}>
-                        <span
-                            style={{
-                                position: 'absolute',
-                                left: 14,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                color: T.muted2,
-                                fontSize: 14,
-                            }}>
-                            🔍
-                        </span>
-                        <input
-                            className="guide-search"
-                            type="text"
-                            placeholder="Search guides by name, bio, or specialty..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            style={{
-                                width: '100%',
-                                padding: '12px 16px 12px 38px',
-                                borderRadius: 999,
-                                border: '1px solid rgba(199,154,62,0.3)',
-                                fontSize: 13,
-                                background: '#fff',
-                            }}
-                        />
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
-                        {allSpecialties.map((s) => (
-                            <button
-                                key={s}
-                                className="specialty-chip"
-                                onClick={() => setActiveSpecialty(s)}
-                                style={{
-                                    padding: '8px 16px',
-                                    borderRadius: 999,
-                                    fontSize: 11,
-                                    letterSpacing: '0.05em',
-                                    textTransform: 'uppercase',
-                                    fontFamily: "'IBM Plex Mono', monospace",
-                                    border: activeSpecialty === s ? '2px solid #0E5C53' : '1px solid #D1D5DB',
-                                    background: activeSpecialty === s ? '#0E5C53' : 'transparent',
-                                    color: activeSpecialty === s ? '#fff' : '#5C6E69',
-                                    cursor: 'pointer',
-                                }}>
-                                {s === 'all' ? 'All' : s}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                {activeDistrict && (
-                    <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span
-                            className="district-badge"
-                            style={{
-                                padding: '6px 14px',
-                                borderRadius: 999,
-                                fontSize: 12,
-                                background: T.gold,
-                                color: '#fff',
-                            }}>
-                            📍 {activeDistrict.name}
-                        </span>
-                        <button
-                            onClick={() => setActiveDistrict(null)}
-                            style={{
-                                fontSize: 11,
-                                color: T.muted,
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                textDecoration: 'underline',
-                            }}>
-                            Clear district filter
-                        </button>
-                    </div>
-                )}
+                <svg viewBox="0 0 1200 40" preserveAspectRatio="none" style={{ position: "absolute", bottom: -1, left: 0, width: "100%", height: 26 }}>
+                    <path d="M0,20 C150,36 300,4 450,18 C600,32 750,4 900,16 C1050,28 1150,10 1200,18 L1200,40 L0,40 Z" fill="#FBF6EA" />
+                </svg>
             </div>
 
             {/* Guides Grid */}
-            <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 20px 24px' }}>
-                {loading ? (
-                    <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                        <div
-                            style={{
-                                width: 40,
-                                height: 40,
-                                border: '3px solid #E4C77B',
-                                borderTop: '3px solid transparent',
-                                borderRadius: '50%',
-                                animation: 'spin 0.8s linear infinite',
-                                margin: '0 auto',
-                            }}
-                        />
-                        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-                        <p style={{ marginTop: 16, color: T.muted }}>Loading guides...</p>
-                    </div>
-                ) : filteredGuides.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-                        <div style={{ fontSize: 64, marginBottom: 16 }}>🧭</div>
-                        <h2 className="guide-font-display" style={{ fontSize: 28, color: T.deepTeal, marginBottom: 8 }}>
-                            {guides.length === 0 ? 'No guides available yet' : 'No guides match your search'}
-                        </h2>
-                        <p style={{ color: T.muted2, fontSize: 16 }}>
-                            {guides.length === 0
-                                ? activeDistrict
-                                    ? `No guides currently serve ${activeDistrict.name}.`
-                                    : 'Check back soon — guides are still setting up their availability.'
-                                : 'Try a different search term or specialty.'}
-                        </p>
+            <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px 40px" }}>
+                {filteredGuides.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "60px 20px", background: "#fff", borderRadius: 12, border: "1px solid rgba(199,154,62,0.15)" }}>
+                        <div style={{ fontSize: 48, marginBottom: 16 }}>🧭</div>
+                        <h2 className="gd-font-display" style={{ fontSize: 28, color: "#072E2A", marginBottom: 8 }}>{activeDistrict ? `No guides found in ${activeDistrict.name}` : 'No guides found'}</h2>
+                        <p style={{ color: "#8A9A95", fontSize: 16, maxWidth: 400, margin: "0 auto" }}>{activeDistrict ? `Try selecting a different district or adjusting your search.` : 'Try adjusting your search or filters.'}</p>
+                        {activeDistrict && <button onClick={() => handleDistrictSelect(null)} style={{ marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", border: "none", borderRadius: 999, cursor: "pointer" }}>Show All Guides</button>}
                     </div>
                 ) : (
-                    <div style={{ display: 'grid', gap: 20 }}>
+                    <div className="gd-grid">
                         {filteredGuides.map((guide) => {
-                            // Filter available slots (not booked, future dates)
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            
-                            const availableSlots = (guide.availabilities || []).filter(slot => {
-                                const slotDate = new Date(slot.date);
-                                slotDate.setHours(0, 0, 0, 0);
-                                const isBooked = slot.is_booked || (slot.current_bookings || 0) >= (slot.max_bookings || 1);
-                                return slotDate >= today && !isBooked;
-                            });
-                            
-                            // Sort slots by date
-                            availableSlots.sort((a, b) => new Date(a.date) - new Date(b.date));
-                            
-                            const totalSlots = guide.availabilities?.length || 0;
-                            const availableCount = availableSlots.length;
-                            
+                            const slots = guideAvailability[guide.id] || [];
+                            const hasAvailability = slots.length > 0;
+                            const isLoadingAvailability = loadingAvailability[guide.id];
                             return (
-                            <div
-                                key={guide.id}
-                                className={`guide-card ${selectedGuide?.id === guide.id ? 'guide-selected' : ''}`}
-                                style={{
-                                    background: '#fff',
-                                    borderRadius: 16,
-                                    padding: '26px',
-                                    border:
-                                        selectedGuide?.id === guide.id
-                                            ? '2px solid #0E5C53'
-                                            : '1px solid rgba(199,154,62,0.15)',
-                                    cursor: 'pointer',
-                                }}
-                                onClick={() => openGuide(guide)}>
-                                
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-                                        <div
-                                            style={{
-                                                width: 68,
-                                                height: 68,
-                                                borderRadius: '50%',
-                                                background: `linear-gradient(135deg, ${T.gold}, ${T.goldLight})`,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: 28,
-                                                fontWeight: 'bold',
-                                                color: '#fff',
-                                                flexShrink: 0,
-                                            }}>
-                                            {guide.full_name?.[0] || 'G'}
-                                        </div>
-                                        <div>
-                                            <h3 style={{ fontSize: 19, fontWeight: 600, color: T.ink, margin: 0 }}>
-                                                {guide.full_name}
-                                            </h3>
-                                            
-                                            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                                                {(guide.districts || []).map((d) => (
-                                                    <span
-                                                        key={d.id}
-                                                        style={{
-                                                            padding: '2px 10px',
-                                                            borderRadius: 999,
-                                                            fontSize: 9,
-                                                            background: T.goldLight,
-                                                            color: T.deepTeal,
-                                                        }}>
-                                                        📍 {d.name}
-                                                    </span>
-                                                ))}
-                                                {(!guide.districts || guide.districts.length === 0) && (
-                                                    <span
-                                                        style={{
-                                                            padding: '2px 10px',
-                                                            borderRadius: 999,
-                                                            fontSize: 9,
-                                                            background: '#E5E7EB',
-                                                            color: '#6B7280',
-                                                        }}>
-                                                        District not assigned
-                                                    </span>
-                                                )}
+                                <div key={guide.id} className="gd-guide-card">
+                                    <div style={{ padding: 20 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                                            <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#072E2A", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, color: "#E4C77B", fontFamily: "'Fraunces', serif", overflow: "hidden", flexShrink: 0 }}>
+                                                {guide.profile_image ? <img src={guide.profile_image} alt={guide.full_name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : guide.full_name?.charAt(0)?.toUpperCase() || 'G'}
                                             </div>
-                                            
-                                            <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                                                {guide.specialties.map((s, i) => (
-                                                    <span
-                                                        key={i}
-                                                        style={{
-                                                            padding: '2px 10px',
-                                                            borderRadius: 999,
-                                                            fontSize: 10,
-                                                            background: 'rgba(199,154,62,0.15)',
-                                                            color: '#0E5C53',
-                                                        }}>
-                                                        {s}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                            
-                                            <div
-                                                style={{
-                                                    marginTop: 8,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    flexWrap: 'wrap',
-                                                }}>
-                                                <StarRating rating={guide.rating} />
-                                                <span style={{ fontSize: 13, color: T.muted }}>
-                                                    {guide.rating} · {guide.total_reviews} reviews ·{' '}
-                                                    {guide.experience_years}y experience
-                                                </span>
-                                                {guide.is_verified && (
-                                                    <span
-                                                        style={{
-                                                            padding: '2px 8px',
-                                                            borderRadius: 999,
-                                                            fontSize: 10,
-                                                            background: '#DCFCE7',
-                                                            color: '#16A34A',
-                                                        }}>
-                                                        ✅ Verified
-                                                    </span>
-                                                )}
+                                            <div style={{ flex: 1 }}>
+                                                <h3 className="gd-font-display" style={{ fontSize: 18, fontWeight: 500, color: "#072E2A", margin: 0 }}>{guide.full_name}</h3>
+                                                <p style={{ fontSize: 13, color: "#0E5C53", margin: "2px 0 0" }}>📍 {getDistrictName(guide)}</p>
+                                                {guide.rating > 0 && <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}><span style={{ color: "#FFB300" }}>{'★'.repeat(Math.min(Math.round(guide.rating), 5))}</span><span style={{ color: "#8A9A95", fontSize: 12 }}>({guide.total_reviews || 0})</span></div>}
                                             </div>
                                         </div>
-                                    </div>
-
-                                    <div style={{ flex: 1, minWidth: 200 }}>
-                                        <p style={{ fontSize: 14, color: '#4A5F5A', lineHeight: 1.6 }}>{guide.bio}</p>
-                                        {guide.phone && (
-                                            <p style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>📞 {guide.phone}</p>
-                                        )}
-                                        {guide.price_per_day > 0 && (
-                                            <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
-                                                💰 ₹{guide.price_per_day}/day {guide.price_per_hour > 0 && `· ₹${guide.price_per_hour}/hour`}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    <div style={{ textAlign: 'right', minWidth: 110 }}>
-                                        <span
-                                            style={{
-                                                padding: '4px 16px',
-                                                borderRadius: 999,
-                                                fontSize: 12,
-                                                background: availableCount > 0 ? '#DCFCE7' : '#FEE2E2',
-                                                color: availableCount > 0 ? '#16A34A' : '#DC2626',
-                                                display: 'inline-block',
-                                            }}>
-                                            {availableCount > 0 ? `✅ ${availableCount} slot${availableCount > 1 ? 's' : ''}` : '❌ No slots'}
-                                        </span>
-                                        {totalSlots > 0 && totalSlots !== availableCount && (
-                                            <span style={{ fontSize: 10, color: T.muted2, display: 'block', marginTop: 4 }}>
-                                                ({totalSlots} total, {totalSlots - availableCount} booked)
-                                            </span>
-                                        )}
+                                        <p style={{ fontSize: 14, color: "#3D5A57", lineHeight: 1.5, marginTop: 12 }}>{guide.bio || 'Experienced guide ready to show you Kerala.'}</p>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                                            {guide.specialties && guide.specialties.slice(0, 3).map((spec, i) => <span key={i} style={{ background: "rgba(199,154,62,0.12)", color: "#0E5C53", padding: "2px 10px", borderRadius: 999, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}>{spec}</span>)}
+                                            {guide.languages && guide.languages.slice(0, 2).map((lang, i) => <span key={i} style={{ background: "rgba(14,92,83,0.08)", color: "#0E5C53", padding: "2px 10px", borderRadius: 999, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}>{lang}</span>)}
+                                        </div>
+                                        <div style={{ marginTop: 10 }}>
+                                            {isLoadingAvailability ? <span className="availability-badge loading"><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading...</span> : hasAvailability ? <span className="availability-badge available">✅ {slots.length} slots available</span> : <span className="availability-badge unavailable">❌ No slots available</span>}
+                                        </div>
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, borderTop: "1px solid rgba(199,154,62,0.15)", paddingTop: 14 }}>
+                                            <div><span style={{ fontSize: 12, color: "#8A9A95" }}>Rate</span><p style={{ fontSize: 18, fontWeight: 700, color: "#072E2A", margin: 0 }}>₹{guide.price_per_hour || 500}<span style={{ fontSize: 12, fontWeight: 400, color: "#8A9A95" }}>/hr</span></p></div>
+                                            <button onClick={(e) => { e.stopPropagation(); handleBookGuide(guide); }} className="book-btn" disabled={!hasAvailability} style={{ opacity: hasAvailability ? 1 : 0.5, cursor: hasAvailability ? 'pointer' : 'not-allowed' }}>{hasAvailability ? 'Book Now' : 'Unavailable'}</button>
+                                        </div>
+                                        {guide.is_available === false && <div style={{ marginTop: 8, padding: "4px 12px", background: "#FEE2E2", borderRadius: 999, color: "#DC2626", fontSize: 11, display: "inline-block" }}>Currently Unavailable</div>}
                                     </div>
                                 </div>
-
-                                {selectedGuide?.id === guide.id && (
-                                    <div
-                                        style={{
-                                            marginTop: 22,
-                                            borderTop: '1px solid rgba(199,154,62,0.2)',
-                                            paddingTop: 20,
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}>
-                                        
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                            <div>
-                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>📍 Districts Served</h4>
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                                    {(guide.districts || []).map((d) => (
-                                                        <span
-                                                            key={d.id}
-                                                            style={{
-                                                                padding: '2px 10px',
-                                                                borderRadius: 999,
-                                                                fontSize: 11,
-                                                                background: T.goldLight,
-                                                                color: T.deepTeal,
-                                                            }}>
-                                                            {d.name}
-                                                        </span>
-                                                    ))}
-                                                    {(!guide.districts || guide.districts.length === 0) && (
-                                                        <span style={{ fontSize: 13, color: T.muted }}>No districts assigned</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>💬 Languages</h4>
-                                                <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
-                                                    {guide.languages || 'English, Malayalam'}
-                                                </p>
-                                            </div>
-                                            <div>
-                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>⭐ Rating</h4>
-                                                <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
-                                                    {guide.rating} · {guide.total_reviews} reviews
-                                                </p>
-                                            </div>
-                                            <div>
-                                                <h4 style={{ fontSize: 13, fontWeight: 600, color: T.ink, margin: '0 0 4px' }}>💰 Pricing</h4>
-                                                <p style={{ fontSize: 13, color: T.muted, margin: 0 }}>
-                                                    ₹{guide.price_per_day}/day {guide.price_per_hour > 0 && `· ₹${guide.price_per_hour}/hour`}
-                                                    {guide.price_per_day === 0 && guide.price_per_hour === 0 && 'Not set'}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        <p style={{ fontSize: 14, fontWeight: 500, color: T.ink, marginBottom: 12 }}>
-                                            📅 Available Slots ({availableCount}):
-                                        </p>
-                                        
-                                        {availableCount === 0 ? (
-                                            <p style={{ fontSize: 13, color: T.muted2, fontStyle: 'italic' }}>
-                                                No available slots at the moment. Check back later!
-                                            </p>
-                                        ) : (
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                                {availableSlots.map((slot) => {
-                                                    const isSelected = selectedSlot?.id === slot.id;
-                                                    const isBooked =
-                                                        slot.is_booked ||
-                                                        (slot.current_bookings || 0) >= (slot.max_bookings || 1);
-                                                    
-                                                    // Format date nicely
-                                                    const slotDate = new Date(slot.date);
-                                                    const dateStr = slotDate.toLocaleDateString('en-IN', { 
-                                                        day: 'numeric', 
-                                                        month: 'short', 
-                                                        year: 'numeric' 
-                                                    });
-                                                    
-                                                    return (
-                                                        <button
-                                                            key={slot.id}
-                                                            className="availability-slot"
-                                                            onClick={() => {
-                                                                if (!isBooked) {
-                                                                    setSelectedSlot(isSelected ? null : slot);
-                                                                    setBookingError(null);
-                                                                }
-                                                            }}
-                                                            disabled={isBooked}
-                                                            style={{
-                                                                padding: '10px 18px',
-                                                                borderRadius: 999,
-                                                                border: isSelected ? '2px solid #0E5C53' : '1px solid #D1D5DB',
-                                                                background: isSelected
-                                                                    ? '#0E5C53'
-                                                                    : isBooked
-                                                                      ? '#E5E7EB'
-                                                                      : '#fff',
-                                                                color: isSelected ? '#fff' : isBooked ? '#9CA3AF' : '#0B2422',
-                                                                cursor: isBooked ? 'not-allowed' : 'pointer',
-                                                                fontSize: 13,
-                                                                opacity: isBooked ? 0.6 : 1,
-                                                            }}>
-                                                            📅 {dateStr} <span style={{ margin: '0 8px' }}>•</span> ⏰{' '}
-                                                            {slot.start_time} - {slot.end_time}
-                                                            <span style={{ marginLeft: 10, fontSize: 11, opacity: 0.7 }}>
-                                                                {isBooked
-                                                                    ? '🔒 Booked'
-                                                                    : `(${(slot.max_bookings || 1) - (slot.current_bookings || 0)} left)`}
-                                                            </span>
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        {selectedSlot && !selectedSlot.is_booked && (
-                                            <div
-                                                style={{
-                                                    marginTop: 18,
-                                                    background: '#F9FAFB',
-                                                    padding: 20,
-                                                    borderRadius: 12,
-                                                    border: '1px solid rgba(199,154,62,0.15)',
-                                                }}>
-                                                <h4
-                                                    style={{
-                                                        fontSize: 15,
-                                                        fontWeight: 600,
-                                                        color: T.ink,
-                                                        marginBottom: 12,
-                                                    }}>
-                                                    Book {guide.full_name}
-                                                </h4>
-                                                {bookingError && (
-                                                    <p style={{ color: '#DC2626', fontSize: 12, marginBottom: 10 }}>
-                                                        {bookingError}
-                                                    </p>
-                                                )}
-                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                                    <div>
-                                                        <label
-                                                            style={{
-                                                                fontSize: 12,
-                                                                fontWeight: 500,
-                                                                color: T.ink,
-                                                                display: 'block',
-                                                                marginBottom: 4,
-                                                            }}>
-                                                            📍 Destination *
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            placeholder="e.g., Munnar Tea Gardens"
-                                                            value={destination}
-                                                            onChange={(e) => setDestination(e.target.value)}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '10px 14px',
-                                                                borderRadius: 8,
-                                                                border: '1px solid #D1D5DB',
-                                                                fontSize: 14,
-                                                                background: '#fff',
-                                                            }}
-                                                        />
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                                                        <button
-                                                            onClick={handleBookGuide}
-                                                            disabled={bookingLoading}
-                                                            style={{
-                                                                width: '100%',
-                                                                padding: '10px 20px',
-                                                                borderRadius: 999,
-                                                                border: 'none',
-                                                                background: bookingLoading ? '#9CA3AF' : '#0E5C53',
-                                                                color: '#fff',
-                                                                fontSize: 14,
-                                                                fontWeight: 600,
-                                                                cursor: bookingLoading ? 'not-allowed' : 'pointer',
-                                                            }}>
-                                                            {bookingLoading ? '⏳ Booking...' : '✅ Confirm Booking'}
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <div style={{ marginTop: 10 }}>
-                                                    <label
-                                                        style={{
-                                                            fontSize: 12,
-                                                            fontWeight: 500,
-                                                            color: T.ink,
-                                                            display: 'block',
-                                                            marginBottom: 4,
-                                                        }}>
-                                                        📝 Notes (optional)
-                                                    </label>
-                                                    <textarea
-                                                        placeholder="Special requests or notes for the guide"
-                                                        value={notes}
-                                                        onChange={(e) => setNotes(e.target.value)}
-                                                        style={{
-                                                            width: '100%',
-                                                            padding: '10px 14px',
-                                                            borderRadius: 8,
-                                                            border: '1px solid #D1D5DB',
-                                                            fontSize: 14,
-                                                            resize: 'vertical',
-                                                            minHeight: 50,
-                                                            background: '#fff',
-                                                        }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
                             );
                         })}
                     </div>
                 )}
             </div>
 
+            {/* Booking Modal - Only Available Slots */}
+            {showBookingModal && selectedGuide && (
+                <div className="modal-overlay" onClick={closeBookingModal}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        {bookingSuccess ? (
+                            <div style={{ textAlign: "center", padding: "20px 0" }}>
+                                <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+                                <h2 style={{ color: "#072E2A", fontFamily: "'Fraunces', serif" }}>Booking Confirmed!</h2>
+                                <p style={{ color: "#5C6E69" }}>Your guide has been booked successfully.</p>
+
+                            </div>
+                        ) : (
+                            <>
+                                {/* Header with Close Button */}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                                    <div>
+                                        <h2 className="gd-font-display" style={{ fontSize: 22, color: "#072E2A", margin: 0, fontStyle: "italic" }}>
+                                            Book {selectedGuide.full_name}
+                                        </h2>
+                                        <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0 0" }}>
+                                            📍 {getDistrictName(selectedGuide)} · ₹{selectedGuide.price_per_hour || 500}/hr
+                                        </p>
+                                    </div>
+                                    <button 
+                                        onClick={closeBookingModal}
+                                        style={{ 
+                                            background: "none", 
+                                            border: "none", 
+                                            cursor: "pointer", 
+                                            color: "#5C6E69",
+                                            padding: "8px",
+                                            borderRadius: "50%",
+                                            transition: "all 0.2s ease",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center"
+                                        }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.background = "#F3F4F6"; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                                    >
+                                        <X size={22} />
+                                    </button>
+                                </div>
+
+                                {bookingError && <div className="modal-error"><span>⚠️</span>{bookingError}</div>}
+
+                                {/* ✅ Available Slots - Only these */}
+                                <div style={{ marginBottom: 14 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                        <Clock size={18} color={C.gold} />
+                                        <span style={{ fontSize: 15, fontWeight: 600, color: '#0B2422' }}>
+                                            Available Slots
+                                        </span>
+                                        {availableSlots.length > 0 && (
+                                            <span style={{ fontSize: 12, fontWeight: 400, color: C.success, background: C.successBg, padding: '2px 12px', borderRadius: 999 }}>
+                                                {availableSlots.length} slots
+                                            </span>
+                                        )}
+                                    </div>
+                                    
+                                    {availableSlots.length > 0 ? (
+                                        <div className="slot-grid">
+                                            {availableSlots.map((slot, index) => {
+                                                const isSelected = selectedSlot?.id === slot.id;
+                                                const bookingsText = slot.current_bookings > 0 ? `${slot.current_bookings}/${slot.max_bookings} booked` : 'Available';
+                                                
+                                                return (
+                                                    <div
+                                                        key={index}
+                                                        className={`slot-card ${isSelected ? 'selected' : ''}`}
+                                                        onClick={() => handleSlotSelect(slot)}
+                                                    >
+                                                        <div className="slot-date">{formatDate(slot.date)}</div>
+                                                        <div className="slot-time">{formatTime(slot.start_time)}</div>
+                                                        <div className="slot-info">{bookingsText}</div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="no-slots-message">
+                                            ⚠️ No available time slots for this guide. Please check back later.
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Duration */}
+                                <div style={{ marginBottom: 12 }}>
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Duration (hours)</label>
+                                    <select className="modal-input" value={bookingData.duration_hours} onChange={(e) => { setBookingData({ ...bookingData, duration_hours: parseInt(e.target.value) }); setBookingError(null); }}>
+                                        <option value={2}>2 hours</option>
+                                        <option value={4}>Half Day (4 hrs)</option>
+                                        <option value={6}>6 hours</option>
+                                        <option value={8}>Full Day (8 hrs)</option>
+                                    </select>
+                                </div>
+
+                                {/* Number of People */}
+                                <div style={{ marginBottom: 12 }}>
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Number of People</label>
+                                    <input type="number" className="modal-input" value={bookingData.number_of_people} onChange={(e) => { setBookingData({ ...bookingData, number_of_people: parseInt(e.target.value) || 1 }); setBookingError(null); }} min="1" max="20" />
+                                </div>
+
+                                {/* Special Requests */}
+                                <div style={{ marginBottom: 14 }}>
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Special Requests</label>
+                                    <textarea className="modal-input" rows="2" placeholder="Any special requests or requirements?" value={bookingData.special_requests} onChange={(e) => { setBookingData({ ...bookingData, special_requests: e.target.value }); setBookingError(null); }} style={{ resize: "vertical" }} />
+                                </div>
+
+                                {/* Selected Slot Summary */}
+                                {selectedSlot && (
+                                    <div style={{ padding: '10px 14px', background: '#F0F7FF', borderRadius: 10, border: '1px solid #93C5FD', marginBottom: 14 }}>
+                                        <p style={{ fontSize: 13, color: '#1E3A5F', margin: 0 }}>
+                                            <strong>Selected:</strong> {formatDate(selectedSlot.date)} at <strong>{formatTime(selectedSlot.start_time)}</strong>
+                                        </p>
+                                        <p style={{ fontSize: 13, color: '#1E3A5F', margin: '4px 0 0' }}>
+                                            <strong>Est. Price:</strong> ₹{selectedGuide.price_per_hour * bookingData.duration_hours}
+                                        </p>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation Modal */}
+            {showConfirmationModal && selectedSlot && (
+                <div className="modal-overlay" onClick={() => { if (!bookingLoading) setShowConfirmationModal(false); }}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+                        <div className="confirmation-card">
+                            <div className="icon">📋</div>
+                            <h3>Confirm Your Booking</h3>
+                            <p className="subtitle">Please review your booking details</p>
+                            <div className="details">
+                                <div className="row"><span className="label">Guide</span><span className="value">{selectedGuide.full_name}</span></div>
+                                <div className="row"><span className="label">Date</span><span className="value">{formatDate(selectedSlot.date)}</span></div>
+                                <div className="row"><span className="label">Time</span><span className="value">{formatTime(selectedSlot.start_time)}</span></div>
+                                <div className="row"><span className="label">Duration</span><span className="value">{bookingData.duration_hours} hrs</span></div>
+                                <div className="row"><span className="label">People</span><span className="value">{bookingData.number_of_people}</span></div>
+                                <div className="row"><span className="label">Location</span><span className="value">{getDistrictName(selectedGuide)}</span></div>
+                            </div>
+                            <div className="price">₹{selectedGuide.price_per_hour * bookingData.duration_hours}</div>
+                            <p className="price-label">Estimated total price</p>
+                            <div style={{ display: 'flex', gap: 10 }}>
+                                <button onClick={() => setShowConfirmationModal(false)} style={{ flex: 1, padding: "12px 24px", borderRadius: 999, border: "1px solid #D1D5DB", background: "transparent", color: "#5C6E69", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>Cancel</button>
+                                <button onClick={handleConfirmBooking} disabled={bookingLoading} className="book-btn" style={{ flex: 2, padding: "12px 24px", justifyContent: 'center', opacity: bookingLoading ? 0.6 : 1, cursor: bookingLoading ? 'not-allowed' : 'pointer' }}>
+                                    {bookingLoading ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing...</span> : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle size={16} /> Confirm Booking</span>}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <BottomNav />
-            <div className="fixed bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#051F1C]/10 via-transparent to-transparent pointer-events-none" />
+            <div className="fixed bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#051F1C]/10 via-transparent to-transparent pointer-events-none" style={{ zIndex: 0 }} />
         </div>
     );
-};
-
-export default Guides;
+}

@@ -1,4 +1,4 @@
-# suggestions/models.py - COMPLETE FIXED VERSION (NO MINIMUM VALIDATORS)
+# suggestions/models.py - COMPLETE WITH ALL TRACKING FIELDS
 
 from django.db import models
 from django.core.validators import MaxLengthValidator, MaxValueValidator
@@ -26,6 +26,8 @@ class Suggestion(models.Model):
         IN_PROGRESS = 'in_progress', 'In Progress'
         APPROVED_BY_GUIDE = 'approved_by_guide', 'Approved by Guide'
         REJECTED_BY_GUIDE = 'rejected_by_guide', 'Rejected by Guide'
+        STAFF_APPROVED = 'staff_approved', 'Approved by Staff'
+        STAFF_REJECTED = 'staff_rejected', 'Rejected by Staff'
         APPROVED = 'approved', 'Approved'
         REJECTED = 'rejected', 'Rejected'
         IMPLEMENTED = 'implemented', 'Implemented'
@@ -69,7 +71,57 @@ class Suggestion(models.Model):
     )
     
     # ============================================
-    # CORE FIELDS - ONLY MAX LIMITS
+    # ✅ TRACK WHO APPROVED/REJECTED AT EACH STAGE
+    # ============================================
+    
+    # Guide actions
+    guide_approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='guide_approved_suggestions'
+    )
+    guide_rejected_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='guide_rejected_suggestions'
+    )
+    guide_approved_at = models.DateTimeField(null=True, blank=True)
+    guide_rejected_at = models.DateTimeField(null=True, blank=True)
+    
+    # Staff actions
+    staff_approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='staff_approved_suggestions'
+    )
+    staff_rejected_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='staff_rejected_suggestions'
+    )
+    staff_approved_at = models.DateTimeField(null=True, blank=True)
+    staff_rejected_at = models.DateTimeField(null=True, blank=True)
+    
+    # Admin actions
+    admin_implemented_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='admin_implemented_suggestions'
+    )
+    admin_implemented_at = models.DateTimeField(null=True, blank=True)
+    
+    # ============================================
+    # CORE FIELDS
     # ============================================
     
     suggestion_type = models.CharField(
@@ -185,7 +237,7 @@ class Suggestion(models.Model):
     )
     
     # ============================================
-    # RATING & METADATA - ONLY MAX LIMITS
+    # RATING & METADATA
     # ============================================
     
     rating = models.IntegerField(
@@ -233,45 +285,28 @@ class Suggestion(models.Model):
         ordering = ['-created_at']
     
     # ============================================
-    # CLEAN METHOD - ONLY REQUIRED CHECKS
+    # CLEAN METHOD
     # ============================================
     
     def clean(self):
-        """Custom validation - only required checks"""
-        # Name is required
         if not self.name or not self.name.strip():
-            raise ValidationError({
-                'name': 'Name is required'
-            })
+            raise ValidationError({'name': 'Name is required'})
         
-        # Description is required
         if not self.description or not self.description.strip():
-            raise ValidationError({
-                'description': 'Description is required'
-            })
+            raise ValidationError({'description': 'Description is required'})
         
-        # District is required
         if not self.district or not self.district.strip():
-            raise ValidationError({
-                'district': 'District is required'
-            })
+            raise ValidationError({'district': 'District is required'})
         
-        # For new place/hidden gem suggestions, category is required
         if self.suggestion_type in [self.SuggestionType.NEW_PLACE, self.SuggestionType.HIDDEN_GEM]:
             if not self.category or not self.category.strip():
-                raise ValidationError({
-                    'category': 'Category is required for new place/hidden gem suggestions'
-                })
+                raise ValidationError({'category': 'Category is required for new place/hidden gem suggestions'})
         
-        # For review suggestions, rating is required
         if self.suggestion_type == self.SuggestionType.REVIEW:
             if not self.rating:
-                raise ValidationError({
-                    'rating': 'Rating is required for reviews'
-                })
+                raise ValidationError({'rating': 'Rating is required for reviews'})
     
     def save(self, *args, **kwargs):
-        """Override save to run validation"""
         try:
             self.full_clean()
         except ValidationError as e:
@@ -296,6 +331,22 @@ class Suggestion(models.Model):
     @property
     def is_approved(self):
         return self.status in [self.Status.APPROVED, self.Status.IMPLEMENTED]
+    
+    @property
+    def is_approved_by_guide(self):
+        return self.status == self.Status.APPROVED_BY_GUIDE
+    
+    @property
+    def is_rejected_by_guide(self):
+        return self.status == self.Status.REJECTED_BY_GUIDE
+    
+    @property
+    def is_staff_approved(self):
+        return self.status == self.Status.STAFF_APPROVED
+    
+    @property
+    def is_staff_rejected(self):
+        return self.status == self.Status.STAFF_REJECTED
     
     def __str__(self):
         return f"{self.user.email} - {self.name} ({self.status})"

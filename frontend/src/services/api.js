@@ -1,4 +1,5 @@
 // src/services/api.js - COMPLETE FIXED VERSION
+
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
@@ -12,6 +13,9 @@ const api = axios.create({
     withCredentials: true,
 });
 
+// ============================================
+// AUTH SERVICE - Session Based (NO TOKENS)
+// ============================================
 export const AuthService = {
     getUser: () => {
         try {
@@ -25,26 +29,29 @@ export const AuthService = {
         }
     },
     getRole: () => sessionStorage.getItem('role') || 'tourister',
-    getToken: () => sessionStorage.getItem('access_token'),
     getSessionKey: () => sessionStorage.getItem('session_key'),
-    setAuth: (user, token, sessionKey, role) => {
+    
+    setAuth: (user, sessionKey, role) => {
         if (user) {
             sessionStorage.setItem('user', JSON.stringify(user));
             sessionStorage.setItem('role', role || user.role || 'tourister');
         }
-        if (token) sessionStorage.setItem('access_token', token);
-        if (sessionKey) sessionStorage.setItem('session_key', sessionKey);
+        if (sessionKey) {
+            sessionStorage.setItem('session_key', sessionKey);
+        }
     },
+    
     clearAuth: () => {
         sessionStorage.removeItem('user');
         sessionStorage.removeItem('role');
-        sessionStorage.removeItem('access_token');
         sessionStorage.removeItem('session_key');
     },
+    
     isLoggedIn: () => {
         const user = sessionStorage.getItem('user');
         return user && user !== 'null' && user !== 'undefined';
     },
+    
     getDashboardUrl: () => {
         const role = AuthService.getRole();
         const dashboards = {
@@ -57,21 +64,30 @@ export const AuthService = {
     },
 };
 
+// ============================================
+// API INTERCEPTORS
+// ============================================
 api.interceptors.request.use(
     (config) => {
-        const token = AuthService.getToken();
-        if (token) config.headers['Authorization'] = `Bearer ${token}`;
         const sessionKey = AuthService.getSessionKey();
-        if (sessionKey) config.headers['X-Session-Key'] = sessionKey;
+        if (sessionKey) {
+            config.headers['X-Session-Key'] = sessionKey;
+        }
+        console.log(`📤 ${config.method.toUpperCase()} ${config.url}`);
         return config;
     },
     (error) => Promise.reject(error)
 );
 
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        console.log(`📥 ${response.config.method.toUpperCase()} ${response.config.url} - ${response.status} ✅`);
+        return response;
+    },
     (error) => {
-        if (error.response?.status === 401) {
+        console.error('API Error:', error.response?.status, error.response?.data);
+        
+        if (error.response?.status === 401 || error.response?.status === 403) {
             AuthService.clearAuth();
             if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
                 window.location.href = '/login?error=session_expired';
@@ -81,6 +97,18 @@ api.interceptors.response.use(
     }
 );
 
+export const ensureAuth = () => {
+    const user = AuthService.getUser();
+    if (!user) {
+        console.warn('⚠️ Not authenticated');
+        return false;
+    }
+    return true;
+};
+
+// ============================================
+// AUTH API
+// ============================================
 export const AuthAPI = {
     // ============================================
     // AUTHENTICATION
@@ -105,7 +133,15 @@ export const AuthAPI = {
     },
     login: async (email, password, rememberMe = false) => {
         try {
-            const response = await api.post('/auth/login/', { email, password, remember_me: rememberMe });
+            const response = await api.post('/auth/login/', { 
+                email, 
+                password, 
+                remember_me: rememberMe 
+            });
+            if (response.data && response.data.success) {
+                const { user, session_key, role } = response.data;
+                AuthService.setAuth(user, session_key, role);
+            }
             return response.data;
         } catch (error) {
             console.error('Login error:', error);
@@ -124,14 +160,19 @@ export const AuthAPI = {
     logout: async () => {
         try {
             const response = await api.post('/auth/logout/');
+            AuthService.clearAuth();
             return response.data;
         } catch (error) {
             console.error('Logout error:', error);
+            AuthService.clearAuth();
             throw error;
         }
     },
     getMe: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.get('/auth/me/');
             return response.data;
         } catch (error) {
@@ -141,6 +182,9 @@ export const AuthAPI = {
     },
     updateProfile: async (data) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.patch('/auth/update-profile/', data);
             return response.data;
         } catch (error) {
@@ -150,28 +194,13 @@ export const AuthAPI = {
     },
     changePassword: async (data) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post('/auth/change-password/', data);
             return response.data;
         } catch (error) {
             console.error('Change password error:', error);
-            throw error;
-        }
-    },
-    forgotPassword: async (email) => {
-        try {
-            const response = await api.post('/auth/forgot-password/', { email });
-            return response.data;
-        } catch (error) {
-            console.error('Forgot password error:', error);
-            throw error;
-        }
-    },
-    resetPassword: async (data) => {
-        try {
-            const response = await api.post('/auth/reset-password/', data);
-            return response.data;
-        } catch (error) {
-            console.error('Reset password error:', error);
             throw error;
         }
     },
@@ -195,24 +224,251 @@ export const AuthAPI = {
     },
 
     // ============================================
+    // WISHLIST
+    // ============================================
+    getWishlist: async () => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, data: [], count: 0, error: 'Not authenticated' };
+            }
+            const response = await api.get('/destinations/wishlist/');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching wishlist:', error);
+            throw error;
+        }
+    },
+    toggleWishlist: async (destinationId) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post('/destinations/wishlist/toggle/', { 
+                destination_id: destinationId 
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Error toggling wishlist:', error);
+            throw error;
+        }
+    },
+    removeFromWishlist: async (wishlistId) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.delete(`/destinations/wishlist/${wishlistId}/`);
+            return response.data;
+        } catch (error) {
+            console.error('Error removing from wishlist:', error);
+            throw error;
+        }
+    },
+    checkWishlist: async (destinationId) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, in_wishlist: false, error: 'Not authenticated' };
+            }
+            const response = await api.get(`/destinations/wishlist/check/?destination_id=${destinationId}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error checking wishlist:', error);
+            return { success: false, in_wishlist: false };
+        }
+    },
+    getWishlistCount: async () => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, count: 0 };
+            }
+            const response = await api.get('/destinations/wishlist/count/');
+            return response.data;
+        } catch (error) {
+            console.error('Error getting wishlist count:', error);
+            return { success: false, count: 0 };
+        }
+    },
+
+    // ============================================
+    // DESTINATIONS
+    // ============================================
+    getDestinations: async (params = {}) => {
+        try {
+            const response = await api.get('/destinations/destinations/', { params });
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching destinations:', error);
+            throw error;
+        }
+    },
+    getDestination: async (id) => {
+        try {
+            const response = await api.get(`/destinations/destinations/${id}/`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching destination:', error);
+            throw error;
+        }
+    },
+    createDestination: async (data) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post('/destinations/destinations/', data);
+            return response.data;
+        } catch (error) {
+            console.error('Error creating destination:', error);
+            throw error;
+        }
+    },
+    updateDestination: async (id, data) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.put(`/destinations/destinations/${id}/`, data);
+            return response.data;
+        } catch (error) {
+            console.error('Error updating destination:', error);
+            throw error;
+        }
+    },
+    deleteDestination: async (id) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.delete(`/destinations/destinations/${id}/`);
+            return response.data;
+        } catch (error) {
+            console.error('Error deleting destination:', error);
+            throw error;
+        }
+    },
+    addReview: async (destinationId, data) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post(`/destinations/destinations/${destinationId}/add_review/`, data);
+            return response.data;
+        } catch (error) {
+            console.error('Error adding review:', error);
+            throw error;
+        }
+    },
+    getReviews: async (destinationId) => {
+        try {
+            const response = await api.get(`/destinations/destinations/${destinationId}/reviews/`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching reviews:', error);
+            throw error;
+        }
+    },
+    getCategoryData: async () => {
+        try {
+            const response = await api.get('/destinations/destinations/category-data/');
+            if (response.data && response.data.success) {
+                return response.data;
+            }
+            return { success: true, data: [] };
+        } catch (error) {
+            console.error('Error fetching category data:', error);
+            return { success: false, data: [], error: error.message };
+        }
+    },
+    addCategory: async (data) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post('/destinations/destinations/add-category/', data);
+            return response.data;
+        } catch (error) {
+            console.error('Error adding category:', error);
+            throw error;
+        }
+    },
+    addPlaceToCategory: async (data) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post('/destinations/destinations/add-place/', data);
+            return response.data;
+        } catch (error) {
+            console.error('Error adding place:', error);
+            throw error;
+        }
+    },
+    getHiddenGems: async () => {
+        try {
+            const response = await api.get('/destinations/destinations/hidden_gems/');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching hidden gems:', error);
+            throw error;
+        }
+    },
+    getTopRated: async () => {
+        try {
+            const response = await api.get('/destinations/destinations/top_rated/');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching top rated:', error);
+            throw error;
+        }
+    },
+    getStats: async () => {
+        try {
+            const response = await api.get('/destinations/destinations/stats/');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching stats:', error);
+            throw error;
+        }
+    },
+    searchDestinations: async (query) => {
+        try {
+            const response = await api.get(`/destinations/destinations/search/?q=${encodeURIComponent(query)}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error searching destinations:', error);
+            throw error;
+        }
+    },
+    getByDistrict: async (district) => {
+        try {
+            const response = await api.get(`/destinations/destinations/by_district/?district=${encodeURIComponent(district)}`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching by district:', error);
+            throw error;
+        }
+    },
+
+    // ============================================
     // BOOKINGS
     // ============================================
     getBookings: async (params = {}) => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, bookings: [] };
+            }
             const response = await api.get('/bookings/', { params });
             return response.data;
         } catch (error) {
             console.error('Error fetching bookings:', error);
-            try {
-                const bookings = JSON.parse(localStorage.getItem('bookings') || '[]');
-                return { success: true, bookings: bookings };
-            } catch (e) {
-                return { success: true, bookings: [] };
-            }
+            return { success: true, bookings: [] };
         }
     },
     getBooking: async (bookingId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.get(`/bookings/${bookingId}/`);
             return response.data;
         } catch (error) {
@@ -222,6 +478,9 @@ export const AuthAPI = {
     },
     createBooking: async (data) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post('/bookings/', data);
             return response.data;
         } catch (error) {
@@ -231,6 +490,9 @@ export const AuthAPI = {
     },
     updateBooking: async (bookingId, data) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.put(`/bookings/${bookingId}/`, data);
             return response.data;
         } catch (error) {
@@ -240,6 +502,9 @@ export const AuthAPI = {
     },
     cancelBooking: async (bookingId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/bookings/${bookingId}/cancel/`);
             return response.data;
         } catch (error) {
@@ -249,6 +514,9 @@ export const AuthAPI = {
     },
     completeBooking: async (bookingId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/bookings/${bookingId}/complete/`);
             return response.data;
         } catch (error) {
@@ -258,135 +526,132 @@ export const AuthAPI = {
     },
     getMyBookings: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, bookings: [] };
+            }
             const response = await api.get('/bookings/my/');
             return response.data;
         } catch (error) {
             console.error('Error fetching my bookings:', error);
-            try {
-                const bookings = JSON.parse(localStorage.getItem('my_bookings') || '[]');
-                return { success: true, bookings: bookings };
-            } catch (e) {
-                return { success: true, bookings: [] };
-            }
+            return { success: true, bookings: [] };
         }
     },
 
     // ============================================
-    // GUIDE DASHBOARD
+    // ✅ GUIDES - FIXED ENDPOINTS (USING /guides/guides/)
     // ============================================
-    getGuideProfile: async () => {
+    getGuides: async (params = {}) => {
         try {
-            const response = await api.get('/guides/profile/');
+            // ✅ FIXED: Use /guides/guides/ (double guides)
+            const response = await api.get('/guides/guides/', { params });
             return response.data;
         } catch (error) {
-            console.error('Error fetching guide profile:', error);
+            console.error('Error fetching guides:', error);
             throw error;
         }
     },
-    getGuideBookings: async () => {
+    getGuide: async (id) => {
         try {
-            let response;
-            try {
-                response = await api.get('/guides/bookings/');
-            } catch (e) {
-                try {
-                    response = await api.get('/guide/bookings/');
-                } catch (e2) {
-                    response = await api.get('/bookings/guide/');
-                }
+            const response = await api.get(`/guides/guides/${id}/`);
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching guide:', error);
+            throw error;
+        }
+    },
+    getGuideBookings: async (guideId) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: true, bookings: [] };
             }
+            const response = await api.get(`/guides/guides/${guideId}/bookings/`);
             return response.data;
         } catch (error) {
             console.error('Error fetching guide bookings:', error);
-            try {
-                const bookings = JSON.parse(localStorage.getItem('guide_bookings') || '[]');
-                return { success: true, bookings: bookings };
-            } catch (e) {
-                return { success: true, bookings: [] };
-            }
+            return { success: true, bookings: [] };
         }
     },
-    getGuideAvailability: async () => {
+    getGuideReviews: async (guideId) => {
         try {
-            const response = await api.get('/guides/availability/');
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching guide availability:', error);
-            throw error;
-        }
-    },
-    addAvailabilitySlot: async (slotData) => {
-        try {
-            const response = await api.post('/guides/availability/add/', slotData);
-            return response.data;
-        } catch (error) {
-            console.error('Error adding availability slot:', error);
-            throw error;
-        }
-    },
-    deleteAvailabilitySlot: async (slotId) => {
-        try {
-            const response = await api.delete(`/guides/availability/${slotId}/`);
-            return response.data;
-        } catch (error) {
-            console.error('Error deleting availability slot:', error);
-            throw error;
-        }
-    },
-    getGuideReviews: async () => {
-        try {
-            const response = await api.get('/guides/reviews/');
+            const response = await api.get(`/guides/guides/${guideId}/reviews/`);
             return response.data;
         } catch (error) {
             console.error('Error fetching guide reviews:', error);
+            return { success: true, reviews: [] };
+        }
+    },
+    addGuideReview: async (guideId, data) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post(`/guides/guides/${guideId}/add_review/`, data);
+            return response.data;
+        } catch (error) {
+            console.error('Error adding guide review:', error);
             throw error;
         }
     },
-    reviewBooking: async (bookingId, reviewData) => {
+    bookGuide: async (guideId, data) => {
         try {
-            const response = await api.post(`/guides/bookings/${bookingId}/review/`, {
-                rating: reviewData.rating,
-                comment: reviewData.comment,
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            // ✅ FIXED: Use /guides/bookings/ for booking creation
+            const response = await api.post('/guides/bookings/', {
+                guide: guideId,
+                ...data
             });
             return response.data;
         } catch (error) {
-            console.error('Error submitting review:', error);
-            throw error;
-        }
-    },
-    processBooking: async (bookingId, status) => {
-        try {
-            const response = await api.post(`/guides/bookings/${bookingId}/process/`, { action: status });
-            return response.data;
-        } catch (error) {
-            console.error('Error processing booking:', error);
+            console.error('Error booking guide:', error);
             throw error;
         }
     },
 
     // ============================================
-    // STAFF
+    // STAFF ENDPOINTS
     // ============================================
     getStaffStats: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, stats: { pendingSuggestions: 0, totalSuggestions: 0, totalGuides: 0, totalBookings: 0, confirmedBookings: 0, totalReviews: 0, pendingReviews: 0 } };
+            }
             const response = await api.get('/staff/stats/');
             return response.data;
         } catch (error) {
             console.error('Error fetching staff stats:', error);
-            throw error;
+            return { 
+                success: true, 
+                stats: { 
+                    pendingSuggestions: 0,
+                    totalSuggestions: 0,
+                    totalGuides: 0,
+                    totalBookings: 0,
+                    confirmedBookings: 0,
+                    totalReviews: 0,
+                    pendingReviews: 0,
+                } 
+            };
         }
     },
     getStaffGuides: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, guides: [] };
+            }
             const response = await api.get('/staff/guides/');
             return response.data;
         } catch (error) {
             console.error('Error fetching staff guides:', error);
-            throw error;
+            return { success: true, guides: [] };
         }
     },
     addStaffGuide: async (guideData) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post('/staff/guides/add/', guideData);
             return response.data;
         } catch (error) {
@@ -396,6 +661,9 @@ export const AuthAPI = {
     },
     verifyStaffGuide: async (guideId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/staff/guides/${guideId}/verify/`);
             return response.data;
         } catch (error) {
@@ -405,6 +673,9 @@ export const AuthAPI = {
     },
     deleteStaffGuide: async (guideId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.delete(`/staff/guides/${guideId}/delete/`);
             return response.data;
         } catch (error) {
@@ -414,6 +685,9 @@ export const AuthAPI = {
     },
     getStaffBookings: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, bookings: [] };
+            }
             const response = await api.get('/staff/bookings/');
             return response.data;
         } catch (error) {
@@ -421,8 +695,11 @@ export const AuthAPI = {
             return { success: true, bookings: [] };
         }
     },
-    updateBookingStatus: async (bookingId, status) => {
+    updateStaffBooking: async (bookingId, status) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/staff/bookings/${bookingId}/update/`, { status });
             return response.data;
         } catch (error) {
@@ -432,15 +709,21 @@ export const AuthAPI = {
     },
     getStaffSuggestions: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, suggestions: [] };
+            }
             const response = await api.get('/staff/suggestions/');
             return response.data;
         } catch (error) {
             console.error('Error fetching staff suggestions:', error);
-            throw error;
+            return { success: true, suggestions: [] };
         }
     },
     processStaffSuggestion: async (suggestionId, action, notes = '') => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/staff/suggestions/${suggestionId}/process/`, { action, notes });
             return response.data;
         } catch (error) {
@@ -450,19 +733,49 @@ export const AuthAPI = {
     },
     getStaffInsights: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, insights: [] };
+            }
             const response = await api.get('/staff/insights/');
             return response.data;
         } catch (error) {
             console.error('Error fetching staff insights:', error);
+            return { success: true, insights: [] };
+        }
+    },
+    getStaffReviews: async () => {
+        try {
+            if (!ensureAuth()) {
+                return { success: true, reviews: [] };
+            }
+            const response = await api.get('/staff/reviews/');
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching staff reviews:', error);
+            return { success: true, reviews: [] };
+        }
+    },
+    processStaffReview: async (reviewId, action) => {
+        try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
+            const response = await api.post(`/staff/reviews/${reviewId}/process/`, { action });
+            return response.data;
+        } catch (error) {
+            console.error('Error processing review:', error);
             throw error;
         }
     },
 
     // ============================================
-    // ADMIN - ALL FIXED URLs
+    // ADMIN ENDPOINTS
     // ============================================
     getAdminStats: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, stats: { totalUsers: 0, totalStaff: 0, totalGuides: 0, totalBookings: 0, totalSuggestions: 0, pendingSuggestions: 0 } };
+            }
             const response = await api.get('/admin/stats/');
             return response.data;
         } catch (error) {
@@ -480,24 +793,23 @@ export const AuthAPI = {
             };
         }
     },
-    
-    // ✅ USERS - FIXED
     getAdminUsers: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, users: [] };
+            }
             const response = await api.get('/admin/users/');
             return response.data;
         } catch (error) {
             console.error('Error fetching users:', error);
-            try {
-                const usersList = JSON.parse(localStorage.getItem('users_list') || '[]');
-                return { success: true, users: usersList };
-            } catch (e) {
-                return { success: true, users: [] };
-            }
+            return { success: true, users: [] };
         }
     },
     toggleUserStatus: async (userId, isActive) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/users/${userId}/toggle-status/`, { is_active: isActive });
             return response.data;
         } catch (error) {
@@ -505,42 +817,35 @@ export const AuthAPI = {
             throw error;
         }
     },
-    // ✅ FIXED: Delete User - Correct URL with trailing slash
     deleteUser: async (userId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.delete(`/admin/users/${userId}/`);
             return response.data;
         } catch (error) {
             console.error('Error deleting user:', error);
-            // Fallback to localStorage
-            try {
-                const usersList = JSON.parse(localStorage.getItem('users_list') || '[]');
-                const updated = usersList.filter(u => u.id !== userId);
-                localStorage.setItem('users_list', JSON.stringify(updated));
-                return { success: true, message: 'User deleted (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
-
-    // ✅ STAFF - FIXED
     getAdminStaff: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, staff: [] };
+            }
             const response = await api.get('/admin/staff/');
             return response.data;
         } catch (error) {
             console.error('Error fetching staff:', error);
-            try {
-                const staffList = JSON.parse(localStorage.getItem('staff_list') || '[]');
-                return { success: true, staff: staffList };
-            } catch (e) {
-                return { success: true, staff: [] };
-            }
+            return { success: true, staff: [] };
         }
     },
     addStaff: async (staffData) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post('/admin/staff/add/', staffData);
             return response.data;
         } catch (error) {
@@ -550,54 +855,45 @@ export const AuthAPI = {
     },
     toggleStaffStatus: async (staffId, isActive) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/staff/${staffId}/toggle-status/`, { is_active: isActive });
             return response.data;
         } catch (error) {
             console.error('Error toggling staff status:', error);
-            try {
-                const staffList = JSON.parse(localStorage.getItem('staff_list') || '[]');
-                const updated = staffList.map(s => s.id === staffId ? { ...s, is_active: isActive } : s);
-                localStorage.setItem('staff_list', JSON.stringify(updated));
-                return { success: true, message: 'Staff status updated (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
     deleteStaff: async (staffId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.delete(`/admin/staff/${staffId}/`);
             return response.data;
         } catch (error) {
             console.error('Error deleting staff:', error);
-            try {
-                const staffList = JSON.parse(localStorage.getItem('staff_list') || '[]');
-                const updated = staffList.filter(s => s.id !== staffId);
-                localStorage.setItem('staff_list', JSON.stringify(updated));
-                return { success: true, message: 'Staff deleted (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
-
-    // ✅ GUIDES - FIXED URLs
     getAdminGuides: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, guides: [] };
+            }
             const response = await api.get('/admin/guides/');
             return response.data;
         } catch (error) {
             console.error('Error fetching guides:', error);
-            try {
-                const guidesList = JSON.parse(localStorage.getItem('guides_list') || '[]');
-                return { success: true, guides: guidesList };
-            } catch (e) {
-                return { success: true, guides: [] };
-            }
+            return { success: true, guides: [] };
         }
     },
     addGuide: async (guideData) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post('/admin/guides/add/', guideData);
             return response.data;
         } catch (error) {
@@ -605,77 +901,59 @@ export const AuthAPI = {
             throw error;
         }
     },
-    // ✅ FIXED: /admin/guides/{id}/
     updateGuide: async (guideId, guideData) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.put(`/admin/guides/${guideId}/`, guideData);
             return response.data;
         } catch (error) {
             console.error('Error updating guide:', error);
-            try {
-                const guidesList = JSON.parse(localStorage.getItem('guides_list') || '[]');
-                const updated = guidesList.map(g => g.id === guideId ? { ...g, ...guideData } : g);
-                localStorage.setItem('guides_list', JSON.stringify(updated));
-                return { success: true, message: 'Guide updated (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
-    // ✅ FIXED: /admin/guides/{id}/toggle-status/
     toggleGuideStatus: async (guideId, isActive) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/guides/${guideId}/toggle-status/`, { is_active: isActive });
             return response.data;
         } catch (error) {
             console.error('Error toggling guide status:', error);
-            try {
-                const guidesList = JSON.parse(localStorage.getItem('guides_list') || '[]');
-                const updated = guidesList.map(g => g.id === guideId ? { ...g, is_active: isActive } : g);
-                localStorage.setItem('guides_list', JSON.stringify(updated));
-                return { success: true, message: 'Guide status updated (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
-    // ✅ FIXED: /admin/guides/{id}/
     deleteGuide: async (guideId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.delete(`/admin/guides/${guideId}/`);
             return response.data;
         } catch (error) {
             console.error('Error deleting guide:', error);
-            try {
-                const guidesList = JSON.parse(localStorage.getItem('guides_list') || '[]');
-                const updated = guidesList.filter(g => g.id !== guideId);
-                localStorage.setItem('guides_list', JSON.stringify(updated));
-                return { success: true, message: 'Guide deleted (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
-    // ✅ FIXED: /admin/guides/{id}/verify/
     verifyGuide: async (guideId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/guides/${guideId}/verify/`);
             return response.data;
         } catch (error) {
             console.error('Error verifying guide:', error);
-            try {
-                const guidesList = JSON.parse(localStorage.getItem('guides_list') || '[]');
-                const updated = guidesList.map(g => g.id === guideId ? { ...g, is_verified: true } : g);
-                localStorage.setItem('guides_list', JSON.stringify(updated));
-                return { success: true, message: 'Guide verified (local)' };
-            } catch (e) {
-                throw error;
-            }
+            throw error;
         }
     },
-    // ✅ FIXED: /admin/guides/{id}/bookings/
     getGuideBookings: async (guideId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, bookings: [] };
+            }
             const response = await api.get(`/admin/guides/${guideId}/bookings/`);
             return response.data;
         } catch (error) {
@@ -683,24 +961,23 @@ export const AuthAPI = {
             return { success: true, bookings: [] };
         }
     },
-
-    // ✅ SUGGESTIONS - FIXED
     getAdminSuggestions: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, suggestions: [] };
+            }
             const response = await api.get('/admin/suggestions/');
             return response.data;
         } catch (error) {
             console.error('Error fetching admin suggestions:', error);
-            try {
-                const suggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-                return { success: true, suggestions: suggestions };
-            } catch (e) {
-                return { success: true, suggestions: [] };
-            }
+            return { success: true, suggestions: [] };
         }
     },
     approveSuggestion: async (suggestionId, notes = '') => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/suggestions/${suggestionId}/approve/`, { notes });
             return response.data;
         } catch (error) {
@@ -710,6 +987,9 @@ export const AuthAPI = {
     },
     rejectSuggestion: async (suggestionId, notes = '') => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/suggestions/${suggestionId}/reject/`, { notes });
             return response.data;
         } catch (error) {
@@ -719,6 +999,9 @@ export const AuthAPI = {
     },
     implementSuggestion: async (suggestionId, notes = '') => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post(`/admin/suggestions/${suggestionId}/implement/`, { notes });
             return response.data;
         } catch (error) {
@@ -728,6 +1011,9 @@ export const AuthAPI = {
     },
     deleteSuggestion: async (suggestionId) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.delete(`/admin/suggestions/${suggestionId}/`);
             return response.data;
         } catch (error) {
@@ -737,6 +1023,9 @@ export const AuthAPI = {
     },
     getAdminBookings: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: true, bookings: [] };
+            }
             const response = await api.get('/admin/bookings/');
             return response.data;
         } catch (error) {
@@ -746,6 +1035,9 @@ export const AuthAPI = {
     },
     testAdminAPI: async () => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.get('/admin/test/');
             return response.data;
         } catch (error) {
@@ -768,6 +1060,9 @@ export const AuthAPI = {
     },
     createSuggestion: async (data) => {
         try {
+            if (!ensureAuth()) {
+                return { success: false, error: 'Not authenticated' };
+            }
             const response = await api.post('/suggestions/', data);
             return response.data;
         } catch (error) {
@@ -784,148 +1079,23 @@ export const AuthAPI = {
             throw error;
         }
     },
-
-    // ============================================
-    // DESTINATIONS
-    // ============================================
-    getDestinations: async (params = {}) => {
-        try {
-            const response = await api.get('/destinations/', { params });
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching destinations:', error);
-            throw error;
-        }
-    },
-    getDestination: async (id) => {
-        try {
-            const response = await api.get(`/destinations/${id}/`);
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching destination:', error);
-            throw error;
-        }
-    },
-    createDestination: async (data) => {
-        try {
-            const response = await api.post('/destinations/', data);
-            return response.data;
-        } catch (error) {
-            console.error('Error creating destination:', error);
-            throw error;
-        }
-    },
-    updateDestination: async (id, data) => {
-        try {
-            const response = await api.put(`/destinations/${id}/`, data);
-            return response.data;
-        } catch (error) {
-            console.error('Error updating destination:', error);
-            throw error;
-        }
-    },
-    deleteDestination: async (id) => {
-        try {
-            const response = await api.delete(`/destinations/${id}/`);
-            return response.data;
-        } catch (error) {
-            console.error('Error deleting destination:', error);
-            throw error;
-        }
-    },
-    addReview: async (destinationId, data) => {
-        try {
-            const response = await api.post(`/destinations/${destinationId}/add_review/`, data);
-            return response.data;
-        } catch (error) {
-            console.error('Error adding review:', error);
-            throw error;
-        }
-    },
-    getReviews: async (destinationId) => {
-        try {
-            const response = await api.get(`/destinations/${destinationId}/reviews/`);
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching reviews:', error);
-            throw error;
-        }
-    },
-    getCategoryData: async () => {
-        try {
-            const response = await api.get('/destinations/category-data/');
-            return response.data;
-        } catch (error) {
-            console.error('Error fetching category data:', error);
-            try {
-                const categories = JSON.parse(localStorage.getItem('categories') || '[]');
-                return { success: true, data: categories };
-            } catch (e) {
-                return { success: true, data: [] };
-            }
-        }
-    },
-    addCategory: async (data) => {
-        try {
-            const response = await api.post('/destinations/add-category/', data);
-            return response.data;
-        } catch (error) {
-            console.error('Error adding category:', error);
-            try {
-                const categories = JSON.parse(localStorage.getItem('categories') || '[]');
-                const newCategory = {
-                    key: data.key,
-                    title: data.label,
-                    description: data.description,
-                    image: data.image,
-                    count: 0,
-                    places: []
-                };
-                categories.push(newCategory);
-                localStorage.setItem('categories', JSON.stringify(categories));
-                return { success: true, data: newCategory };
-            } catch (e) {
-                throw error;
-            }
-        }
-    },
-    addPlaceToCategory: async (data) => {
-        try {
-            const response = await api.post('/destinations/add-place/', data);
-            return response.data;
-        } catch (error) {
-            console.error('Error adding place:', error);
-            try {
-                const categories = JSON.parse(localStorage.getItem('categories') || '[]');
-                const categoryIndex = categories.findIndex(c => c.key === data.category);
-                if (categoryIndex !== -1) {
-                    const newPlace = {
-                        id: Date.now(),
-                        name: data.name,
-                        location: data.location,
-                        description: data.description,
-                        difficulty: data.difficulty,
-                        duration: data.duration,
-                        best_time: data.best_time,
-                        image: data.image,
-                        type: data.type,
-                        hidden_gem: data.hidden_gem,
-                        created_at: new Date().toISOString()
-                    };
-                    if (!categories[categoryIndex].places) {
-                        categories[categoryIndex].places = [];
-                    }
-                    categories[categoryIndex].places.push(newPlace);
-                    categories[categoryIndex].count = categories[categoryIndex].places.length;
-                    localStorage.setItem('categories', JSON.stringify(categories));
-                    return { success: true, data: newPlace };
-                }
-                throw new Error('Category not found');
-            } catch (e) {
-                throw error;
-            }
-        }
-    },
 };
+
+// ============================================
+// EXPORT ALL FUNCTIONS
+// ============================================
+export const getWishlist = AuthAPI.getWishlist;
+export const toggleWishlist = AuthAPI.toggleWishlist;
+export const removeFromWishlist = AuthAPI.removeFromWishlist;
+export const checkWishlist = AuthAPI.checkWishlist;
+export const getWishlistCount = AuthAPI.getWishlistCount;
+export const getCategoryData = AuthAPI.getCategoryData;
+export const getDestinations = AuthAPI.getDestinations;
+export const getDestination = AuthAPI.getDestination;
+export const addReview = AuthAPI.addReview;
+export const getReviews = AuthAPI.getReviews;
+export const getGuides = AuthAPI.getGuides;
+export const getGuide = AuthAPI.getGuide;
+export const bookGuide = AuthAPI.bookGuide;
 
 export default api;

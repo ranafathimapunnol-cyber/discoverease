@@ -1,4 +1,5 @@
-// contexts/AuthContext.jsx - COMPLETE FIXED VERSION
+// contexts/AuthContext.jsx - COMPLETE FIXED VERSION (Session-Based)
+
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../services/api';
 
@@ -11,7 +12,7 @@ export const AuthProvider = ({ children }) => {
   const [role, setRole] = useState(null);
 
   // ============================================
-  // CHECK AUTHENTICATION STATUS - FIXED
+  // CHECK AUTHENTICATION STATUS
   // ============================================
   const checkAuth = async () => {
     try {
@@ -28,7 +29,6 @@ export const AuthProvider = ({ children }) => {
           setIsLoggedIn(true);
           setLoading(false);
           
-          // ✅ If we have a session key, set it in axios headers
           if (sessionKey) {
             api.defaults.headers.common['X-Session-Key'] = sessionKey;
           }
@@ -38,8 +38,7 @@ export const AuthProvider = ({ children }) => {
         }
       }
 
-      // ✅ Try API check only if we have a session cookie
-      // Check if session cookie exists by looking at document.cookie
+      // ✅ Check if session cookie exists
       const hasSession = document.cookie.split(';').some(c => c.trim().startsWith('sessionid='));
       
       if (hasSession) {
@@ -70,9 +69,7 @@ export const AuthProvider = ({ children }) => {
             setIsLoggedIn(true);
           }
         } catch (apiError) {
-          // ✅ Silent fail - user is not logged in
           console.log('No active session found');
-          // Clear any stale session data
           sessionStorage.removeItem('user');
           sessionStorage.removeItem('role');
           sessionStorage.removeItem('session_key');
@@ -102,11 +99,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ============================================
-  // LOGIN FUNCTION - FIXED
+  // LOGIN FUNCTION - Session Based (NO TOKEN)
   // ============================================
   const login = (userData, sessionKey) => {
     try {
-      console.log('Login called with user data:', userData);
+      console.log('🔐 Login called with user data:', userData);
       
       if (!userData) {
         return { success: false, error: 'No user data provided' };
@@ -130,7 +127,6 @@ export const AuthProvider = ({ children }) => {
       
       if (sessionKey) {
         sessionStorage.setItem('session_key', sessionKey);
-        // ✅ Set session key in axios headers
         api.defaults.headers.common['X-Session-Key'] = sessionKey;
       }
       
@@ -154,7 +150,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Logout API error:', error);
     } finally {
-      // Clear all session data
       sessionStorage.removeItem('user');
       sessionStorage.removeItem('role');
       sessionStorage.removeItem('session_key');

@@ -1,4 +1,4 @@
-// pages/Home.jsx - UPDATED WITH CLICKABLE FEATURE CARDS
+// pages/Home.jsx - COMPLETE FIXED WITH API INTEGRATION
 
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -22,43 +22,24 @@ export default function Home() {
   });
   const [imagePreview, setImagePreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [districts, setDistricts] = useState([]);
-
-  // ✅ Fetch districts
-  useEffect(() => {
-    const fetchDistricts = async () => {
-      try {
-        const response = await api.get('/guides/districts/');
-        if (Array.isArray(response.data)) {
-          setDistricts(response.data);
-        } else if (response.data?.results && Array.isArray(response.data.results)) {
-          setDistricts(response.data.results);
-        } else {
-          setDistricts([
-            { id: 1, name: 'Thiruvananthapuram' }, { id: 2, name: 'Kollam' },
-            { id: 3, name: 'Pathanamthitta' }, { id: 4, name: 'Alappuzha' },
-            { id: 5, name: 'Kottayam' }, { id: 6, name: 'Idukki' },
-            { id: 7, name: 'Ernakulam' }, { id: 8, name: 'Thrissur' },
-            { id: 9, name: 'Palakkad' }, { id: 10, name: 'Malappuram' },
-            { id: 11, name: 'Kozhikode' }, { id: 12, name: 'Wayanad' },
-            { id: 13, name: 'Kannur' }, { id: 14, name: 'Kasaragod' },
-          ]);
-        }
-      } catch (error) {
-        console.error('Error fetching districts:', error);
-        setDistricts([
-          { id: 1, name: 'Thiruvananthapuram' }, { id: 2, name: 'Kollam' },
-          { id: 3, name: 'Pathanamthitta' }, { id: 4, name: 'Alappuzha' },
-          { id: 5, name: 'Kottayam' }, { id: 6, name: 'Idukki' },
-          { id: 7, name: 'Ernakulam' }, { id: 8, name: 'Thrissur' },
-          { id: 9, name: 'Palakkad' }, { id: 10, name: 'Malappuram' },
-          { id: 11, name: 'Kozhikode' }, { id: 12, name: 'Wayanad' },
-          { id: 13, name: 'Kannur' }, { id: 14, name: 'Kasaragod' },
-        ]);
-      }
-    };
-    fetchDistricts();
-  }, []);
+  
+  // ✅ Hardcoded districts - NO API CALL
+  const [districts, setDistricts] = useState([
+    { id: 1, name: 'Thiruvananthapuram' },
+    { id: 2, name: 'Kollam' },
+    { id: 3, name: 'Pathanamthitta' },
+    { id: 4, name: 'Alappuzha' },
+    { id: 5, name: 'Kottayam' },
+    { id: 6, name: 'Idukki' },
+    { id: 7, name: 'Ernakulam' },
+    { id: 8, name: 'Thrissur' },
+    { id: 9, name: 'Palakkad' },
+    { id: 10, name: 'Malappuram' },
+    { id: 11, name: 'Kozhikode' },
+    { id: 12, name: 'Wayanad' },
+    { id: 13, name: 'Kannur' },
+    { id: 14, name: 'Kasaragod' },
+  ]);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -95,68 +76,195 @@ export default function Home() {
     setSuggestionData({ ...suggestionData, image: null });
     setImagePreview(null);
   };
+// ============================================
+// FIXED: handleSuggestionSubmit - Using /api/suggestions/ endpoint
+// ============================================
+const handleSuggestionSubmit = async (e) => {
+  e.preventDefault();
+  
+  if (!isLoggedIn) {
+    alert('⚠️ Please login to suggest a hidden gem.');
+    navigate('/login');
+    return;
+  }
 
-  // ✅ Function to safely save to localStorage
-  const saveToLocalStorage = (key, data) => {
+  if (!suggestionData.district) {
+    alert('⚠️ Please select a district.');
+    return;
+  }
+  
+  if (!suggestionData.placeName || !suggestionData.description) {
+    alert('⚠️ Please fill in all required fields.');
+    return;
+  }
+  
+  setSubmitting(true);
+  
+  try {
+    // ✅ Use the correct endpoint: /api/suggestions/
+    const formData = new FormData();
+    formData.append('name', suggestionData.placeName);
+    formData.append('description', suggestionData.description);
+    formData.append('category', suggestionData.category || 'Other');
+    formData.append('district', suggestionData.district);
+    formData.append('location_info', suggestionData.location || '');
+    
+    // ✅ This tells the backend it's a hidden gem suggestion
+    formData.append('suggestion_type', 'hidden_gem');
+    
+    if (suggestionData.image) {
+      formData.append('image', suggestionData.image);
+    }
+
+    console.log('📤 Sending hidden gem to /api/suggestions/:', Object.fromEntries(formData));
+
+    // ✅ Use the suggestions endpoint
+    const response = await api.post('/suggestions/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    console.log('✅ Hidden gem saved successfully:', response.data);
+
+    // ✅ Save to localStorage for backup
+    const newSuggestion = {
+      id: Date.now(),
+      name: suggestionData.placeName,
+      description: suggestionData.description,
+      category: suggestionData.category || 'Other',
+      location_info: suggestionData.location || '',
+      district: suggestionData.district,
+      status: 'pending',
+      suggestion_type: 'hidden_gem',
+      user_email: user?.email || 'anonymous',
+      created_at: new Date().toISOString(),
+      image: imagePreview,
+      server_id: response?.data?.id || response?.data?.data?.id || null,
+    };
+    
+    let existingSuggestions = [];
     try {
-      localStorage.setItem(key, JSON.stringify(data));
-      return true;
-    } catch (e) {
-      if (e.name === 'QuotaExceededError' || e.code === 22) {
-        try {
-          localStorage.removeItem(key);
-          localStorage.setItem(key, JSON.stringify(data));
-          return true;
-        } catch (retryError) {
-          console.error('Failed to save after clearing:', retryError);
-          return false;
-        }
+      const raw = localStorage.getItem('hidden_gems_suggestions');
+      if (raw) {
+        existingSuggestions = JSON.parse(raw);
       }
-      console.error('Failed to save to localStorage:', e);
-      return false;
+    } catch (parseError) {
+      existingSuggestions = [];
     }
-  };
-
-  const handleSuggestionSubmit = async (e) => {
-    e.preventDefault();
     
-    if (!isLoggedIn) {
-      alert('⚠️ Please login to suggest a hidden gem.');
-      navigate('/login');
+    const limitedSuggestions = existingSuggestions.slice(-9);
+    limitedSuggestions.push(newSuggestion);
+    localStorage.setItem('hidden_gems_suggestions', JSON.stringify(limitedSuggestions));
+    
+    // ✅ Show success message
+    alert('✅ Hidden gem submitted successfully!');
+    setSuggestionSubmitted(true);
+    
+    // ✅ Reset form after 2 seconds
+    setTimeout(() => {
+      setSuggestionSubmitted(false);
+      setShowSuggestion(false);
+      setSuggestionData({
+        placeName: '',
+        location: '',
+        description: '',
+        category: '',
+        district: '',
+        image: null,
+      });
+      setImagePreview(null);
+      setSubmitting(false);
+    }, 2000);
+    
+  } catch (error) {
+    console.error('❌ Error submitting hidden gem:', error);
+    console.error('Response data:', error.response?.data);
+    console.error('Response status:', error.response?.status);
+    
+    // ✅ Check if it's a validation error
+    if (error.response?.data?.errors) {
+      const errorMessages = Object.entries(error.response.data.errors)
+        .map(([key, value]) => `${key}: ${value.join(', ')}`)
+        .join('\n');
+      alert(`❌ Validation Error:\n${errorMessages}`);
+      setSubmitting(false);
       return;
     }
-
-    if (!suggestionData.district) {
-      alert('⚠️ Please select a district.');
-      return;
-    }
     
-    if (!suggestionData.placeName || !suggestionData.description) {
-      alert('⚠️ Please fill in all required fields.');
-      return;
-    }
-    
-    setSubmitting(true);
-    
-    try {
-      let userEmail = user?.email || 'anonymous';
+    // ✅ If the error is about rating, we need to add it
+    if (error.response?.data?.errors?.rating) {
+      console.log('⚠️ Rating required, trying with default rating...');
       
-      const newSuggestion = {
+      try {
+        // ✅ Try again with rating
+        const formDataWithRating = new FormData();
+        formDataWithRating.append('name', suggestionData.placeName);
+        formDataWithRating.append('description', suggestionData.description);
+        formDataWithRating.append('category', suggestionData.category || 'Other');
+        formDataWithRating.append('district', suggestionData.district);
+        formDataWithRating.append('location_info', suggestionData.location || '');
+        formDataWithRating.append('suggestion_type', 'hidden_gem');
+        formDataWithRating.append('rating', '5'); // ✅ Add default rating
+        
+        if (suggestionData.image) {
+          formDataWithRating.append('image', suggestionData.image);
+        }
+        
+        const response = await api.post('/suggestions/', formDataWithRating, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        
+        console.log('✅ Hidden gem saved with rating:', response.data);
+        
+        // Save to localStorage...
+        // Show success message...
+        // Reset form...
+        
+        alert('✅ Hidden gem submitted successfully!');
+        setSuggestionSubmitted(true);
+        
+        setTimeout(() => {
+          setSuggestionSubmitted(false);
+          setShowSuggestion(false);
+          setSuggestionData({
+            placeName: '',
+            location: '',
+            description: '',
+            category: '',
+            district: '',
+            image: null,
+          });
+          setImagePreview(null);
+          setSubmitting(false);
+        }, 2000);
+        
+        return;
+      } catch (retryError) {
+        console.error('❌ Retry with rating failed:', retryError);
+      }
+    }
+    
+    // ✅ Fallback to localStorage
+    try {
+      console.log('⚠️ API failed, saving to localStorage only...');
+      const fallbackSuggestion = {
         id: Date.now(),
         name: suggestionData.placeName,
         description: suggestionData.description,
-        category: suggestionData.category,
-        location_info: suggestionData.location,
+        category: suggestionData.category || 'Other',
+        location_info: suggestionData.location || '',
         district: suggestionData.district,
         status: 'pending',
-        type: 'hidden_gem',
-        user_email: userEmail,
+        suggestion_type: 'hidden_gem',
+        user_email: user?.email || 'anonymous',
         created_at: new Date().toISOString(),
-        suggestion_type: 'new',
         image: imagePreview,
+        offline_save: true,
       };
       
-      // ✅ Save to localStorage with proper error handling
       let existingSuggestions = [];
       try {
         const raw = localStorage.getItem('hidden_gems_suggestions');
@@ -167,44 +275,16 @@ export default function Home() {
         existingSuggestions = [];
       }
       
-      // Keep only last 10 to avoid storage issues
       const limitedSuggestions = existingSuggestions.slice(-9);
-      limitedSuggestions.push(newSuggestion);
+      limitedSuggestions.push(fallbackSuggestion);
+      localStorage.setItem('hidden_gems_suggestions', JSON.stringify(limitedSuggestions));
       
-      const saved = saveToLocalStorage('hidden_gems_suggestions', limitedSuggestions);
-      if (!saved) {
-        saveToLocalStorage('hidden_gems_suggestions', [newSuggestion]);
-      }
-      
-      // ✅ Try to send to backend (silent fail)
-      try {
-        const formData = new FormData();
-        formData.append('name', suggestionData.placeName);
-        formData.append('description', suggestionData.description);
-        formData.append('category', suggestionData.category || 'other');
-        formData.append('location_info', suggestionData.location);
-        formData.append('district', suggestionData.district);
-        formData.append('user_email', userEmail);
-        formData.append('suggestion_type', 'new');
-        if (suggestionData.image) {
-          formData.append('image', suggestionData.image);
-        }
-        
-        await api.post('/suggestions/', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        console.log('✅ Suggestion sent to backend');
-      } catch (apiError) {
-        console.log('⚠️ API not available, saved locally only');
-      }
-      
-      console.log('✅ Hidden Gem saved:', newSuggestion);
+      alert('✅ Hidden gem saved locally! Will sync when online.');
       setSuggestionSubmitted(true);
       
       setTimeout(() => {
         setSuggestionSubmitted(false);
         setShowSuggestion(false);
-        const districtName = suggestionData.district;
         setSuggestionData({
           placeName: '',
           location: '',
@@ -215,21 +295,13 @@ export default function Home() {
         });
         setImagePreview(null);
         setSubmitting(false);
-        
-        // ✅ Redirect to guides page with district filter
-        if (districtName) {
-          navigate(`/guides?district=${encodeURIComponent(districtName)}&search=${encodeURIComponent(districtName)}`);
-        } else {
-          navigate('/guides');
-        }
       }, 2000);
-      
-    } catch (error) {
-      console.error('Error submitting suggestion:', error);
-      alert('❌ Failed to submit suggestion. Please try again.');
+    } catch (fallbackError) {
+      alert('❌ Failed to submit hidden gem. Please try again.');
       setSubmitting(false);
     }
-  };
+  }
+};
 
   const handleProtectedClick = (path) => {
     if (!isLoggedIn) {
@@ -240,7 +312,6 @@ export default function Home() {
     navigate(path);
   };
 
-  // ✅ NEW: Handle feature card clicks with login check
   const handleFeatureClick = (featureTitle) => {
     if (!isLoggedIn) {
       alert('⚠️ Login required to access this feature. Please login first.');
@@ -248,7 +319,6 @@ export default function Home() {
       return;
     }
 
-    // Map feature titles to their respective routes
     const routeMap = {
       'Hidden Destinations': '/categories',
       'Local Guides': '/guides',
@@ -262,7 +332,6 @@ export default function Home() {
     if (path) {
       navigate(path);
     } else {
-      // Default fallback
       navigate('/dashboard');
     }
   };
@@ -272,7 +341,8 @@ export default function Home() {
     navigate('/login');
   };
 
-  // ✅ Category icon set (same as before)
+
+
   function CategoryIcon({ type }) {
     const common = { width: 34, height: 34, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", className: "text-[#0E5C53] group-hover:text-[#E4C77B] transition-colors" };
     const icons = {
@@ -288,7 +358,6 @@ export default function Home() {
     return icons[type] || <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
   }
 
-  // ✅ Feature icon set (same as before)
   function FeatureIcon({ type }) {
     const common = { width: 28, height: 28, viewBox: "0 0 24 24", fill: "none", stroke: "#C79A3E", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
     const icons = {
@@ -302,7 +371,6 @@ export default function Home() {
     return icons[type] || <svg {...common}><circle cx="12" cy="12" r="8" /></svg>;
   }
 
-  // ✅ explorePlaces
   const explorePlaces = [
     {
       id: 1,
@@ -333,7 +401,6 @@ export default function Home() {
     }
   ];
 
-  // ✅ Categories
   const topCategories = [
     { key: "beaches", label: "Beaches", image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&q=80", count: "55+" },
     { key: "backwaters", label: "Backwaters", image: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=400&q=80", count: "30+" },
@@ -345,7 +412,6 @@ export default function Home() {
     { key: "houseboats", label: "Houseboats", image: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?w=400&q=80", count: "20+" }
   ];
 
-  // ✅ Features with routing information
   const whyChooseUs = [
     { title: "Hidden Destinations", description: "Discover off-the-beaten-path locations that most tourists never see", route: "/categories" },
     { title: "Local Guides", description: "Connect with knowledgeable locals who share authentic experiences", route: "/guides" },
@@ -379,7 +445,6 @@ export default function Home() {
     </div>
   );
 
-  // ✅ BottomNav
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -711,7 +776,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ✅ WHY CHOOSE DISCOVEREASE? - NOW WITH CLICKABLE CARDS */}
+      {/* WHY CHOOSE DISCOVEREASE? */}
       <section className="relative">
         <RippleDivider fill="#072E2A" />
         <div className="bg-[#072E2A] py-20">
@@ -756,7 +821,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* KNOW A HIDDEN GEM? - WITH IMAGE & DISTRICT */}
+      {/* KNOW A HIDDEN GEM? */}
       <section className="relative px-6 py-20 max-w-7xl mx-auto">
         <div className="bg-white rounded-lg p-8 md:p-14 border border-[#C79A3E]/30 shadow-lg" style={{ boxShadow: '0 30px 60px -20px rgba(11,36,34,0.15)' }}>
           <div className="flex flex-col md:flex-row items-stretch gap-10 md:gap-14">
@@ -825,7 +890,7 @@ export default function Home() {
                         required
                       >
                         <option value="">Select District</option>
-                        {Array.isArray(districts) && districts.map((d) => (
+                        {districts.map((d) => (
                           <option key={d.id} value={d.name}>{d.name}</option>
                         ))}
                       </select>
@@ -875,6 +940,10 @@ export default function Home() {
                         <option value="temple">Temple</option>
                         <option value="fort">Fort</option>
                         <option value="camping">Camping</option>
+                        <option value="nature">Nature</option>
+                        <option value="beach">desert safari</option>
+                        <option value="resort">resort</option>
+                        <option value="zoo">zoo</option>
                         <option value="other">Other</option>
                       </select>
                     </div>

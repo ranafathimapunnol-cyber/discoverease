@@ -108,8 +108,8 @@ class Command(BaseCommand):
                     try:
                         # Check for duplicates
                         existing = Destination.objects.filter(
-                            name__iexact=place['name'],
-                            district__iexact=place.get('location', '')
+                            name__in=place['name'],
+                            district__in=place.get('location', '')
                         ).first()
 
                         if existing:

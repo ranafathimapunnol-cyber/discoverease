@@ -20,7 +20,7 @@ class StaffActivityLog(models.Model):
     model_name = models.CharField(max_length=100)
     object_id = models.CharField(max_length=50, blank=True)
     details = models.JSONField(default=dict, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True, max_length=45)
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -34,7 +34,7 @@ class StaffNotification(models.Model):
     """Staff notifications"""
     staff = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_notifications')
     title = models.CharField(max_length=255)
-    message = models.TextField()
+    message = models.TextField(max_length=1000)
     is_read = models.BooleanField(default=False)
     link = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

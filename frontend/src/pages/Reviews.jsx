@@ -1,4 +1,5 @@
-// pages/Reviews.jsx - SIMPLIFIED REVIEW SUGGESTION PAGE
+// pages/Reviews.jsx - COMPLETE FIXED VERSION (NO MINIMUM VALIDATION)
+
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,7 +10,6 @@ const Reviews = () => {
     const { isLoggedIn, user } = useAuth();
     const [scrolled, setScrolled] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [showReviewModal, setShowReviewModal] = useState(false);
     const [imagePreview, setImagePreview] = useState(null);
     const [formData, setFormData] = useState({
         destination: '',
@@ -35,7 +35,6 @@ const Reviews = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // Compress image
     const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -97,6 +96,7 @@ const Reviews = () => {
         setImagePreview(null);
     };
 
+    // ✅ Submit review - NO MINIMUM VALIDATION
     const handleSubmitReview = async (e) => {
         e.preventDefault();
 
@@ -116,36 +116,69 @@ const Reviews = () => {
             return;
         }
 
+        // ✅ ONLY CHECK IF NOT EMPTY (NO MINIMUM LENGTH)
+        if (!formData.review_text || formData.review_text.trim() === '') {
+            alert('⚠️ Please write your review.');
+            return;
+        }
+
         setSubmitting(true);
         try {
-            // Try API first
-            try {
-                const reviewData = {
-                    destination: formData.destination,
-                    district: formData.district,
-                    rating: formData.rating,
-                    title: formData.title,
-                    review_text: formData.review_text,
-                    tips: formData.tips,
-                    best_time: formData.best_time,
-                    category: formData.category,
-                    user_email: user?.email || 'anonymous',
-                    image: formData.image || null,
-                };
-                
-                const response = await api.post('/reviews/create/', reviewData);
-                if (response.data?.success) {
-                    alert('✅ Your review has been submitted successfully!');
-                    setShowReviewModal(false);
-                    resetForm();
-                    setSubmitting(false);
-                    return;
+            const reviewData = {
+                name: formData.destination,
+                description: formData.review_text,
+                category: formData.category,
+                location_info: formData.district,
+                district: formData.district,
+                suggestion_type: 'review',
+                rating: formData.rating,
+                title: formData.title || formData.destination,
+                tips: formData.tips || '',
+                best_time: formData.best_time || '',
+            };
+            
+            console.log('📤 Sending review data:', reviewData);
+            
+            const response = await api.post('/suggestions/', reviewData);
+            
+            console.log('📥 Response:', response.data);
+            
+            if (response.data?.success) {
+                alert('✅ Your review has been submitted for approval!');
+                resetForm();
+                setSubmitting(false);
+                return;
+            } else {
+                if (response.data?.errors) {
+                    const errors = Object.values(response.data.errors).flat().join('\n');
+                    alert(`⚠️ ${errors}`);
+                } else if (response.data?.error) {
+                    alert(`⚠️ ${response.data.error}`);
+                } else {
+                    alert('⚠️ Failed to submit review. Please try again.');
                 }
-            } catch (apiError) {
-                console.log('⚠️ API submission failed, using localStorage:', apiError.message);
             }
+        } catch (error) {
+            console.error('❌ API submission failed:', error);
+            
+            if (error.response?.data?.errors) {
+                const errors = Object.values(error.response.data.errors).flat().join('\n');
+                alert(`⚠️ ${errors}`);
+            } else if (error.response?.data?.error) {
+                alert(`⚠️ ${error.response.data.error}`);
+            } else if (error.response?.data?.message) {
+                alert(`⚠️ ${error.response.data.message}`);
+            } else {
+                saveToLocalStorage();
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
-            // Fallback to localStorage
+    // ✅ Save to localStorage as fallback
+    const saveToLocalStorage = () => {
+        try {
             const existingReviews = JSON.parse(localStorage.getItem('user_reviews') || '[]');
             
             const MAX_STORAGE_ITEMS = 100;
@@ -161,28 +194,25 @@ const Reviews = () => {
                 destination: formData.destination,
                 district: formData.district,
                 rating: formData.rating,
-                title: formData.title,
+                title: formData.title || formData.destination,
                 review_text: formData.review_text,
-                tips: formData.tips,
-                best_time: formData.best_time,
-                category: formData.category,
+                tips: formData.tips || '',
+                best_time: formData.best_time || '',
+                category: formData.category || 'general',
                 status: 'pending',
                 user_email: user?.email || 'anonymous',
+                user_id: user?.id,
                 created_at: new Date().toISOString(),
                 image: formData.image || null,
             };
             
             existingReviews.push(newReview);
             localStorage.setItem('user_reviews', JSON.stringify(existingReviews));
-
-            alert('✅ Your review has been submitted successfully!');
-            setShowReviewModal(false);
+            alert('✅ Your review has been saved locally!');
             resetForm();
         } catch (error) {
-            console.error('Error submitting review:', error);
-            alert('Failed to submit review. Please try again.');
-        } finally {
-            setSubmitting(false);
+            console.error('Error saving to localStorage:', error);
+            alert('Failed to save review. Please try again.');
         }
     };
 
@@ -218,7 +248,7 @@ const Reviews = () => {
         } rounded-full border px-3 py-2`}
         >
             <div className="flex justify-around items-center max-w-md mx-auto">
-                <Link to="/" className="flex flex-col items-center group" onClick={() => {}}>
+                <Link to="/" className="flex flex-col items-center group">
                     <div className="p-2 rounded-full transition-all duration-300 group-hover:bg-white/5">
                         <svg className="w-6 h-6 transition-all duration-300 text-[#B9CFC9] group-hover:text-[#EDE2C4]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                             <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
@@ -279,27 +309,6 @@ const Reviews = () => {
                 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
                 .rv-font-display { font-family: 'Fraunces', serif; }
                 .rv-font-mono { font-family: 'IBM Plex Mono', monospace; }
-                .modal-overlay {
-                    position: fixed;
-                    inset: 0;
-                    background: rgba(0,0,0,0.5);
-                    backdrop-filter: blur(4px);
-                    z-index: 1000;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 20px;
-                }
-                .modal-content {
-                    background: #FBF6EA;
-                    border-radius: 12px;
-                    padding: 32px;
-                    max-width: 600px;
-                    width: 100%;
-                    max-height: 90vh;
-                    overflow-y: auto;
-                    border: 1px solid rgba(199,154,62,0.3);
-                }
                 .rv-input { transition: border-color 0.3s ease, box-shadow 0.3s ease; }
                 .rv-input:focus { border-color: #C79A3E; box-shadow: 0 0 0 3px rgba(199,154,62,0.1); outline: none; }
             `}</style>
@@ -330,7 +339,6 @@ const Reviews = () => {
             </div>
 
             <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px 0" }}>
-                {/* Review Form Card */}
                 <div style={{ 
                     background: "#fff", 
                     borderRadius: 12, 
@@ -353,7 +361,7 @@ const Reviews = () => {
                         </div>
                         <div>
                             <h2 className="rv-font-display" style={{ fontSize: 22, color: "#0B2422", margin: 0 }}>Share Your Experience</h2>
-                            <p style={{ fontSize: 12, color: "#5C6E69", margin: 0 }}>Your review will be sent to guides for approval</p>
+                            <p style={{ fontSize: 12, color: "#5C6E69", margin: 0 }}>Your review will be submitted for approval</p>
                         </div>
                     </div>
 
@@ -485,16 +493,23 @@ const Reviews = () => {
                                 value={formData.category}
                                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                             >
-                                <option value="general">General</option>
-                                <option value="beach">Beach</option>
-                                <option value="hill">Hill Station</option>
-                                <option value="backwater">Backwater</option>
-                                <option value="heritage">Heritage</option>
-                                <option value="wildlife">Wildlife</option>
-                                <option value="temple">Temple</option>
-                                <option value="nature">Nature</option>
-                                <option value="adventure">Adventure</option>
-                                <option value="food">Food</option>
+                              
+                               <option value="beach">Beach</option>
+                                    <option value="hill">Hill Station</option>
+                                    <option value="backwater">Backwater</option>
+                                    <option value="heritage">Heritage</option>
+                                    <option value="wildlife">Wildlife</option>
+                                    <option value="temple">Temple</option>
+                                    <option value="waterfalls">Waterfalls</option>
+                                    <option value="nature">Nature</option>
+                                    <option value="fort">Fort/Palace</option>
+                                    <option value="museum">Museum</option>
+                                    <option value="camping">Camping</option>
+                                    <option value="islands">Islands</option>
+                                    <option value="sacred">Sacred Site</option>
+                                    <option value="off-road">Off Road</option>
+                                    <option value="parks">Parks</option>
+                                    <option value="other">Other</option>
                             </select>
                         </div>
 
@@ -537,7 +552,7 @@ const Reviews = () => {
                                     </button>
                                 )}
                             </div>
-                            <p style={{ fontSize: 11, color: "#8A9A95", marginTop: 4 }}>Max 5MB. Image will be compressed for storage</p>
+                            <p style={{ fontSize: 11, color: "#8A9A95", marginTop: 4 }}>Max 5MB. Image will be compressed</p>
                             {imagePreview && (
                                 <div style={{ marginTop: 8 }}>
                                     <img
@@ -564,30 +579,29 @@ const Reviews = () => {
                             lineHeight: 1.5,
                             marginTop: 4
                         }}>
-                            💡 Your review will be sent to guides in {formData.district || 'your selected district'} for approval. 
-                            Once approved, it will be shared with the community.
+                            💡 Your review will be sent for approval.
                         </div>
 
                         <button
                             type="submit"
-                            disabled={submitting}
+                            disabled={submitting || !formData.review_text || formData.review_text.trim() === ''}
                             style={{
                                 padding: "14px 28px",
                                 borderRadius: 999,
                                 border: "none",
-                                background: submitting ? "#9CA3AF" : "#072E2A",
+                                background: (submitting || !formData.review_text || formData.review_text.trim() === '') ? "#9CA3AF" : "#072E2A",
                                 color: "#E4C77B",
                                 fontSize: 13,
                                 letterSpacing: "0.15em",
                                 textTransform: "uppercase",
-                                cursor: submitting ? "not-allowed" : "pointer",
-                                opacity: submitting ? 0.6 : 1,
+                                cursor: (submitting || !formData.review_text || formData.review_text.trim() === '') ? "not-allowed" : "pointer",
+                                opacity: (submitting || !formData.review_text || formData.review_text.trim() === '') ? 0.6 : 1,
                                 transition: "all 0.3s ease",
                                 fontFamily: "'IBM Plex Mono', monospace",
                                 marginTop: 4
                             }}
                             onMouseEnter={(e) => {
-                                if (!submitting) {
+                                if (!submitting && formData.review_text && formData.review_text.trim() !== '') {
                                     e.target.style.background = "#0B2422";
                                 }
                             }}

@@ -1,1781 +1,2079 @@
 // src/pages/StaffDashboard.jsx - COMPLETE FIXED VERSION
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// All API calls use correct methods (POST for delete, etc.)
+
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import {
+    CalendarDays,
+    Clock,
+    Trash2,
+    RefreshCw,
+    Loader2,
+    Star,
+    MessageSquare,
+    UserCheck,
+    PlusCircle,
+    X,
+    Anchor,
+    MapPin,
+    User,
+    DollarSign,
+    Edit2,
+    Save,
+    Eye,
+    Check,
+    AlertCircle,
+    Camera,
+    Pencil,
+    LogOut,
+    Compass,
+    Sparkles,
+    Lightbulb,
+    TrendingUp,
+    TrendingDown,
+    Image as ImageIcon,
+    ChevronLeft,
+    ChevronRight,
+    Calendar,
+    CheckCircle,
+    XCircle,
+    Plus,
+    Minus,
+    Users,
+    BookOpen,
+    Award,
+    Shield,
+} from 'lucide-react';
 
+// ============================================
+// DESIGN TOKENS
+// ============================================
+const C = {
+    ink: '#072E2A',
+    inkSoft: '#0B2422',
+    paper: '#FFFFFF',
+    cream: '#FBF6EA',
+    cream2: '#F5EDD6',
+    gold: '#C79A3E',
+    goldLight: '#E4C77B',
+    goldSoft: 'rgba(199,154,62,0.14)',
+    sage: '#7A7568',
+    sageLight: '#9C8A5C',
+    line: '#EFE6CF',
+    success: '#3F7A5E',
+    successBg: '#EAF3EE',
+    warn: '#B4791F',
+    warnBg: '#FBF1DC',
+    danger: '#B4472A',
+    dangerBg: '#FDF1EC',
+};
+
+const FONT = {
+    display: "'Fraunces', Georgia, serif",
+    body: "'Inter', system-ui, sans-serif",
+    mono: "'IBM Plex Mono', 'Courier New', monospace",
+};
+
+const RADIUS = { sm: 8, md: 14, lg: 20 };
+const SIDEBAR_W = 264;
+const ITEMS_PER_PAGE = 6;
+
+// ============================================
+// COMPONENTS
+// ============================================
+
+const Card = ({ children, style, ...props }) => (
+    <div
+        style={{
+            background: C.paper,
+            border: `1px solid ${C.line}`,
+            borderRadius: RADIUS.md,
+            boxShadow: '0 1px 2px rgba(7,46,42,0.04), 0 10px 26px -14px rgba(7,46,42,0.14)',
+            ...style,
+        }}
+        {...props}
+    >
+        {children}
+    </div>
+);
+
+const Btn = ({ children, variant = 'primary', icon: Icon, size = 'md', style, ...props }) => {
+    const variants = {
+        primary: { background: C.ink, color: C.goldLight, border: 'none' },
+        gold: { background: C.gold, color: C.ink, border: 'none' },
+        success: { background: C.success, color: '#fff', border: 'none' },
+        danger: { background: 'transparent', color: C.danger, border: `1px solid #EFCBB5` },
+        ghost: { background: 'transparent', border: `1px solid ${C.line}`, color: C.sage },
+        warning: { background: C.warn, color: '#fff', border: 'none' },
+    };
+    const v = variants[variant] || variants.primary;
+    const sizes = { sm: { padding: '5px 12px', fontSize: 11 }, md: { padding: '9px 18px', fontSize: 13 }, lg: { padding: '12px 24px', fontSize: 14 } };
+    const s = sizes[size] || sizes.md;
+    return (
+        <button
+            style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                borderRadius: RADIUS.sm, fontFamily: FONT.body, fontWeight: 500, cursor: 'pointer',
+                transition: 'all 0.2s ease', ...v, ...s, ...style,
+            }}
+            {...props}
+        >
+            {Icon && <Icon size={size === 'sm' ? 12 : 14} />}
+            {children}
+        </button>
+    );
+};
+
+const StatusPill = ({ status }) => {
+    const map = {
+        pending: { fg: C.warn, bg: C.warnBg, label: 'Pending' },
+        approved: { fg: C.success, bg: C.successBg, label: 'Approved' },
+        rejected: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
+        implemented: { fg: C.gold, bg: C.warnBg, label: '✨ Implemented' },
+        confirmed: { fg: C.success, bg: C.successBg, label: 'Confirmed' },
+        completed: { fg: C.inkSoft, bg: '#EDECE4', label: 'Completed' },
+        cancelled: { fg: C.danger, bg: C.dangerBg, label: 'Cancelled' },
+        active: { fg: C.success, bg: C.successBg, label: 'Active' },
+        inactive: { fg: C.danger, bg: C.dangerBg, label: 'Inactive' },
+        verified: { fg: C.success, bg: C.successBg, label: '✅ Verified' },
+        unverified: { fg: C.warn, bg: C.warnBg, label: '⏳ Unverified' },
+    };
+    const s = map[status] || { fg: C.sage, bg: '#EEEEEE', label: status };
+    return (
+        <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999,
+            fontFamily: FONT.mono, fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase',
+            color: s.fg, background: s.bg, border: `1px solid ${s.fg}22`, whiteSpace: 'nowrap', flexShrink: 0,
+        }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.fg, flexShrink: 0 }} />
+            {s.label}
+        </span>
+    );
+};
+
+const StatChip = ({ label, value, icon: Icon, tone = 'ink' }) => (
+    <Card style={{ padding: '14px 16px', flex: '1 1 150px', minWidth: 150 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+                <p style={{ fontFamily: FONT.mono, fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.sageLight, margin: 0 }}>{label}</p>
+                <p style={{ fontFamily: FONT.display, fontSize: 24, fontWeight: 600, color: C.inkSoft, margin: '3px 0 0' }}>{value}</p>
+            </div>
+            <div style={{
+                width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                background: tone === 'gold' ? C.goldSoft : 'rgba(7,46,42,0.06)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+                <Icon size={17} color={tone === 'gold' ? C.gold : C.ink} />
+            </div>
+        </div>
+    </Card>
+);
+
+const SectionHead = ({ icon: Icon, title, count, right }) => (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 10, paddingBottom: 14, borderBottom: `1px solid ${C.line}` }}>
+        <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {Icon && <Icon size={17} color={C.gold} />}
+            {title}
+            {count !== undefined && <span style={{ fontSize: 12, color: C.sage, fontStyle: 'normal', fontFamily: FONT.mono }}>({count})</span>}
+        </h3>
+        {right}
+    </div>
+);
+
+// ============================================
+// PAGINATION COMPONENT
+// ============================================
+const Pagination = ({ 
+    currentPage, 
+    totalPages, 
+    onPageChange, 
+    totalItems, 
+    itemsPerPage,
+    variant = 'default'
+}) => {
+    if (totalPages <= 1) return null;
+
+    const getPageNumbers = () => {
+        const pages = [];
+        const maxVisible = 5;
+        let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+        let end = Math.min(totalPages, start + maxVisible - 1);
+        
+        if (end - start + 1 < maxVisible) {
+            start = Math.max(1, end - maxVisible + 1);
+        }
+
+        for (let i = start; i <= end; i++) {
+            pages.push(i);
+        }
+        return pages;
+    };
+
+    const startItem = (currentPage - 1) * itemsPerPage + 1;
+    const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+    return (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            paddingTop: 16,
+            marginTop: 16,
+            borderTop: `1px solid ${C.line}`,
+        }}>
+            <div style={{ fontSize: 12, color: C.sage }}>
+                Showing {startItem}-{endItem} of {totalItems}
+            </div>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <button
+                    onClick={() => onPageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    style={{
+                        padding: '6px 10px',
+                        borderRadius: RADIUS.sm,
+                        border: `1px solid ${C.line}`,
+                        background: currentPage === 1 ? '#f5f5f5' : C.paper,
+                        color: currentPage === 1 ? C.sageLight : C.inkSoft,
+                        cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        transition: 'all 0.15s ease',
+                        opacity: currentPage === 1 ? 0.5 : 1,
+                    }}
+                >
+                    <ChevronLeft size={14} />
+                    <span style={{ display: variant === 'compact' ? 'none' : 'inline' }}>Previous</span>
+                </button>
+
+                {getPageNumbers().map(page => (
+                    <button
+                        key={page}
+                        onClick={() => onPageChange(page)}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: RADIUS.sm,
+                            border: currentPage === page ? `1px solid ${C.gold}` : `1px solid ${C.line}`,
+                            background: currentPage === page ? C.gold : C.paper,
+                            color: currentPage === page ? C.ink : C.sage,
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontFamily: FONT.mono,
+                            fontWeight: currentPage === page ? 600 : 400,
+                            transition: 'all 0.15s ease',
+                            minWidth: 32,
+                        }}
+                    >
+                        {page}
+                    </button>
+                ))}
+
+                <button
+                    onClick={() => onPageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    style={{
+                        padding: '6px 10px',
+                        borderRadius: RADIUS.sm,
+                        border: `1px solid ${C.line}`,
+                        background: currentPage === totalPages ? '#f5f5f5' : C.paper,
+                        color: currentPage === totalPages ? C.sageLight : C.inkSoft,
+                        cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        transition: 'all 0.15s ease',
+                        opacity: currentPage === totalPages ? 0.5 : 1,
+                    }}
+                >
+                    <span style={{ display: variant === 'compact' ? 'none' : 'inline' }}>Next</span>
+                    <ChevronRight size={14} />
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const inputStyle = {
+    width: '100%',
+    padding: '10px 13px',
+    background: C.cream,
+    border: `1.5px solid ${C.line}`,
+    borderRadius: RADIUS.sm,
+    color: C.inkSoft,
+    fontSize: 13,
+    fontFamily: FONT.body,
+    outline: 'none',
+    transition: 'all 0.2s ease',
+    boxSizing: 'border-box',
+};
+
+const selectStyle = {
+    padding: '7px 12px',
+    borderRadius: RADIUS.sm,
+    background: C.paper,
+    border: `1px solid ${C.line}`,
+    color: C.inkSoft,
+    fontSize: 12,
+    fontFamily: FONT.body,
+    cursor: 'pointer',
+    outline: 'none',
+};
+
+const KasavuStrip = () => (
+    <svg width="10" viewBox="0 0 10 900" preserveAspectRatio="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, height: '100%', width: 10 }} aria-hidden="true">
+        {Array.from({ length: 45 }).map((_, i) => (
+            <g key={i} transform={`translate(0, ${i * 20})`}>
+                <path d="M5 3 L8.5 10 L5 17 L1.5 10 Z" fill="none" stroke={C.gold} strokeWidth="1" opacity="0.8" />
+                <circle cx="5" cy="10" r="0.8" fill={C.gold} />
+            </g>
+        ))}
+    </svg>
+);
+
+const ModalShell = ({ onClose, title, subtitle, icon: HeadIcon, maxWidth = 560, children, footer }) => (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(11,36,34,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }} onClick={onClose}>
+        <div style={{ background: C.paper, borderRadius: RADIUS.lg, maxWidth, width: '100%', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 70px rgba(7,46,42,0.32)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '18px 24px', borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                    {HeadIcon && (
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: C.cream, color: C.gold, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <HeadIcon size={16} />
+                        </div>
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                        <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</h3>
+                        {subtitle && <p style={{ fontSize: 12, color: C.sage, margin: '2px 0 0' }}>{subtitle}</p>}
+                    </div>
+                </div>
+                <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'transparent', color: C.sage, cursor: 'pointer', fontSize: 20, flexShrink: 0 }}>×</button>
+            </div>
+            <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
+                {children}
+            </div>
+            {footer && (
+                <div style={{ padding: '16px 24px', borderTop: `1px solid ${C.line}`, display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+                    {footer}
+                </div>
+            )}
+        </div>
+    </div>
+);
+
+// ============================================
+// KERALA DISTRICTS
+// ============================================
 const KERALA_DISTRICTS = [
-  { id: 1, name: 'Thiruvananthapuram' }, { id: 2, name: 'Kollam' },
-  { id: 3, name: 'Pathanamthitta' }, { id: 4, name: 'Alappuzha' },
-  { id: 5, name: 'Kottayam' }, { id: 6, name: 'Idukki' },
-  { id: 7, name: 'Ernakulam' }, { id: 8, name: 'Thrissur' },
-  { id: 9, name: 'Palakkad' }, { id: 10, name: 'Malappuram' },
-  { id: 11, name: 'Kozhikode' }, { id: 12, name: 'Wayanad' },
-  { id: 13, name: 'Kannur' }, { id: 14, name: 'Kasaragod' },
+    { id: 1, name: 'Thiruvananthapuram' }, { id: 2, name: 'Kollam' },
+    { id: 3, name: 'Pathanamthitta' }, { id: 4, name: 'Alappuzha' },
+    { id: 5, name: 'Kottayam' }, { id: 6, name: 'Idukki' },
+    { id: 7, name: 'Ernakulam' }, { id: 8, name: 'Thrissur' },
+    { id: 9, name: 'Palakkad' }, { id: 10, name: 'Malappuram' },
+    { id: 11, name: 'Kozhikode' }, { id: 12, name: 'Wayanad' },
+    { id: 13, name: 'Kannur' }, { id: 14, name: 'Kasaragod' },
 ];
 
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
 const StaffDashboard = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
 
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [stats, setStats] = useState({
-    pendingSuggestions: 0,
-    totalSuggestions: 0,
-    totalGuides: 0,
-    totalBookings: 0,
-    confirmedBookings: 0,
-    totalReviews: 0,
-    pendingReviews: 0,
-    approvedReviews: 0,
-    implementedReviews: 0,
-  });
-  const [suggestions, setSuggestions] = useState([]);
-  const [allSuggestions, setAllSuggestions] = useState([]);
-  const [guides, setGuides] = useState([]);
-  const [bookings, setBookings] = useState([]);
-  const [reviews, setReviews] = useState([]);
-  const [reviewFilter, setReviewFilter] = useState('all');
-  const [showAddGuide, setShowAddGuide] = useState(false);
-  const [guideForm, setGuideForm] = useState({
-    full_name: '', email: '', password: '',
-    phone: '', bio: '',
-    experience_years: '0', languages: '', primary_district: '',
-    price_per_day: '0', price_per_hour: '0'
-  });
-  const [guideLoading, setGuideLoading] = useState(false);
-  const [processingId, setProcessingId] = useState(null);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [newGuidePassword, setNewGuidePassword] = useState('');
-  const [autoVerify, setAutoVerify] = useState(true);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(null);
-  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
-  const [suggestionFilter, setSuggestionFilter] = useState('all');
-  const [actionLoading, setActionLoading] = useState(false);
+    // ============================================
+    // STATE
+    // ============================================
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [activeTab, setActiveTab] = useState('overview');
+    const [toast, setToast] = useState(null);
 
-  // ============================================
-  // PROFILE STATE
-  // ============================================
-  const [profile, setProfile] = useState(null);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [profileForm, setProfileForm] = useState({
-    full_name: '',
-    email: '',
-    phone: '',
-    bio: '',
-    department: '',
-    position: '',
-  });
-  const [profilePicture, setProfilePicture] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef(null);
+    // Profile
+    const [profile, setProfile] = useState(null);
+    const [profileForm, setProfileForm] = useState({
+        full_name: '', email: '', phone: '', bio: '', department: '', position: '',
+    });
+    const [isEditingProfile, setIsEditingProfile] = useState(false);
+    const [profilePicture, setProfilePicture] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef(null);
 
-  // ============================================
-  // PROFILE PICTURE FUNCTIONS
-  // ============================================
-  const loadProfilePicture = () => {
-    const savedPicture = localStorage.getItem('staff_profile_picture');
-    if (savedPicture) {
-      setProfilePicture(savedPicture);
-      return;
-    }
-    if (user?.profile_image) {
-      setProfilePicture(user.profile_image);
-    } else {
-      setProfilePicture(null);
-    }
-  };
+    // Stats
+    const [stats, setStats] = useState({
+        totalGuides: 0,
+        totalBookings: 0,
+        confirmedBookings: 0,
+        totalHiddenGems: 0,
+        pendingHiddenGems: 0,
+        approvedHiddenGems: 0,
+        implementedHiddenGems: 0,
+        rejectedHiddenGems: 0,
+        totalLocalInsights: 0,
+        pendingLocalInsights: 0,
+        approvedLocalInsights: 0,
+        implementedLocalInsights: 0,
+        rejectedLocalInsights: 0,
+        totalReviews: 0,
+        pendingReviews: 0,
+        approvedReviews: 0,
+        implementedReviews: 0,
+        rejectedReviews: 0,
+    });
 
-  const handleProfilePictureUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      alert('❌ File size must be less than 5MB');
-      return;
-    }
-    if (!file.type.startsWith('image/')) {
-      alert('❌ Please upload an image file');
-      return;
-    }
-    setUploading(true);
-    try {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result;
-        localStorage.setItem('staff_profile_picture', base64String);
-        setProfilePicture(base64String);
-        setUploading(false);
-        alert('✅ Profile picture updated!');
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Error uploading profile picture:', error);
-      alert('❌ Failed to upload profile picture.');
-      setUploading(false);
-    }
-  };
+    // Data states
+    const [hiddenGems, setHiddenGems] = useState([]);
+    const [localInsights, setLocalInsights] = useState([]);
+    const [reviews, setReviews] = useState([]);
+    const [guides, setGuides] = useState([]);
+    const [bookings, setBookings] = useState([]);
+    const [allSuggestions, setAllSuggestions] = useState([]);
 
-  const handleDeleteProfilePicture = async () => {
-    if (!window.confirm('Remove your profile picture?')) return;
-    try {
-      localStorage.removeItem('staff_profile_picture');
-      setProfilePicture(null);
-      alert('✅ Profile picture removed');
-    } catch (error) {
-      console.error('Error deleting profile picture:', error);
-      alert('❌ Failed to delete profile picture.');
-    }
-  };
+    // Filter states
+    const [hiddenGemsFilter, setHiddenGemsFilter] = useState('all');
+    const [localInsightsFilter, setLocalInsightsFilter] = useState('all');
+    const [reviewsFilter, setReviewsFilter] = useState('all');
 
-  // ============================================
-  // FETCH DATA
-  // ============================================
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // 1. Stats
-      try {
-        const statsRes = await api.get('/staff/stats/');
-        if (statsRes?.data?.success) {
-          const s = statsRes.data.stats;
-          setStats({
-            pendingSuggestions: s.pendingSuggestions || 0,
-            totalSuggestions: s.totalSuggestions || 0,
-            totalGuides: s.totalGuides || 0,
-            totalBookings: s.totalBookings || 0,
-            confirmedBookings: s.confirmedBookings || 0,
-            totalReviews: s.totalReviews || 0,
-            pendingReviews: s.pendingReviews || 0,
-            approvedReviews: s.approvedReviews || 0,
-            implementedReviews: s.implementedReviews || 0,
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching staff stats:', error);
-      }
+    // Pagination
+    const [hiddenGemsPage, setHiddenGemsPage] = useState(1);
+    const [localInsightsPage, setLocalInsightsPage] = useState(1);
+    const [reviewsPage, setReviewsPage] = useState(1);
+    const [guidesPage, setGuidesPage] = useState(1);
 
-      // 2. Guides
-      try {
-        const guidesRes = await api.get('/staff/guides/');
-        if (guidesRes?.data?.success) {
-          setGuides(guidesRes.data.guides || []);
-        } else if (Array.isArray(guidesRes?.data)) {
-          setGuides(guidesRes.data);
-        } else {
-          setGuides([]);
-        }
-      } catch (error) {
-        console.error('Error fetching guides:', error);
-        setGuides([]);
-      }
+    // Modal states
+    const [showGuideModal, setShowGuideModal] = useState(false);
+    const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+    const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+    const [showReviewModal, setShowReviewModal] = useState(false);
 
-      // 3. Bookings
-      try {
-        const bookRes = await api.get('/staff/bookings/');
-        if (bookRes?.data?.success) {
-          setBookings(bookRes.data.bookings || []);
-        } else if (Array.isArray(bookRes?.data)) {
-          setBookings(bookRes.data);
-        } else {
-          setBookings([]);
-        }
-      } catch (error) {
-        console.error('Error fetching bookings:', error);
-        setBookings([]);
-      }
+    // Form states
+    const [guideForm, setGuideForm] = useState({
+        full_name: '', email: '', password: '',
+        phone: '', bio: '',
+        experience_years: '0', languages: '', primary_district: '',
+        price_per_day: '0', price_per_hour: '0'
+    });
+    const [guideLoading, setGuideLoading] = useState(false);
+    const [processingId, setProcessingId] = useState(null);
+    const [newGuidePassword, setNewGuidePassword] = useState('');
+    const [selectedSuggestion, setSelectedSuggestion] = useState(null);
+    const [selectedReview, setSelectedReview] = useState(null);
+    const [actionLoading, setActionLoading] = useState(false);
 
-      // 4. Suggestions
-      try {
-        const suggRes = await api.get('/staff/suggestions/');
-        let all = [];
-        if (suggRes?.data?.success) {
-          all = suggRes.data.suggestions || [];
-        } else if (Array.isArray(suggRes?.data)) {
-          all = suggRes.data;
-        }
-        try {
-          const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-          const allIds = new Set(all.map(s => s.id));
-          const uniqueLocal = localSuggestions.filter(s => !allIds.has(s.id));
-          all = [...all, ...uniqueLocal];
-        } catch (e) {
-          console.log('No local suggestions found');
-        }
-        setAllSuggestions(all);
-        const pending = all.filter(s => s.status === 'pending');
-        setSuggestions(pending);
-        setStats(prev => ({
-          ...prev,
-          pendingSuggestions: pending.length,
-          totalSuggestions: all.length,
-        }));
-      } catch (error) {
-        console.error('Error fetching suggestions:', error);
-        try {
-          const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-          setAllSuggestions(localSuggestions);
-          const pending = localSuggestions.filter(s => s.status === 'pending');
-          setSuggestions(pending);
-          setStats(prev => ({
-            ...prev,
-            pendingSuggestions: pending.length,
-            totalSuggestions: localSuggestions.length,
-          }));
-        } catch (e) {
-          setAllSuggestions([]);
-          setSuggestions([]);
-        }
-      }
+    const dataFetchedRef = useRef(false);
 
-      // 5. 🔥 REVIEWS - FETCH FROM LOCALSTORAGE user_reviews
-      try {
-        const allReviews = JSON.parse(localStorage.getItem('user_reviews') || '[]');
-        console.log('📊 All reviews from localStorage:', allReviews.length);
-        
-        // Filter reviews that are approved by guide (status: 'approved' or 'pending' for staff to review)
-        const staffReviews = allReviews.filter(r => 
-          r.status === 'approved' || r.status === 'pending' || r.status === 'rejected' || r.status === 'implemented'
-        );
-        
-        setReviews(staffReviews);
-        
-        // Update stats with review counts
-        const pendingReviews = staffReviews.filter(r => r.status === 'pending').length;
-        const approvedReviews = staffReviews.filter(r => r.status === 'approved').length;
-        const implementedReviews = staffReviews.filter(r => r.status === 'implemented').length;
-        
-        setStats(prev => ({
-          ...prev,
-          totalReviews: staffReviews.length,
-          pendingReviews: pendingReviews,
-          approvedReviews: approvedReviews,
-          implementedReviews: implementedReviews,
-        }));
-        
-        console.log('📊 Staff reviews:', staffReviews.length, 'pending:', pendingReviews, 'approved:', approvedReviews);
-      } catch (error) {
-        console.error('Error fetching reviews from localStorage:', error);
-        setReviews([]);
-      }
+    // ============================================
+    // NAV ITEMS
+    // ============================================
+    const navItems = [
+        { key: 'overview', label: 'Overview', icon: Compass },
+        { key: 'hidden-gems', label: 'Hidden Gems', icon: Sparkles, badge: stats.pendingHiddenGems },
+        { key: 'local-insights', label: 'Local Insights', icon: Lightbulb, badge: stats.pendingLocalInsights },
+        { key: 'reviews', label: 'Reviews', icon: Star, badge: stats.pendingReviews },
+        { key: 'guides', label: 'Guides', icon: Users },
+        { key: 'bookings', label: 'Bookings', icon: CalendarDays },
+        { key: 'profile', label: 'Profile', icon: User },
+    ];
 
-      // 6. Profile
-      try {
-        const profileRes = await api.get('/auth/me/');
-        if (profileRes?.data?.success) {
-          setProfile(profileRes.data.user);
-          loadProfilePicture();
-          setProfileForm({
-            full_name: profileRes.data.user?.full_name || profileRes.data.user?.first_name || '',
-            email: profileRes.data.user?.email || '',
-            phone: profileRes.data.user?.phone || '',
-            bio: profileRes.data.user?.bio || '',
-            department: profileRes.data.user?.department || 'Staff',
-            position: profileRes.data.user?.position || 'Staff Member',
-          });
-        }
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-      }
-
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (user?.role !== 'staff' && user?.role !== 'admin') {
-      navigate('/');
-      return;
-    }
-    fetchData();
-    
-    // Listen for storage changes
-    const handleStorageChange = (e) => {
-      if (e.key === 'user_reviews' || e.key === 'hidden_gems_suggestions') {
-        console.log('🔄 Storage changed, refreshing...');
-        fetchData();
-      }
+    // ============================================
+    // TOAST
+    // ============================================
+    const showToast = (message, type = 'info') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
     };
-    window.addEventListener('storage', handleStorageChange);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
+
+    // ============================================
+    // PROFILE PICTURE - localStorage only
+    // ============================================
+    const loadProfilePicture = () => {
+        const savedPicture = localStorage.getItem('staff_profile_picture');
+        if (savedPicture) {
+            setProfilePicture(savedPicture);
+            return;
+        }
+        setProfilePicture(null);
     };
-  }, [user, navigate, fetchData]);
 
-  // ============================================
-  // PROFILE UPDATE
-  // ============================================
-  const handleProfileUpdate = async (e) => {
-    e.preventDefault();
-    try {
-      await api.patch('/auth/update-profile/', {
-        first_name: profileForm.full_name.split(' ')[0] || '',
-        last_name: profileForm.full_name.split(' ').slice(1).join(' ') || '',
-        phone: profileForm.phone,
-        bio: profileForm.bio,
-        department: profileForm.department,
-        position: profileForm.position,
-      });
-      alert('✅ Profile updated successfully!');
-      setIsEditingProfile(false);
-      fetchData();
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      alert('❌ Failed to update profile');
-    }
-  };
-
-  // ============================================
-  // PROCESS SUGGESTION
-  // ============================================
-  const processSuggestion = async (id, action) => {
-    setActionLoading(true);
-    setProcessingId(id);
-    try {
-      if (action === 'delete') {
-        if (!window.confirm('Are you sure you want to permanently delete this suggestion?')) {
-          setActionLoading(false);
-          setProcessingId(null);
-          return;
+    const handleProfilePictureUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            showToast('❌ File size must be less than 5MB');
+            return;
         }
+        if (!file.type.startsWith('image/')) {
+            showToast('❌ Please upload an image file');
+            return;
+        }
+        setUploading(true);
         try {
-          const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-          const updated = localSuggestions.filter(s => s.id !== id);
-          localStorage.setItem('hidden_gems_suggestions', JSON.stringify(updated));
-        } catch (e) {
-          console.log('Error updating localStorage:', e);
-        }
-        try {
-          await api.delete(`/suggestions/${id}/`);
-        } catch (e) {
-          console.log('API delete failed, but removed from localStorage:', e);
-        }
-        alert('🗑️ Suggestion deleted successfully!');
-        fetchData();
-        if (showSuggestionModal) {
-          setShowSuggestionModal(false);
-          setSelectedSuggestion(null);
-        }
-        setActionLoading(false);
-        setProcessingId(null);
-        return;
-      }
-
-      let notes = '';
-      if (action === 'reject') {
-        notes = prompt('Reason for rejection:');
-        if (notes === null) { 
-          setActionLoading(false);
-          setProcessingId(null);
-          return; 
-        }
-      } else if (action === 'implement') {
-        notes = `✅ Implemented by Staff: ${user?.email || 'Staff'}`;
-      } else if (action === 'approve') {
-        notes = `✅ Approved by Staff: ${user?.email || 'Staff'}`;
-      } else {
-        notes = `Processed by ${user?.email || 'Staff'}`;
-      }
-      
-      try {
-        const response = await api.post(`/staff/suggestions/${id}/process/`, {
-          action,
-          notes: notes || `Processed by ${user?.email || 'Staff'}`
-        });
-        if (response?.data?.success) {
-          alert(`✅ Suggestion ${action}ed successfully!`);
-          fetchData();
-          if (showSuggestionModal) {
-            setShowSuggestionModal(false);
-            setSelectedSuggestion(null);
-          }
-          setActionLoading(false);
-          setProcessingId(null);
-          return;
-        }
-      } catch (error) {
-        console.error('API process failed, trying localStorage fallback:', error);
-      }
-      
-      try {
-        const localSuggestions = JSON.parse(localStorage.getItem('hidden_gems_suggestions') || '[]');
-        const updated = localSuggestions.map(s => {
-          if (s.id === id) {
-            const now = new Date().toISOString();
-            const newStatus = action === 'approve' ? 'approved' : 
-                           action === 'implement' ? 'implemented' : 'rejected';
-            return { 
-              ...s, 
-              status: newStatus,
-              processed_at: now,
-              processed_by: user?.email || 'staff',
-              admin_notes: notes || `Processed by ${user?.email || 'Staff'}`,
-              staff_approved: action === 'approve' ? user?.email : s.staff_approved,
-              staff_implemented: action === 'implement' ? user?.email : s.staff_implemented,
-              staff_rejected: action === 'reject' ? user?.email : s.staff_rejected,
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64String = reader.result;
+                localStorage.setItem('staff_profile_picture', base64String);
+                setProfilePicture(base64String);
+                showToast('✅ Profile picture updated!');
+                setUploading(false);
             };
-          }
-          return s;
-        });
-        localStorage.setItem('hidden_gems_suggestions', JSON.stringify(updated));
-        window.dispatchEvent(new StorageEvent('storage', { key: 'hidden_gems_suggestions' }));
-        
-        alert(`✅ Suggestion ${action}ed successfully!`);
-        fetchData();
-        if (showSuggestionModal) {
-          setShowSuggestionModal(false);
-          setSelectedSuggestion(null);
+            reader.readAsDataURL(file);
+        } catch (error) {
+            console.error('Error uploading profile picture:', error);
+            showToast('❌ Failed to upload profile picture.');
+            setUploading(false);
         }
-      } catch (e) {
-        alert('❌ Failed to process suggestion');
-        console.error(e);
-      }
-    } catch (error) {
-      alert('❌ Failed to process suggestion');
-      console.error(error);
-    } finally {
-      setActionLoading(false);
-      setProcessingId(null);
-    }
-  };
-
-  // ============================================
-  // PROCESS REVIEW - FIXED FOR LOCALSTORAGE
-  // ============================================
-  const processReview = async (reviewId, action) => {
-    setActionLoading(true);
-    try {
-      // Get all reviews from localStorage
-      const allReviews = JSON.parse(localStorage.getItem('user_reviews') || '[]');
-      
-      // Find the review
-      const reviewIndex = allReviews.findIndex(r => r.id === reviewId);
-      if (reviewIndex === -1) {
-        alert('❌ Review not found');
-        setActionLoading(false);
-        return;
-      }
-      
-      const review = allReviews[reviewIndex];
-      const now = new Date().toISOString();
-      
-      // Update the review status
-      let newStatus = '';
-      let notes = '';
-      
-      if (action === 'approve') {
-        newStatus = 'approved';
-        notes = `✅ Approved by Staff: ${user?.email || 'Staff'}`;
-      } else if (action === 'reject') {
-        newStatus = 'rejected';
-        notes = prompt('Reason for rejection:') || 'Rejected by Staff';
-      } else if (action === 'implement') {
-        newStatus = 'implemented';
-        notes = `✅ Implemented by Staff: ${user?.email || 'Staff'}`;
-      } else {
-        alert('❌ Invalid action');
-        setActionLoading(false);
-        return;
-      }
-      
-      // Update the review
-      const updatedReview = {
-        ...review,
-        status: newStatus,
-        processed_at: now,
-        processed_by: user?.email || 'staff',
-        staff_notes: notes,
-        staff_approved: action === 'approve' ? user?.email : review.staff_approved,
-        staff_implemented: action === 'implement' ? user?.email : review.staff_implemented,
-        staff_rejected: action === 'reject' ? user?.email : review.staff_rejected,
-      };
-      
-      allReviews[reviewIndex] = updatedReview;
-      
-      // Save back to localStorage
-      localStorage.setItem('user_reviews', JSON.stringify(allReviews));
-      
-      // Dispatch storage event to update other components
-      window.dispatchEvent(new StorageEvent('storage', { key: 'user_reviews' }));
-      window.dispatchEvent(new CustomEvent('reviewUpdated', { detail: { reviewId, action } }));
-      
-      alert(`✅ Review ${action}ed successfully!`);
-      fetchData();
-      
-    } catch (error) {
-      console.error('Error processing review:', error);
-      alert('❌ Failed to process review');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // ============================================
-  // ADD GUIDE
-  // ============================================
-  const handleAddGuide = async (e) => {
-    e.preventDefault();
-    setGuideLoading(true);
-    try {
-      const guideData = {
-        full_name: guideForm.full_name,
-        email: guideForm.email,
-        password: guideForm.password,
-        phone: guideForm.phone,
-        bio: guideForm.bio,
-        experience_years: parseInt(guideForm.experience_years) || 0,
-        languages: guideForm.languages,
-        primary_district: guideForm.primary_district,
-        price_per_day: parseFloat(guideForm.price_per_day) || 0,
-        price_per_hour: parseFloat(guideForm.price_per_hour) || 0,
-        is_verified: autoVerify,
-      };
-      
-      const res = await api.post('/staff/guides/add/', guideData);
-      if (res?.data?.success) {
-        setNewGuidePassword(res.data.password || guideForm.password || 'TempPass123');
-        setShowPasswordModal(true);
-        setShowAddGuide(false);
-        setGuideForm({
-          full_name: '', email: '', password: '',
-          phone: '', bio: '',
-          experience_years: '0', languages: '', primary_district: '',
-          price_per_day: '0', price_per_hour: '0'
-        });
-        fetchData();
-        alert('✅ Guide added successfully!');
-      } else {
-        alert(res?.data?.error || 'Failed to add guide');
-      }
-    } catch (error) {
-      console.error('Add guide error:', error);
-      alert(error.response?.data?.error || 'Failed to add guide. Please check all fields.');
-    } finally {
-      setGuideLoading(false);
-    }
-  };
-
-  // ============================================
-  // VERIFY GUIDE
-  // ============================================
-  const verifyGuide = async (id) => {
-    try {
-      const response = await api.post(`/staff/guides/${id}/verify/`);
-      if (response?.data?.success) {
-        alert('✅ Guide verified successfully!');
-        fetchData();
-      } else {
-        alert(response?.data?.error || 'Failed to verify guide');
-      }
-    } catch (error) {
-      console.error('Verify guide error:', error);
-      alert('Failed to verify guide');
-    }
-  };
-
-  // ============================================
-  // DELETE GUIDE
-  // ============================================
-  const deleteGuide = async (id) => {
-    if (!window.confirm('Delete this guide?')) return;
-    try {
-      const response = await api.delete(`/staff/guides/${id}/delete/`);
-      if (response?.data?.success) {
-        alert('Guide deleted successfully');
-        fetchData();
-      } else {
-        alert(response?.data?.error || 'Failed to delete guide');
-      }
-    } catch (error) {
-      console.error('Delete guide error:', error);
-      alert('Failed to delete guide');
-    }
-  };
-
-  // ============================================
-  // GET FILTERED SUGGESTIONS & REVIEWS
-  // ============================================
-  const getFilteredSuggestions = () => {
-    if (suggestionFilter === 'all') return allSuggestions;
-    return allSuggestions.filter(s => s.status === suggestionFilter);
-  };
-
-  const getFilteredReviews = () => {
-    if (reviewFilter === 'all') return reviews;
-    return reviews.filter(r => r.status === reviewFilter);
-  };
-
-  const filteredSuggestions = getFilteredSuggestions();
-  const filteredReviews = getFilteredReviews();
-
-  // ============================================
-  // GET STATUS COLOR
-  // ============================================
-  const getStatusColor = (status) => {
-    const colors = {
-      'pending': 'bg-yellow-100 text-yellow-700',
-      'approved': 'bg-green-100 text-green-700',
-      'implemented': 'bg-blue-100 text-blue-700',
-      'rejected': 'bg-red-100 text-red-700',
     };
-    return colors[status] || 'bg-gray-100 text-gray-700';
-  };
 
-  const getStatusLabel = (status) => {
-    const labels = {
-      'pending': '⏳ Pending',
-      'approved': '✅ Approved',
-      'implemented': '🚀 Implemented',
-      'rejected': '❌ Rejected',
+    // ============================================
+    // FETCH DATA
+    // ============================================
+    const fetchAllData = useCallback(async () => {
+        if (dataFetchedRef.current) return;
+        dataFetchedRef.current = true;
+        setLoading(true);
+        setRefreshing(true);
+
+        try {
+            // 1. Fetch all suggestions
+            try {
+                const response = await api.get('/staff/suggestions/');
+                let items = [];
+                if (response?.data?.success) {
+                    items = response.data.suggestions || [];
+                } else if (Array.isArray(response?.data)) {
+                    items = response.data;
+                }
+                setAllSuggestions(items);
+
+                const gems = items.filter(s => 
+                    s.suggestion_type === 'hidden_gem' || s.type === 'hidden_gem'
+                );
+                const insights = items.filter(s => 
+                    s.suggestion_type === 'local_insight' || s.type === 'local_insight' || s.suggestion_type === 'insight'
+                );
+                const reviewsItems = items.filter(s => 
+                    s.suggestion_type === 'review' || s.type === 'review'
+                );
+
+                setHiddenGems(gems);
+                setLocalInsights(insights);
+                setReviews(reviewsItems);
+
+                setStats(prev => ({
+                    ...prev,
+                    totalHiddenGems: gems.length,
+                    pendingHiddenGems: gems.filter(s => s.status === 'pending').length,
+                    approvedHiddenGems: gems.filter(s => s.status === 'approved').length,
+                    implementedHiddenGems: gems.filter(s => s.status === 'implemented').length,
+                    rejectedHiddenGems: gems.filter(s => s.status === 'rejected').length,
+                    totalLocalInsights: insights.length,
+                    pendingLocalInsights: insights.filter(s => s.status === 'pending').length,
+                    approvedLocalInsights: insights.filter(s => s.status === 'approved').length,
+                    implementedLocalInsights: insights.filter(s => s.status === 'implemented').length,
+                    rejectedLocalInsights: insights.filter(s => s.status === 'rejected').length,
+                    totalReviews: reviewsItems.length,
+                    pendingReviews: reviewsItems.filter(s => s.status === 'pending').length,
+                    approvedReviews: reviewsItems.filter(s => s.status === 'approved').length,
+                    implementedReviews: reviewsItems.filter(s => s.status === 'implemented').length,
+                    rejectedReviews: reviewsItems.filter(s => s.status === 'rejected').length,
+                }));
+            } catch (error) {
+                console.error('Error fetching suggestions:', error);
+            }
+
+            // 2. Fetch guides
+            try {
+                const response = await api.get('/staff/guides/');
+                if (response?.data?.success) {
+                    setGuides(response.data.guides || []);
+                    setStats(prev => ({
+                        ...prev,
+                        totalGuides: response.data.guides?.length || 0
+                    }));
+                } else if (Array.isArray(response?.data)) {
+                    setGuides(response.data);
+                    setStats(prev => ({
+                        ...prev,
+                        totalGuides: response.data.length
+                    }));
+                }
+            } catch (error) {
+                console.error('Error fetching guides:', error);
+                setGuides([]);
+            }
+
+            // 3. Fetch bookings
+            try {
+                const response = await api.get('/staff/bookings/');
+                if (response?.data?.success) {
+                    setBookings(response.data.bookings || []);
+                    setStats(prev => ({
+                        ...prev,
+                        totalBookings: response.data.bookings?.length || 0,
+                        confirmedBookings: response.data.bookings?.filter(b => b.status === 'confirmed').length || 0
+                    }));
+                } else if (Array.isArray(response?.data)) {
+                    setBookings(response.data);
+                }
+            } catch (error) {
+                console.error('Error fetching bookings:', error);
+                setBookings([]);
+            }
+
+            // 4. Profile
+            try {
+                const response = await api.get('/auth/me/');
+                if (response?.data?.success) {
+                    setProfile(response.data.user);
+                    loadProfilePicture();
+                    setProfileForm({
+                        full_name: response.data.user?.full_name || response.data.user?.first_name || '',
+                        email: response.data.user?.email || '',
+                        phone: response.data.user?.phone || '',
+                        bio: response.data.user?.bio || '',
+                        department: response.data.user?.department || 'Staff',
+                        position: response.data.user?.position || 'Staff Member',
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching profile:', error);
+            }
+
+            // 5. Stats
+            try {
+                const response = await api.get('/staff/stats/');
+                if (response?.data?.success) {
+                    const statsData = response.data.stats;
+                    setStats(prev => ({
+                        ...prev,
+                        totalGuides: statsData.totalGuides || prev.totalGuides,
+                        totalBookings: statsData.totalBookings || prev.totalBookings,
+                        confirmedBookings: statsData.confirmedBookings || prev.confirmedBookings,
+                    }));
+                }
+            } catch (error) {
+                console.error('Error fetching stats:', error);
+            }
+
+        } catch (error) {
+            console.error('Error fetching data:', error);
+            showToast('Error loading dashboard');
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+            setTimeout(() => { dataFetchedRef.current = false; }, 1000);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!user) {
+            navigate('/login');
+            return;
+        }
+        if (user.role !== 'staff' && user.role !== 'admin') {
+            navigate('/');
+            return;
+        }
+        fetchAllData();
+
+        const handleStorageChange = () => {
+            fetchAllData();
+        };
+        window.addEventListener('storage', handleStorageChange);
+        
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+        };
+    }, [user, navigate, fetchAllData]);
+
+    // ============================================
+    // PROFILE UPDATE
+    // ============================================
+    const handleProfileUpdate = async (e) => {
+        e.preventDefault();
+        try {
+            await api.patch('/auth/update-profile/', {
+                first_name: profileForm.full_name.split(' ')[0] || '',
+                last_name: profileForm.full_name.split(' ').slice(1).join(' ') || '',
+                phone: profileForm.phone,
+                bio: profileForm.bio,
+                department: profileForm.department,
+                position: profileForm.position,
+            });
+            showToast('✅ Profile updated successfully!');
+            setIsEditingProfile(false);
+            fetchAllData();
+        } catch (error) {
+            console.error('Error updating profile:', error);
+            showToast('❌ Failed to update profile');
+        }
     };
-    return labels[status] || status;
-  };
 
-  const openSuggestionModal = (suggestion) => {
-    setSelectedSuggestion(suggestion);
-    setShowSuggestionModal(true);
-  };
+    // ============================================
+    // ✅ PROCESS SUGGESTION - Approve/Reject/Implement/Delete
+    // ============================================
+    const processSuggestion = async (id, action, type = 'suggestion') => {
+        setActionLoading(true);
+        setProcessingId(id);
 
-  const initials = (name) =>
-    !name ? '?' : name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+        try {
+            if (action === 'delete') {
+                if (!window.confirm('Are you sure you want to permanently delete this?')) {
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FBF6EA]">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-[#C79A3E] border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="mt-4 text-[#5C6E69]">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+                try {
+                    const response = await api.post(`/staff/suggestions/${id}/process/`, {
+                        action: 'delete'
+                    });
+                    if (response?.data?.success) {
+                        showToast('🗑️ Deleted successfully!');
+                        await fetchAllData();
+                        if (showSuggestionModal) {
+                            setShowSuggestionModal(false);
+                            setSelectedSuggestion(null);
+                        }
+                        setActionLoading(false);
+                        setProcessingId(null);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Delete failed:', error);
+                }
 
-  return (
-    <div className="min-h-screen bg-[#FBF6EA]">
-      {/* Header */}
-      <header className="bg-[#072E2A] text-white px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#C79A3E]/20 flex items-center justify-center">
-              <span className="text-xl">👔</span>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">Staff Dashboard</h1>
-              <div className="flex items-center gap-2">
-                <span className="text-xs bg-[#C79A3E] text-[#072E2A] px-2 py-0.5 rounded-full font-semibold">STAFF</span>
-                <span className="text-xs text-[#E4C77B]">{user?.email}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="relative group">
-            <div 
-              className="w-10 h-10 rounded-full border-2 border-[#C79A3E] overflow-hidden cursor-pointer flex items-center justify-center bg-[#0E5C53]"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {profilePicture ? (
-                <img src={profilePicture} alt="Staff" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-lg font-bold text-[#E4C77B]">
-                  {user?.email?.[0]?.toUpperCase() || 'S'}
-                </span>
-              )}
-            </div>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*"
-              className="hidden"
-              onChange={handleProfilePictureUpload}
-              disabled={uploading}
-            />
-            {uploading && (
-              <div className="absolute -top-1 -right-1 w-4 h-4">
-                <div className="w-4 h-4 border-2 border-[#C79A3E] border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
-            <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
-              {profilePicture ? 'Change Photo' : 'Add Photo'}
-            </div>
-          </div>
-          <button onClick={logout} className="px-4 py-2 bg-[#C79A3E] text-[#072E2A] rounded-lg hover:bg-[#E4C77B] transition font-medium">
-            Logout
-          </button>
-        </div>
-      </header>
+                showToast('⚠️ Could not delete. Please try again.');
+                setActionLoading(false);
+                setProcessingId(null);
+                return;
+            }
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Pending Suggestions</p>
-                <p className="text-3xl font-bold text-[#F59E0B]">{stats.pendingSuggestions || 0}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-yellow-100 flex items-center justify-center">
-                <span className="text-2xl">⏳</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Total Suggestions</p>
-                <p className="text-3xl font-bold text-[#8B5CF6]">{stats.totalSuggestions || 0}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
-                <span className="text-2xl">💡</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Total Guides</p>
-                <p className="text-3xl font-bold text-[#10B981]">{stats.totalGuides || 0}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-                <span className="text-2xl">🧭</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Total Reviews</p>
-                <p className="text-3xl font-bold text-[#EC4899]">{stats.totalReviews || 0}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center">
-                <span className="text-2xl">⭐</span>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Pending Reviews</p>
-                <p className="text-3xl font-bold text-[#F59E0B]">{stats.pendingReviews || 0}</p>
-              </div>
-              <div className="w-12 h-12 rounded-full bg-yellow-100 flex items-center justify-center">
-                <span className="text-2xl">⏳</span>
-              </div>
-            </div>
-          </div>
-        </div>
+            let notes = '';
+            if (action === 'reject') {
+                notes = prompt('Reason for rejection:');
+                if (notes === null) {
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+            } else if (action === 'implement') {
+                notes = `✅ Implemented by Staff: ${user?.email || 'Staff'}`;
+            } else if (action === 'approve') {
+                notes = `✅ Approved by Staff: ${user?.email || 'Staff'}`;
+            }
 
-        {/* Tabs */}
-        <div className="flex gap-2 border-b border-gray-200 mb-6 overflow-x-auto pb-1">
-          {['overview', 'suggestions', 'guides', 'bookings', 'reviews', 'profile'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-5 py-2.5 text-sm font-medium capitalize whitespace-nowrap transition rounded-t-lg ${
-                activeTab === tab
-                  ? 'bg-[#072E2A] text-white shadow-lg'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-              }`}
-            >
-              {tab === 'overview' && '📊 Overview'}
-              {tab === 'suggestions' && `💡 Suggestions (${allSuggestions.length})`}
-              {tab === 'guides' && `🧭 Guides (${guides.length})`}
-              {tab === 'bookings' && `📅 Bookings (${bookings.length})`}
-              {tab === 'reviews' && `⭐ Reviews (${reviews.length})`}
-              {tab === 'profile' && `👤 Profile`}
-            </button>
-          ))}
-        </div>
+            try {
+                const response = await api.post(`/staff/suggestions/${id}/process/`, {
+                    action: action,
+                    notes: notes
+                });
 
-        {/* Overview Tab */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-lg">📅 Recent Bookings</h3>
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">{bookings.length} total</span>
-              </div>
-              {bookings.slice(0, 5).length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-8">No recent bookings</p>
-              ) : (
-                <div className="space-y-3">
-                  {bookings.slice(0, 5).map(b => (
-                    <div key={b.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                      <div>
-                        <p className="font-medium text-sm">{b.traveler_email || 'Anonymous'}</p>
-                        <p className="text-xs text-gray-500">📍 {b.destination || b.district?.name || 'N/A'}</p>
-                        <p className="text-xs text-gray-400">👤 {b.guide_name} • {b.date}</p>
-                      </div>
-                      <span className={`text-xs px-3 py-1 rounded-full font-medium ${
-                        b.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                        b.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        b.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {b.status}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-lg">⭐ Reviews from Guides</h3>
-                <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded-full">{reviews.length} total</span>
-              </div>
-              {reviews.slice(0, 5).length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-8">No reviews from guides yet</p>
-              ) : (
-                <div className="space-y-3">
-                  {reviews.slice(0, 5).map(r => (
-                    <div key={r.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                      <div>
-                        <p className="font-medium text-sm">{r.destination || r.name || 'Untitled'}</p>
-                        <p className="text-xs text-gray-500">👤 {r.user_email || 'Anonymous'} • 📍 {r.district || 'N/A'}</p>
-                        {r.rating && <p className="text-xs text-yellow-500">{'★'.repeat(Math.round(r.rating))}</p>}
-                      </div>
-                      <span className={`text-xs px-3 py-1 rounded-full font-medium ${
-                        r.status === 'approved' ? 'bg-green-100 text-green-700' :
-                        r.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        r.status === 'implemented' ? 'bg-blue-100 text-blue-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {r.status || 'pending'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                if (response?.data?.success) {
+                    showToast(`✅ ${type} ${action}ed successfully!`);
+                    await fetchAllData();
+                    if (showSuggestionModal) {
+                        setShowSuggestionModal(false);
+                        setSelectedSuggestion(null);
+                    }
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+            } catch (error) {
+                console.error('Process failed:', error);
+                try {
+                    const response = await api.post(`/staff/${id}/process/`, {
+                        action: action,
+                        notes: notes
+                    });
+                    if (response?.data?.success) {
+                        showToast(`✅ ${type} ${action}ed successfully!`);
+                        await fetchAllData();
+                        if (showSuggestionModal) {
+                            setShowSuggestionModal(false);
+                            setSelectedSuggestion(null);
+                        }
+                        setActionLoading(false);
+                        setProcessingId(null);
+                        return;
+                    }
+                } catch (e2) {
+                    console.error('Legacy process failed:', e2);
+                }
+            }
 
-        {/* SUGGESTIONS TAB */}
-        {activeTab === 'suggestions' && (
-          <div>
-            <div className="flex gap-2 mb-4 flex-wrap">
-              <button
-                onClick={() => setSuggestionFilter('all')}
-                className={`px-4 py-2 text-sm rounded-full transition font-medium ${
-                  suggestionFilter === 'all' 
-                    ? 'bg-[#072E2A] text-white shadow-lg' 
-                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                }`}
-              >
-                All ({allSuggestions.length})
-              </button>
-              <button
-                onClick={() => setSuggestionFilter('pending')}
-                className={`px-4 py-2 text-sm rounded-full transition font-medium ${
-                  suggestionFilter === 'pending' 
-                    ? 'bg-yellow-600 text-white shadow-lg' 
-                    : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                }`}
-              >
-                ⏳ Pending ({allSuggestions.filter(s => s.status === 'pending').length})
-              </button>
-              <button
-                onClick={() => setSuggestionFilter('approved')}
-                className={`px-4 py-2 text-sm rounded-full transition font-medium ${
-                  suggestionFilter === 'approved' 
-                    ? 'bg-green-600 text-white shadow-lg' 
-                    : 'bg-green-100 text-green-700 hover:bg-green-200'
-                }`}
-              >
-                ✅ Approved ({allSuggestions.filter(s => s.status === 'approved').length})
-              </button>
-              <button
-                onClick={() => setSuggestionFilter('implemented')}
-                className={`px-4 py-2 text-sm rounded-full transition font-medium ${
-                  suggestionFilter === 'implemented' 
-                    ? 'bg-blue-600 text-white shadow-lg' 
-                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                }`}
-              >
-                🚀 Implemented ({allSuggestions.filter(s => s.status === 'implemented').length})
-              </button>
-              <button
-                onClick={() => setSuggestionFilter('rejected')}
-                className={`px-4 py-2 text-sm rounded-full transition font-medium ${
-                  suggestionFilter === 'rejected' 
-                    ? 'bg-red-600 text-white shadow-lg' 
-                    : 'bg-red-100 text-red-700 hover:bg-red-200'
-                }`}
-              >
-                ❌ Rejected ({allSuggestions.filter(s => s.status === 'rejected').length})
-              </button>
-            </div>
+            showToast(`❌ Failed to ${action} ${type}`);
+        } catch (error) {
+            console.error('Error processing suggestion:', error);
+            showToast(`❌ Failed to ${action} ${type}`);
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
+        }
+    };
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">User</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">District</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Category</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSuggestions.length === 0 ? (
-                      <tr><td colSpan="6" className="text-center py-8 text-gray-500">No suggestions found</td></tr>
-                    ) : (
-                      filteredSuggestions.map(s => (
-                        <tr key={s.id} className="border-t border-gray-100 hover:bg-gray-50 transition">
-                          <td className="px-4 py-3 font-medium">{s.name || 'Untitled'}</td>
-                          <td className="px-4 py-3">{s.user?.email || s.user_email || 'Anonymous'}</td>
-                          <td className="px-4 py-3">{s.district || 'N/A'}</td>
-                          <td className="px-4 py-3">{s.category || 'N/A'}</td>
-                          <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusColor(s.status)}`}>
-                              {getStatusLabel(s.status)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-1 flex-wrap">
-                              {s.status === 'pending' && (
-                                <>
-                                  <button onClick={() => processSuggestion(s.id, 'approve')} disabled={processingId === s.id || actionLoading} className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition">Approve</button>
-                                  <button onClick={() => processSuggestion(s.id, 'reject')} disabled={processingId === s.id || actionLoading} className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition">Reject</button>
-                                  <button onClick={() => processSuggestion(s.id, 'implement')} disabled={processingId === s.id || actionLoading} className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">Implement</button>
-                                </>
-                              )}
-                              {s.status === 'approved' && (
-                                <>
-                                  <button onClick={() => processSuggestion(s.id, 'implement')} disabled={processingId === s.id || actionLoading} className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition">🚀 Implement</button>
-                                  <button onClick={() => processSuggestion(s.id, 'reject')} disabled={processingId === s.id || actionLoading} className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition">❌ Reject</button>
-                                </>
-                              )}
-                              {s.status === 'implemented' && <span className="text-xs text-gray-400 px-2 py-1">✅ Implemented</span>}
-                              {s.status === 'rejected' && <span className="text-xs text-gray-400 px-2 py-1">❌ Rejected</span>}
-                              <button onClick={() => processSuggestion(s.id, 'delete')} disabled={processingId === s.id || actionLoading} className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition">Delete</button>
-                              <button onClick={() => openSuggestionModal(s)} className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition">View</button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
+    // ============================================
+    // ✅ PROCESS REVIEW
+    // ============================================
+    const processReview = async (reviewId, action) => {
+        setActionLoading(true);
+        setProcessingId(reviewId);
 
-        {/* Guides Tab */}
-        {activeTab === 'guides' && (
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h3 className="font-semibold text-lg">🧭 Guides</h3>
-                <p className="text-sm text-gray-500">Manage your tour guides</p>
-              </div>
-              <button onClick={() => setShowAddGuide(true)} className="px-4 py-2 bg-[#072E2A] text-white rounded-lg hover:bg-[#0B2422] transition shadow-md hover:shadow-lg font-medium">
-                + Add Guide
-              </button>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              {guides.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  <p className="text-lg">No guides found</p>
-                  <p className="text-sm">Click "Add Guide" to create your first guide!</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Email</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">District</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Verified</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {guides.map(g => (
-                        <tr key={g.id} className="border-t border-gray-100 hover:bg-gray-50 transition">
-                          <td className="px-4 py-3 font-medium">{g.full_name}</td>
-                          <td className="px-4 py-3">{g.email}</td>
-                          <td className="px-4 py-3">
-                            <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">
-                              {g.primary_district || 'N/A'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${g.is_verified ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                              {g.is_verified ? '✅ Verified' : '⏳ Pending'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex gap-2">
-                              {!g.is_verified && (
-                                <button onClick={() => verifyGuide(g.id)} className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition font-medium">
-                                  Verify
-                                </button>
-                              )}
-                              <button onClick={() => deleteGuide(g.id)} className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition font-medium">
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        try {
+            let notes = '';
+            if (action === 'reject') {
+                notes = prompt('Reason for rejection:');
+                if (notes === null) {
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+            } else if (action === 'implement') {
+                notes = `✅ Implemented by Staff: ${user?.email || 'Staff'}`;
+            } else if (action === 'approve') {
+                notes = `✅ Approved by Staff: ${user?.email || 'Staff'}`;
+            }
 
-        {/* Bookings Tab */}
-        {activeTab === 'bookings' && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-semibold text-lg">📅 All Bookings</h3>
-              <p className="text-sm text-gray-500">View all bookings made by travelers</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Booking ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Traveler</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Guide</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">📍 Place</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bookings.length === 0 ? (
-                    <tr><td colSpan="6" className="text-center py-8 text-gray-500">No bookings found</td></tr>
-                  ) : (
-                    bookings.map(b => (
-                      <tr key={b.id} className="border-t border-gray-100 hover:bg-gray-50 transition">
-                        <td className="px-4 py-3 font-mono text-xs">{b.booking_id || b.id}</td>
-                        <td className="px-4 py-3">{b.traveler_email || 'Anonymous'}</td>
-                        <td className="px-4 py-3"><span className="font-medium">{b.guide_name}</span></td>
-                        <td className="px-4 py-3">{b.date}</td>
-                        <td className="px-4 py-3">
-                          <span className="px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
-                            {b.destination || b.district?.name || b.place || 'N/A'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs px-3 py-1 rounded-full font-medium ${
-                            b.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                            b.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                            b.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                            'bg-red-100 text-red-700'
-                          }`}>
-                            {b.status || 'pending'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+            try {
+                const response = await api.post(`/staff/suggestions/${reviewId}/process/`, {
+                    action: action,
+                    notes: notes
+                });
 
-        {/* 🔥 REVIEWS TAB - FIXED WITH IMAGES */}
-        {activeTab === 'reviews' && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="font-semibold text-lg">⭐ Reviews from Guides</h3>
-                  <p className="text-sm text-gray-500">Reviews approved by guides - Staff can approve/reject/implement</p>
-                </div>
-                <div className="flex gap-2">
-                  <select 
-                    value={reviewFilter} 
-                    onChange={(e) => setReviewFilter(e.target.value)}
-                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                  >
-                    <option value="all">All ({reviews.length})</option>
-                    <option value="pending">⏳ Pending ({reviews.filter(r => r.status === 'pending').length})</option>
-                    <option value="approved">✅ Approved ({reviews.filter(r => r.status === 'approved').length})</option>
-                    <option value="implemented">🚀 Implemented ({reviews.filter(r => r.status === 'implemented').length})</option>
-                    <option value="rejected">❌ Rejected ({reviews.filter(r => r.status === 'rejected').length})</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Photo</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Destination</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">User</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">District</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Rating</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredReviews.length === 0 ? (
-                    <tr><td colSpan="7" className="text-center py-8 text-gray-500">No reviews found</td></tr>
-                  ) : (
-                    filteredReviews.map(r => (
-                      <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50 transition">
-                        <td className="px-4 py-3">
-                          {r.image ? (
-                            <img 
-                              src={r.image} 
-                              alt={r.destination || r.name} 
-                              className="w-12 h-12 rounded-lg object-cover border border-gray-200"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"%3E%3Crect width="48" height="48" fill="%23f3f4f6"/%3E%3Ctext x="24" y="28" font-size="20" text-anchor="middle" fill="%239ca3af"%3E📷%3C/text%3E%3C/svg%3E';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center text-2xl border border-gray-200">
-                              📷
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 font-medium">{r.destination || r.name || 'Untitled'}</td>
-                        <td className="px-4 py-3">{r.user_email || 'Anonymous'}</td>
-                        <td className="px-4 py-3">{r.district || 'N/A'}</td>
-                        <td className="px-4 py-3">
-                          <span className="text-yellow-500">{'★'.repeat(Math.round(r.rating || 0))}</span>
-                          <span className="text-gray-300">{'☆'.repeat(5 - Math.round(r.rating || 0))}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${getStatusColor(r.status)}`}>
-                            {getStatusLabel(r.status || 'pending')}
-                          </span>
-                          {r.guide_approved && (
-                            <p className="text-xs text-green-600 mt-1">✅ Guide approved</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-1 flex-wrap">
-                            {r.status === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => processReview(r.id, 'approve')}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition font-medium"
-                                >
-                                  Approve ✅
-                                </button>
-                                <button
-                                  onClick={() => processReview(r.id, 'reject')}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition font-medium"
-                                >
-                                  Reject ❌
-                                </button>
-                                <button
-                                  onClick={() => processReview(r.id, 'implement')}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition font-medium"
-                                >
-                                  Implement 🚀
-                                </button>
-                              </>
-                            )}
-                            {r.status === 'approved' && (
-                              <>
-                                <button
-                                  onClick={() => processReview(r.id, 'implement')}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition font-medium"
-                                >
-                                  Implement 🚀
-                                </button>
-                                <button
-                                  onClick={() => processReview(r.id, 'reject')}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition font-medium"
-                                >
-                                  Reject ❌
-                                </button>
-                              </>
-                            )}
-                            {r.status === 'implemented' && (
-                              <span className="text-xs text-green-600 px-2 py-1">✅ Implemented</span>
-                            )}
-                            {r.status === 'rejected' && (
-                              <span className="text-xs text-red-600 px-2 py-1">❌ Rejected</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                if (response?.data?.success) {
+                    showToast(`✅ Review ${action}ed successfully!`);
+                    await fetchAllData();
+                    if (showReviewModal) {
+                        setShowReviewModal(false);
+                        setSelectedReview(null);
+                    }
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+            } catch (error) {
+                console.error('Process review failed:', error);
+            }
 
-        {/* PROFILE TAB */}
-        {activeTab === 'profile' && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h3 className="text-xl font-semibold">👤 Staff Profile</h3>
-                <p className="text-sm text-gray-500">Manage your personal information</p>
-              </div>
-              <button
-                onClick={() => setIsEditingProfile(!isEditingProfile)}
-                className={`px-4 py-2 rounded-lg transition font-medium ${
-                  isEditingProfile 
-                    ? 'bg-green-600 text-white hover:bg-green-700 shadow-md' 
-                    : 'bg-[#072E2A] text-[#E4C77B] hover:bg-[#0B2422] shadow-md hover:shadow-lg'
-                }`}
-              >
-                {isEditingProfile ? '💾 Save Changes' : '✏️ Edit Profile'}
-              </button>
-            </div>
+            showToast(`✅ Review ${action}ed!`);
+            await fetchAllData();
 
-            {/* Profile Picture Section */}
-            <div className="flex items-center gap-6 mb-6 pb-6 border-b border-gray-200">
-              <div className="relative">
-                <div 
-                  className="w-24 h-24 rounded-full border-2 border-[#C79A3E] overflow-hidden cursor-pointer flex items-center justify-center bg-[#0E5C53] shadow-lg"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {profilePicture ? (
-                    <img src={profilePicture} alt="Profile" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-3xl font-bold text-[#E4C77B]">
-                      {user?.email?.[0]?.toUpperCase() || 'S'}
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 bg-[#072E2A] text-[#E4C77B] rounded-full p-1.5 border border-[#C79A3E] hover:bg-[#0B2422] transition shadow-md"
-                  title="Upload profile picture"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleProfilePictureUpload}
-                  disabled={uploading}
-                />
-                {uploading && (
-                  <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
-                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <h4 className="text-xl font-semibold text-[#072E2A]">
-                  {profile?.first_name || user?.first_name || 'Staff Member'}
-                </h4>
-                <p className="text-sm text-gray-500">{user?.email}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs bg-[#C79A3E]/20 text-[#C79A3E] px-2 py-0.5 rounded-full font-medium">
-                    {profile?.department || 'Staff'}
-                  </span>
-                  <span className="text-xs bg-[#072E2A]/10 text-[#072E2A] px-2 py-0.5 rounded-full font-medium">
-                    {profile?.position || 'Staff Member'}
-                  </span>
-                </div>
-              </div>
-            </div>
+        } catch (error) {
+            console.error('Error processing review:', error);
+            showToast(`❌ Failed to ${action} review`);
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
+        }
+    };
 
-            {isEditingProfile ? (
-              <form onSubmit={handleProfileUpdate} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={profileForm.full_name}
-                      onChange={(e) => setProfileForm({...profileForm, full_name: e.target.value})}
-                      placeholder="Your full name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <input
-                      type="email"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A] bg-gray-50"
-                      value={profileForm.email}
-                      onChange={(e) => setProfileForm({...profileForm, email: e.target.value})}
-                      disabled
-                    />
-                    <p className="text-xs text-gray-400 mt-1">Email cannot be changed</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={profileForm.phone}
-                      onChange={(e) => setProfileForm({...profileForm, phone: e.target.value})}
-                      placeholder="+91 9876543210"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={profileForm.department}
-                      onChange={(e) => setProfileForm({...profileForm, department: e.target.value})}
-                      placeholder="Tourism Department"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Position</label>
-                    <input
-                      type="text"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={profileForm.position}
-                      onChange={(e) => setProfileForm({...profileForm, position: e.target.value})}
-                      placeholder="Staff Member"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Bio</label>
-                    <textarea
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      rows="3"
-                      value={profileForm.bio}
-                      onChange={(e) => setProfileForm({...profileForm, bio: e.target.value})}
-                      placeholder="Tell us about yourself..."
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-3 justify-end pt-4 border-t border-gray-200">
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingProfile(false)}
-                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-[#072E2A] text-white rounded-lg hover:bg-[#0B2422] transition shadow-md hover:shadow-lg font-medium"
-                  >
-                    💾 Save Changes
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Full Name</p>
-                  <p className="text-sm font-semibold text-[#072E2A]">
-                    {profile?.first_name || user?.first_name || 'Not set'}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Email</p>
-                  <p className="text-sm font-semibold text-[#072E2A]">{user?.email}</p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Phone</p>
-                  <p className="text-sm font-semibold text-[#072E2A]">
-                    {profile?.phone || 'Not set'}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Department</p>
-                  <p className="text-sm font-semibold text-[#072E2A]">
-                    {profile?.department || 'Staff'}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Position</p>
-                  <p className="text-sm font-semibold text-[#072E2A]">
-                    {profile?.position || 'Staff Member'}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Role</p>
-                  <p className="text-sm font-semibold text-[#C79A3E]">
-                    {user?.role || 'staff'}
-                  </p>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg md:col-span-2">
-                  <p className="text-xs text-gray-500 uppercase font-medium">Bio</p>
-                  <p className="text-sm text-[#072E2A]">
-                    {profile?.bio || 'No bio provided.'}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+    // ============================================
+    // ✅ ADD GUIDE
+    // ============================================
+    const handleAddGuide = async (e) => {
+        e.preventDefault();
+        setGuideLoading(true);
 
-      {/* SUGGESTION DETAIL MODAL */}
-      {showSuggestionModal && selectedSuggestion && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-xl font-semibold text-[#072E2A]">{selectedSuggestion.name}</h3>
-              <button onClick={() => setShowSuggestionModal(false)} className="text-gray-500 hover:text-gray-700 text-2xl">×</button>
-            </div>
+        try {
+            if (guideForm.phone && guideForm.phone.length > 12) {
+                showToast('❌ Phone number must be 12 characters or less');
+                setGuideLoading(false);
+                return;
+            }
 
-            {selectedSuggestion.image && (
-              <div className="mb-4">
-                <img 
-                  src={selectedSuggestion.image} 
-                  alt={selectedSuggestion.name} 
-                  className="w-full max-h-64 object-cover rounded-lg border border-gray-200"
-                />
-              </div>
-            )}
+            const guideData = {
+                full_name: guideForm.full_name,
+                email: guideForm.email,
+                password: guideForm.password,
+                phone: guideForm.phone,
+                bio: guideForm.bio,
+                experience_years: parseInt(guideForm.experience_years) || 0,
+                languages: guideForm.languages,
+                primary_district: guideForm.primary_district,
+                price_per_day: parseFloat(guideForm.price_per_day) || 0,
+                price_per_hour: parseFloat(guideForm.price_per_hour) || 0,
+            };
 
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <p className="text-sm text-gray-500">User</p>
-                <p className="font-medium">{selectedSuggestion.user?.email || selectedSuggestion.user_email || 'Anonymous'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">District</p>
-                <p className="font-medium">{selectedSuggestion.district || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Category</p>
-                <p className="font-medium">{selectedSuggestion.category || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Status</p>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedSuggestion.status)}`}>
-                  {getStatusLabel(selectedSuggestion.status)}
-                </span>
-              </div>
-            </div>
+            const response = await api.post('/staff/guides/add/', guideData);
+            
+            if (response?.data?.success) {
+                setNewGuidePassword(response.data.password || guideForm.password || 'TempPass123');
+                setShowCredentialsModal(true);
+                setShowGuideModal(false);
+                setGuideForm({
+                    full_name: '', email: '', password: '',
+                    phone: '', bio: '',
+                    experience_years: '0', languages: '', primary_district: '',
+                    price_per_day: '0', price_per_hour: '0'
+                });
+                showToast('✅ Guide added successfully!');
+                await fetchAllData();
+            } else {
+                showToast(response?.data?.error || 'Failed to add guide');
+            }
+        } catch (error) {
+            console.error('Add guide error:', error);
+            const errorMsg = error.response?.data?.error || 'Failed to add guide. Please check all fields.';
+            showToast(`❌ ${errorMsg}`);
+        } finally {
+            setGuideLoading(false);
+        }
+    };
 
-            <div className="mb-4">
-              <p className="text-sm text-gray-500">Location Info</p>
-              <p className="text-sm">{selectedSuggestion.location_info || 'N/A'}</p>
-            </div>
+    // ============================================
+    // ✅ VERIFY GUIDE - Uses POST
+    // ============================================
+    const verifyGuide = async (id) => {
+        if (!window.confirm('Verify this guide?')) return;
+        try {
+            // Try primary endpoint with POST
+            const response = await api.post(`/staff/${id}/verify/`);
+            if (response?.data?.success) {
+                showToast('✅ Guide verified successfully!');
+                await fetchAllData();
+            } else {
+                showToast(response?.data?.error || 'Failed to verify guide');
+            }
+        } catch (error) {
+            console.error('Verify guide error:', error);
+            // Try alternative endpoint
+            try {
+                const response = await api.post(`/staff/guides/${id}/verify/`);
+                if (response?.data?.success) {
+                    showToast('✅ Guide verified successfully!');
+                    await fetchAllData();
+                    return;
+                }
+            } catch (e2) {
+                console.error('Alternative verify failed:', e2);
+            }
+            showToast(error.response?.data?.error || 'Failed to verify guide');
+        }
+    };
 
-            <div className="mb-4">
-              <p className="text-sm text-gray-500">Description</p>
-              <p className="text-sm text-gray-700">{selectedSuggestion.description || 'No description'}</p>
-            </div>
+    // ============================================
+    // ✅ DELETE GUIDE - Uses POST (NOT DELETE)
+    // ============================================
+    const deleteGuide = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this guide? This action cannot be undone.')) return;
+        try {
+            // ✅ Primary: POST to /staff/{id}/delete/
+            const response = await api.post(`/staff/${id}/delete/`);
+            if (response?.data?.success) {
+                showToast('✅ Guide deleted successfully');
+                await fetchAllData();
+                return;
+            } else {
+                showToast(response?.data?.error || 'Failed to delete guide');
+            }
+        } catch (error) {
+            console.error('Delete guide error:', error);
+            
+            // Try alternative: POST to /staff/guides/{id}/delete/
+            try {
+                const response = await api.post(`/staff/guides/${id}/delete/`);
+                if (response?.data?.success) {
+                    showToast('✅ Guide deleted successfully');
+                    await fetchAllData();
+                    return;
+                }
+            } catch (e2) {
+                console.error('Alternative delete failed:', e2);
+            }
+            
+            // Last resort: POST to /staff/{id}/process/ with action delete
+            try {
+                const response = await api.post(`/staff/${id}/process/`, {
+                    action: 'delete'
+                });
+                if (response?.data?.success) {
+                    showToast('✅ Guide deleted successfully');
+                    await fetchAllData();
+                    return;
+                }
+            } catch (e3) {
+                console.error('Process delete failed:', e3);
+            }
+            
+            showToast(error.response?.data?.error || 'Failed to delete guide');
+        }
+    };
 
-            {selectedSuggestion.processed_by && (
-              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Processed By</p>
-                <p className="text-sm font-medium">
-                  {selectedSuggestion.processed_by?.email || selectedSuggestion.processed_by || 'Unknown'}
-                </p>
-                {selectedSuggestion.guide_approved && (
-                  <p className="text-xs text-green-600">✅ Guide approved: {selectedSuggestion.guide_approved}</p>
-                )}
-                {selectedSuggestion.guide_rejected && (
-                  <p className="text-xs text-red-600">❌ Guide rejected: {selectedSuggestion.guide_rejected}</p>
-                )}
-                {selectedSuggestion.staff_approved && (
-                  <p className="text-xs text-blue-600">👔 Staff approved: {selectedSuggestion.staff_approved}</p>
-                )}
-                {selectedSuggestion.staff_implemented && (
-                  <p className="text-xs text-purple-600">🚀 Staff implemented: {selectedSuggestion.staff_implemented}</p>
-                )}
-                {selectedSuggestion.processed_at && (
-                  <p className="text-xs text-gray-400">{new Date(selectedSuggestion.processed_at).toLocaleString()}</p>
-                )}
-              </div>
-            )}
+    // ============================================
+    // FILTERED DATA
+    // ============================================
+    const filteredHiddenGems = useMemo(() => {
+        if (hiddenGemsFilter === 'all') return hiddenGems;
+        return hiddenGems.filter(s => s.status === hiddenGemsFilter);
+    }, [hiddenGems, hiddenGemsFilter]);
 
-            {selectedSuggestion.admin_notes && (
-              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-500">Admin Notes</p>
-                <p className="text-sm">{selectedSuggestion.admin_notes}</p>
-              </div>
-            )}
+    const filteredLocalInsights = useMemo(() => {
+        if (localInsightsFilter === 'all') return localInsights;
+        return localInsights.filter(s => s.status === localInsightsFilter);
+    }, [localInsights, localInsightsFilter]);
 
-            <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200 flex-wrap">
-              {selectedSuggestion.status === 'pending' && (
-                <>
-                  <button
-                    onClick={() => processSuggestion(selectedSuggestion.id, 'approve')}
-                    disabled={actionLoading}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 font-medium"
-                  >
-                    ✅ Approve
-                  </button>
-                  <button
-                    onClick={() => processSuggestion(selectedSuggestion.id, 'reject')}
-                    disabled={actionLoading}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 font-medium"
-                  >
-                    ❌ Reject
-                  </button>
-                  <button
-                    onClick={() => processSuggestion(selectedSuggestion.id, 'implement')}
-                    disabled={actionLoading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 font-medium"
-                  >
-                    🚀 Implement
-                  </button>
-                </>
-              )}
-              
-              {selectedSuggestion.status === 'approved' && (
-                <>
-                  <button
-                    onClick={() => processSuggestion(selectedSuggestion.id, 'implement')}
-                    disabled={actionLoading}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 font-medium"
-                  >
-                    🚀 Implement
-                  </button>
-                  <button
-                    onClick={() => processSuggestion(selectedSuggestion.id, 'reject')}
-                    disabled={actionLoading}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 font-medium"
-                  >
-                    ❌ Reject
-                  </button>
-                </>
-              )}
-              
-              <button
-                onClick={() => processSuggestion(selectedSuggestion.id, 'delete')}
-                disabled={actionLoading}
-                className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 transition disabled:opacity-50 font-medium"
-              >
-                🗑️ Delete Permanently
-              </button>
-              <button
-                onClick={() => setShowSuggestionModal(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+    const filteredReviews = useMemo(() => {
+        if (reviewsFilter === 'all') return reviews;
+        return reviews.filter(r => r.status === reviewsFilter);
+    }, [reviews, reviewsFilter]);
 
-      {/* ADD GUIDE MODAL */}
-      {showAddGuide && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto shadow-2xl">
-            <h3 className="text-lg font-semibold mb-4">Add New Guide</h3>
-            <form onSubmit={handleAddGuide}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                    value={guideForm.full_name}
-                    onChange={(e) => setGuideForm({...guideForm, full_name: e.target.value})}
-                    placeholder="John Doe"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Email *</label>
-                  <input
-                    type="email"
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                    value={guideForm.email}
-                    onChange={(e) => setGuideForm({...guideForm, email: e.target.value})}
-                    placeholder="guide@example.com"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Password *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Set a password for the guide"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                    value={guideForm.password}
-                    onChange={(e) => setGuideForm({...guideForm, password: e.target.value})}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">This password will be used to login</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Phone</label>
-                  <input
-                    type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                    value={guideForm.phone}
-                    onChange={(e) => setGuideForm({...guideForm, phone: e.target.value})}
-                    placeholder="+91 9876543210"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Bio</label>
-                  <textarea
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                    rows="3"
-                    value={guideForm.bio}
-                    onChange={(e) => setGuideForm({...guideForm, bio: e.target.value})}
-                    placeholder="Experienced tour guide with 5 years of experience..."
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Experience (Years)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={guideForm.experience_years}
-                      onChange={(e) => setGuideForm({...guideForm, experience_years: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Languages</label>
-                    <input
-                      type="text"
-                      placeholder="English, Malayalam, Hindi"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={guideForm.languages}
-                      onChange={(e) => setGuideForm({...guideForm, languages: e.target.value})}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Primary District *</label>
-                  <select
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                    value={guideForm.primary_district}
-                    onChange={(e) => setGuideForm({...guideForm, primary_district: e.target.value})}
-                  >
-                    <option value="">Select District</option>
-                    {KERALA_DISTRICTS.map(d => (
-                      <option key={d.id} value={d.name}>{d.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Price/Day ($)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={guideForm.price_per_day}
-                      onChange={(e) => setGuideForm({...guideForm, price_per_day: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Price/Hour ($)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#072E2A]"
-                      value={guideForm.price_per_hour}
-                      onChange={(e) => setGuideForm({...guideForm, price_per_hour: e.target.value})}
-                    />
-                  </div>
-                </div>
+    // ============================================
+    // PAGINATION HELPERS
+    // ============================================
+    const getPaginatedData = (data, page) => {
+        const startIndex = (page - 1) * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        return data.slice(startIndex, endIndex);
+    };
 
-                <div className="border-t border-gray-200 pt-4 mt-2">
-                  <div className="flex items-center gap-3">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={autoVerify}
-                        onChange={(e) => setAutoVerify(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#072E2A]/25 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#072E2A]"></div>
-                      <span className="ms-3 text-sm font-medium text-gray-700">
-                        {autoVerify ? '✅ Auto-Verify Guide' : '⏳ Manual Verification Required'}
-                      </span>
-                    </label>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1 ml-14">
-                    {autoVerify 
-                      ? 'Guide will be immediately visible in "Book a Guide" section' 
-                      : 'Guide will appear as "Pending" and need manual verification'}
-                  </p>
-                </div>
-              </div>
+    const getTotalPages = (data) => {
+        return Math.ceil(data.length / ITEMS_PER_PAGE);
+    };
 
-              <div className="flex justify-end gap-3 mt-6">
-                <button
-                  type="button"
-                  onClick={() => setShowAddGuide(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={guideLoading}
-                  className="px-4 py-2 bg-[#072E2A] text-white rounded-lg hover:bg-[#0B2422] transition disabled:opacity-50 shadow-md hover:shadow-lg font-medium"
-                >
-                  {guideLoading ? 'Adding...' : 'Add Guide'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+    useEffect(() => {
+        setHiddenGemsPage(1);
+    }, [hiddenGemsFilter]);
 
-      {/* Password Modal */}
-      {showPasswordModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold mb-2">✅ Guide Added Successfully!</h3>
-            <p className="text-sm text-gray-600 mb-4">Guide can now login with these credentials:</p>
-            <div className="bg-gray-50 p-4 rounded-lg mb-4">
-              <p className="text-sm text-gray-500">Email</p>
-              <p className="font-mono font-semibold">{guideForm.email}</p>
-              <p className="text-sm text-gray-500 mt-2">Password</p>
-              <p className="font-mono font-semibold text-[#C79A3E]">{newGuidePassword || guideForm.password || 'TempPass123'}</p>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  navigator.clipboard?.writeText(`Email: ${guideForm.email}\nPassword: ${newGuidePassword || guideForm.password}`);
-                  alert('Copied to clipboard!');
+    useEffect(() => {
+        setLocalInsightsPage(1);
+    }, [localInsightsFilter]);
+
+    useEffect(() => {
+        setReviewsPage(1);
+    }, [reviewsFilter]);
+
+    useEffect(() => {
+        setGuidesPage(1);
+    }, []);
+
+    // ============================================
+    // GET STATUS COLOR & LABEL
+    // ============================================
+    const getStatusColor = (status) => {
+        const colors = {
+            'pending': { fg: C.warn, bg: C.warnBg },
+            'approved': { fg: C.success, bg: C.successBg },
+            'implemented': { fg: C.gold, bg: C.warnBg },
+            'rejected': { fg: C.danger, bg: C.dangerBg },
+        };
+        return colors[status] || { fg: C.sage, bg: '#EEEEEE' };
+    };
+
+    const getStatusLabel = (status) => {
+        const labels = {
+            'pending': '⏳ Pending',
+            'approved': '✅ Approved',
+            'implemented': '✨ Implemented',
+            'rejected': '❌ Rejected',
+        };
+        return labels[status] || status;
+    };
+
+    const getTypeBadge = (type) => {
+        const badges = {
+            'hidden_gem': '💎 Hidden Gem',
+            'local_insight': '💡 Local Insight',
+            'insight': '💡 Local Insight',
+            'review': '⭐ Review',
+        };
+        return badges[type] || type;
+    };
+
+    const getTypeIcon = (type) => {
+        const icons = {
+            'hidden_gem': <Sparkles size={14} />,
+            'local_insight': <Lightbulb size={14} />,
+            'insight': <Lightbulb size={14} />,
+            'review': <Star size={14} />,
+        };
+        return icons[type] || <Star size={14} />;
+    };
+
+    // ============================================
+    // RENDER SUGGESTION CARD
+    // ============================================
+    const renderSuggestionCard = (s, typeLabel) => {
+        const hasImage = s.image && typeof s.image === 'string' && 
+                        s.image.startsWith('http') && 
+                        !s.image.includes('null') &&
+                        !s.image.includes('undefined');
+
+        const getFallbackEmoji = () => {
+            switch(s.suggestion_type) {
+                case 'hidden_gem': return '💎';
+                case 'local_insight': return '💡';
+                case 'review': return '⭐';
+                default: return '📍';
+            }
+        };
+
+        return (
+            <div
+                key={s.id}
+                style={{
+                    display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md,
+                    border: `1px solid ${C.line}`, alignItems: 'flex-start', transition: 'all 0.2s ease',
+                    cursor: 'pointer',
                 }}
-                className="px-4 py-2 bg-[#072E2A] text-white rounded-lg hover:bg-[#0B2422] transition font-medium"
-              >
-                Copy Credentials
-              </button>
-              <button
-                onClick={() => setShowPasswordModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition font-medium"
-              >
-                Close
-              </button>
+                onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }}
+            >
+                <div style={{ 
+                    width: 80, height: 80, borderRadius: RADIUS.sm, 
+                    background: C.paper, border: `1px solid ${C.line}`, 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0, overflow: 'hidden',
+                }}>
+                    {hasImage ? (
+                        <img 
+                            src={s.image} 
+                            alt={s.name} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.parentElement.innerHTML = `<span style="font-size: 32px;">${getFallbackEmoji()}</span>`;
+                            }}
+                        />
+                    ) : (
+                        <span style={{ fontSize: 32 }}>{getFallbackEmoji()}</span>
+                    )}
+                </div>
+                
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{s.name || 'Untitled'}</h4>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                                <span style={{ fontSize: 11, color: C.sage }}>{s.user_email || 'Anonymous'} · {s.district || 'N/A'}</span>
+                                <span style={{ fontSize: 9, padding: '2px 9px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>{typeLabel}</span>
+                                {s.rating && <span style={{ fontSize: 11, color: C.gold }}>{'★'.repeat(Math.round(s.rating))}{'☆'.repeat(5 - Math.round(s.rating))}</span>}
+                            </div>
+                        </div>
+                        <StatusPill status={s.status} />
+                    </div>
+                    <p style={{ fontSize: 12.5, color: C.sage, margin: '6px 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {s.description || 'No description'}
+                    </p>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        {s.status === 'pending' && (
+                            <>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'approve', s.suggestion_type); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.success, color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
+                                >
+                                    <Check size={11} /> Approve
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'reject', s.suggestion_type); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
+                                >
+                                    <X size={11} /> Reject
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'implement', s.suggestion_type); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: '#2563EB', color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
+                                >
+                                    <CheckCircle size={11} /> Implement
+                                </button>
+                            </>
+                        )}
+                        {s.status === 'approved' && (
+                            <>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'implement', s.suggestion_type); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: '#2563EB', color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
+                                >
+                                    <CheckCircle size={11} /> Implement
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'reject', s.suggestion_type); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
+                                >
+                                    <X size={11} /> Reject
+                                </button>
+                            </>
+                        )}
+                        {s.status === 'implemented' && (
+                            <span style={{ padding: '4px 12px', borderRadius: 999, background: C.warnBg, color: C.gold, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                ✨ Implemented
+                            </span>
+                        )}
+                        {s.status === 'rejected' && (
+                            <span style={{ padding: '4px 12px', borderRadius: 999, background: C.dangerBg, color: C.danger, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                ❌ Rejected
+                            </span>
+                        )}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'delete', s.suggestion_type); }} 
+                            disabled={actionLoading}
+                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
+                        >
+                            <Trash2 size={11} /> Delete
+                        </button>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedSuggestion(s); setShowSuggestionModal(true); }}
+                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                            <Eye size={11} /> View
+                        </button>
+                    </div>
+                </div>
             </div>
-          </div>
+        );
+    };
+
+    // ============================================
+    // RENDER GUIDE CARD
+    // ============================================
+    const renderGuideCard = (guide) => (
+        <div
+            key={guide.id}
+            style={{
+                display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md,
+                border: `1px solid ${C.line}`, alignItems: 'flex-start', transition: 'all 0.2s ease',
+            }}
+        >
+            <div style={{ 
+                width: 60, height: 60, borderRadius: '50%', 
+                background: guide.is_verified ? `linear-gradient(135deg, ${C.gold}, ${C.goldLight})` : C.line,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, overflow: 'hidden',
+                fontSize: 20, fontWeight: 600, color: C.ink,
+            }}>
+                {guide.profile_image ? (
+                    <img src={guide.profile_image} alt={guide.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                    guide.full_name?.charAt(0)?.toUpperCase() || 'G'
+                )}
+            </div>
+            
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                        <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{guide.full_name}</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                            <span style={{ fontSize: 11, color: C.sage }}>{guide.email}</span>
+                            <span style={{ fontSize: 11, color: C.sage }}>· {guide.primary_district || 'N/A'}</span>
+                            {guide.rating > 0 && (
+                                <span style={{ fontSize: 11, color: C.gold }}>{'★'.repeat(Math.round(guide.rating))} {guide.rating}</span>
+                            )}
+                        </div>
+                    </div>
+                    <StatusPill status={guide.is_verified ? 'verified' : 'unverified'} />
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: C.sage }}>
+                    <span>💼 {guide.experience_years || 0} years</span>
+                    <span>💰 ${guide.price_per_day || 0}/day</span>
+                    <span>📚 {guide.languages || 'N/A'}</span>
+                    {guide.phone_number && <span>📱 {guide.phone_number}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    {!guide.is_verified && (
+                        <button 
+                            onClick={() => verifyGuide(guide.id)}
+                            style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.success, color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                            <UserCheck size={11} /> Verify
+                        </button>
+                    )}
+                    <button 
+                        onClick={() => deleteGuide(guide.id)}
+                        style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                    >
+                        <Trash2 size={11} /> Delete
+                    </button>
+                </div>
+            </div>
         </div>
-      )}
-    </div>
-  );
+    );
+
+    // ============================================
+    // LOADING
+    // ============================================
+    if (loading) {
+        return (
+            <div style={{ minHeight: '100vh', background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <Loader2 size={32} color={C.gold} style={{ animation: 'spin 1s linear infinite' }} />
+                    <p style={{ marginTop: 14, color: C.sage, fontFamily: FONT.display, fontStyle: 'italic', fontSize: 15 }}>Loading dashboard…</p>
+                </div>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
+
+    const activeNavItem = navItems.find(n => n.key === activeTab);
+
+    // ============================================
+    // RENDER (simplified - same as before but with fixed API calls)
+    // ============================================
+    return (
+        <div style={{ height: '100vh', background: C.cream, fontFamily: FONT.body, display: 'flex', overflow: 'hidden' }}>
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+                @keyframes spin { to { transform: rotate(360deg); } }
+                .sd-nav-item:hover { background: ${C.goldSoft} !important; }
+                .sd-card:hover { border-color: ${C.gold} !important; box-shadow: 0 4px 14px rgba(7,46,42,0.08); transform: translateY(-1px); }
+                .sd-sidebar-scroll::-webkit-scrollbar { width: 4px; }
+                .sd-sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(199,154,62,0.3); border-radius: 4px; }
+                .sd-content-scroll::-webkit-scrollbar { width: 6px; }
+                .sd-content-scroll::-webkit-scrollbar-thumb { background: rgba(199,154,62,0.3); border-radius: 4px; }
+                input:focus, textarea:focus, select:focus { border-color: ${C.gold} !important; box-shadow: 0 0 0 3px rgba(199,154,62,0.12); }
+            `}</style>
+
+            {/* SIDEBAR - Same as before */}
+            <aside style={{
+                width: SIDEBAR_W, minWidth: SIDEBAR_W, height: '100vh',
+                background: C.paper, borderRight: `1px solid ${C.line}`,
+                display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden',
+                flexShrink: 0,
+            }}>
+                <KasavuStrip />
+                <div className="sd-sidebar-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', paddingRight: 10 }}>
+                    <div style={{ padding: '24px 22px 18px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+                            <div style={{ width: 36, height: 36, borderRadius: 10, background: C.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Shield size={16} color={C.goldLight} />
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                                <h1 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 17, color: C.inkSoft, margin: 0, lineHeight: 1.1 }}>Staff Panel</h1>
+                                <p style={{ fontFamily: FONT.mono, fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.sageLight, margin: '3px 0 0' }}>Administration</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{ margin: '0 14px 18px', padding: 13, borderRadius: RADIUS.md, background: C.cream, border: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', gap: 11 }}>
+                        <div style={{
+                            width: 40, height: 40, borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 14, fontWeight: 700, color: C.ink, overflow: 'hidden', flexShrink: 0,
+                        }}>
+                            {profilePicture ? <img src={profilePicture} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (profile?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'S')}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                            <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile?.full_name || user?.first_name || 'Staff'}</p>
+                            <span style={{ fontSize: 10.5, color: C.sage, display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                                <Shield size={10} /> {user?.role || 'staff'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <nav style={{ padding: '0 10px', display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+                        {navItems.map((item) => {
+                            const isActive = activeTab === item.key;
+                            const count = item.badge || 0;
+                            return (
+                                <button
+                                    key={item.key}
+                                    className="sd-nav-item"
+                                    onClick={() => setActiveTab(item.key)}
+                                    style={{
+                                        position: 'relative', display: 'flex', alignItems: 'center', gap: 10,
+                                        padding: '10px 14px 10px 16px', width: '100%',
+                                        background: isActive ? C.goldSoft : 'transparent',
+                                        border: 'none', borderRadius: RADIUS.sm,
+                                        color: isActive ? '#8A6A1F' : C.sage,
+                                        fontSize: 13.5, fontFamily: FONT.body, fontWeight: isActive ? 600 : 500,
+                                        cursor: 'pointer', transition: 'all 0.15s ease', textAlign: 'left',
+                                    }}
+                                >
+                                    {isActive && <span style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', width: 3, height: 16, borderRadius: 2, background: C.gold }} />}
+                                    <item.icon size={15} style={{ flexShrink: 0, opacity: isActive ? 1 : 0.75 }} />
+                                    <span style={{ flex: 1 }}>{item.label}</span>
+                                    {count > 0 && (
+                                        <span style={{ fontFamily: FONT.mono, fontSize: 10, padding: '1px 7px', borderRadius: 999, background: isActive ? 'rgba(199,154,62,0.28)' : C.warnBg, color: '#8A6A1F' }}>
+                                            {count}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </nav>
+
+                    <div style={{ flex: 1 }} />
+
+                    <div style={{ padding: '14px 14px 20px', borderTop: `1px solid ${C.line}`, marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData().finally(() => setRefreshing(false)); }} disabled={refreshing} style={{
+                            padding: '9px 14px', borderRadius: RADIUS.sm, border: `1px solid ${C.line}`,
+                            background: 'transparent', color: C.inkSoft, cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: 12.5,
+                            display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT.body, opacity: refreshing ? 0.6 : 1,
+                        }}>
+                            <RefreshCw size={13} style={refreshing ? { animation: 'spin 1s linear infinite' } : undefined} />
+                            {refreshing ? 'Refreshing…' : 'Refresh'}
+                        </button>
+                        <button onClick={logout} style={{
+                            padding: '9px 14px', borderRadius: RADIUS.sm, border: 'none',
+                            background: 'transparent', color: C.sage, cursor: 'pointer', fontSize: 12.5,
+                            display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT.body,
+                        }}>
+                            <LogOut size={13} />
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            {/* MAIN CONTENT - Rest of the UI same as before */}
+            <div style={{ flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div className="sd-content-scroll" style={{ flex: 1, overflowY: 'auto', padding: '30px 28px 60px' }}>
+                    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+                        {/* Page header */}
+                        <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                            <div>
+                                <p style={{ fontFamily: FONT.mono, fontSize: 10.5, letterSpacing: '0.16em', textTransform: 'uppercase', color: C.gold, margin: '0 0 5px' }}>
+                                    {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                                </p>
+                                <h2 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 26, color: C.inkSoft, margin: 0 }}>{activeNavItem?.label}</h2>
+                                <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>{/* Description */}</p>
+                            </div>
+                            <Btn variant="ghost" icon={RefreshCw} onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData().finally(() => setRefreshing(false)); }} disabled={refreshing} style={{ opacity: refreshing ? 0.6 : 1 }}>
+                                {refreshing ? 'Updating…' : 'Update'}
+                            </Btn>
+                        </div>
+
+                        {/* Stats */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 26 }}>
+                            <StatChip label="Total Guides" value={stats.totalGuides} icon={Users} tone="ink" />
+                            <StatChip label="Total Bookings" value={stats.totalBookings} icon={CalendarDays} tone="ink" />
+                            <StatChip label="Hidden Gems" value={stats.totalHiddenGems} icon={Sparkles} tone="gold" />
+                            <StatChip label="Local Insights" value={stats.totalLocalInsights} icon={Lightbulb} tone="gold" />
+                            <StatChip label="Reviews" value={stats.totalReviews} icon={Star} tone="gold" />
+                            <StatChip label="Pending" value={stats.pendingReviews + stats.pendingHiddenGems + stats.pendingLocalInsights} icon={Clock} tone="gold" />
+                        </div>
+
+                        {/* Overview Tab */}
+                        {activeTab === 'overview' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                                <Card style={{ padding: 20 }}>
+                                    <SectionHead icon={Sparkles} title="Recent Hidden Gems" />
+                                    {hiddenGems.slice(0, 5).length === 0 ? (
+                                        <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>No hidden gems yet.</p>
+                                    ) : (
+                                        hiddenGems.slice(0, 5).map((s) => (
+                                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
+                                                <div>
+                                                    <p style={{ margin: 0, fontSize: 13, color: C.inkSoft, fontWeight: 500 }}>{s.name}</p>
+                                                    <p style={{ margin: '2px 0 0', fontSize: 11, color: C.sage }}>{s.district || 'N/A'} · {s.user_email || 'Anonymous'}</p>
+                                                </div>
+                                                <StatusPill status={s.status} />
+                                            </div>
+                                        ))
+                                    )}
+                                </Card>
+                                <Card style={{ padding: 20 }}>
+                                    <SectionHead icon={Lightbulb} title="Recent Local Insights" />
+                                    {localInsights.slice(0, 5).length === 0 ? (
+                                        <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>No local insights yet.</p>
+                                    ) : (
+                                        localInsights.slice(0, 5).map((s) => (
+                                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
+                                                <div>
+                                                    <p style={{ margin: 0, fontSize: 13, color: C.inkSoft, fontWeight: 500 }}>{s.name}</p>
+                                                    <p style={{ margin: '2px 0 0', fontSize: 11, color: C.sage }}>{s.district || 'N/A'} · {s.user_email || 'Anonymous'}</p>
+                                                </div>
+                                                <StatusPill status={s.status} />
+                                            </div>
+                                        ))
+                                    )}
+                                </Card>
+                            </div>
+                        )}
+
+                        {/* Hidden Gems Tab */}
+                        {activeTab === 'hidden-gems' && (
+                            <Card style={{ padding: 22 }}>
+                                <SectionHead
+                                    icon={Sparkles}
+                                    title="Hidden Gems"
+                                    count={hiddenGems.length}
+                                    right={
+                                        <select value={hiddenGemsFilter} onChange={(e) => setHiddenGemsFilter(e.target.value)} style={selectStyle}>
+                                            <option value="all">All Status</option>
+                                            <option value="pending">⏳ Pending ({stats.pendingHiddenGems})</option>
+                                            <option value="approved">✅ Approved ({stats.approvedHiddenGems})</option>
+                                            <option value="implemented">✨ Implemented ({stats.implementedHiddenGems})</option>
+                                            <option value="rejected">❌ Rejected ({stats.rejectedHiddenGems})</option>
+                                        </select>
+                                    }
+                                />
+                                {filteredHiddenGems.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No hidden gems found.</p>
+                                ) : (
+                                    <>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredHiddenGems, hiddenGemsPage).map((s) => renderSuggestionCard(s, 'Hidden Gem'))}
+                                        </div>
+                                        <Pagination
+                                            currentPage={hiddenGemsPage}
+                                            totalPages={getTotalPages(filteredHiddenGems)}
+                                            onPageChange={setHiddenGemsPage}
+                                            totalItems={filteredHiddenGems.length}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                        />
+                                    </>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Local Insights Tab */}
+                        {activeTab === 'local-insights' && (
+                            <Card style={{ padding: 22 }}>
+                                <SectionHead
+                                    icon={Lightbulb}
+                                    title="Local Insights"
+                                    count={localInsights.length}
+                                    right={
+                                        <select value={localInsightsFilter} onChange={(e) => setLocalInsightsFilter(e.target.value)} style={selectStyle}>
+                                            <option value="all">All Status</option>
+                                            <option value="pending">⏳ Pending ({stats.pendingLocalInsights})</option>
+                                            <option value="approved">✅ Approved ({stats.approvedLocalInsights})</option>
+                                            <option value="implemented">✨ Implemented ({stats.implementedLocalInsights})</option>
+                                            <option value="rejected">❌ Rejected ({stats.rejectedLocalInsights})</option>
+                                        </select>
+                                    }
+                                />
+                                {filteredLocalInsights.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No local insights found.</p>
+                                ) : (
+                                    <>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredLocalInsights, localInsightsPage).map((s) => renderSuggestionCard(s, 'Local Insight'))}
+                                        </div>
+                                        <Pagination
+                                            currentPage={localInsightsPage}
+                                            totalPages={getTotalPages(filteredLocalInsights)}
+                                            onPageChange={setLocalInsightsPage}
+                                            totalItems={filteredLocalInsights.length}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                        />
+                                    </>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Reviews Tab */}
+                        {activeTab === 'reviews' && (
+                            <Card style={{ padding: 22 }}>
+                                <SectionHead
+                                    icon={Star}
+                                    title="Reviews"
+                                    count={reviews.length}
+                                    right={
+                                        <select value={reviewsFilter} onChange={(e) => setReviewsFilter(e.target.value)} style={selectStyle}>
+                                            <option value="all">All Status</option>
+                                            <option value="pending">⏳ Pending ({stats.pendingReviews})</option>
+                                            <option value="approved">✅ Approved ({stats.approvedReviews})</option>
+                                            <option value="implemented">✨ Implemented ({stats.implementedReviews})</option>
+                                            <option value="rejected">❌ Rejected ({stats.rejectedReviews})</option>
+                                        </select>
+                                    }
+                                />
+                                {filteredReviews.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No reviews found.</p>
+                                ) : (
+                                    <>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredReviews, reviewsPage).map((s) => renderSuggestionCard(s, 'Review'))}
+                                        </div>
+                                        <Pagination
+                                            currentPage={reviewsPage}
+                                            totalPages={getTotalPages(filteredReviews)}
+                                            onPageChange={setReviewsPage}
+                                            totalItems={filteredReviews.length}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                        />
+                                    </>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Guides Tab */}
+                        {activeTab === 'guides' && (
+                            <Card style={{ padding: 22 }}>
+                                <SectionHead
+                                    icon={Users}
+                                    title="Guides"
+                                    count={guides.length}
+                                    right={
+                                        <Btn variant="primary" icon={Plus} size="sm" onClick={() => setShowGuideModal(true)}>
+                                            Add Guide
+                                        </Btn>
+                                    }
+                                />
+                                {guides.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No guides found.</p>
+                                ) : (
+                                    <>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(guides, guidesPage).map((g) => renderGuideCard(g))}
+                                        </div>
+                                        <Pagination
+                                            currentPage={guidesPage}
+                                            totalPages={getTotalPages(guides)}
+                                            onPageChange={setGuidesPage}
+                                            totalItems={guides.length}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                        />
+                                    </>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Bookings Tab */}
+                        {activeTab === 'bookings' && (
+                            <Card style={{ padding: 22 }}>
+                                <SectionHead
+                                    icon={CalendarDays}
+                                    title="All Bookings"
+                                    count={bookings.length}
+                                />
+                                {bookings.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No bookings found.</p>
+                                ) : (
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                            <thead>
+                                                <tr style={{ textAlign: 'left', color: C.sageLight, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Booking ID</th>
+                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Traveler</th>
+                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Guide</th>
+                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Date</th>
+                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>District</th>
+                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {bookings.map((b) => (
+                                                    <tr key={b.id} style={{ borderTop: `1px solid ${C.line}` }}>
+                                                        <td style={{ padding: '10px 8px', fontFamily: FONT.mono, fontSize: 11, color: C.sage }}>
+                                                            #{b.booking_id || b.id}
+                                                        </td>
+                                                        <td style={{ padding: '10px 8px', color: C.inkSoft }}>
+                                                            {b.traveler_email || b.user?.email || 'Anonymous'}
+                                                        </td>
+                                                        <td style={{ padding: '10px 8px', color: C.inkSoft }}>
+                                                            {b.guide_name || b.guide?.full_name || 'Unknown'}
+                                                        </td>
+                                                        <td style={{ padding: '10px 8px', color: C.sage }}>
+                                                            {b.date ? new Date(b.date).toLocaleDateString() : '—'}
+                                                        </td>
+                                                        <td style={{ padding: '10px 8px', color: C.sage }}>
+                                                            {b.district?.name || b.district || 'N/A'}
+                                                        </td>
+                                                        <td style={{ padding: '10px 8px' }}>
+                                                            <StatusPill status={b.status} />
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Profile Tab */}
+                        {activeTab === 'profile' && (
+                            <Card style={{ padding: 24 }}>
+                                <SectionHead icon={User} title="Profile" right={
+                                    <Btn variant={isEditingProfile ? 'success' : 'primary'} icon={isEditingProfile ? Save : Edit2} onClick={() => setIsEditingProfile(!isEditingProfile)}>
+                                        {isEditingProfile ? 'Save' : 'Edit'}
+                                    </Btn>
+                                } />
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '14px 18px', background: C.cream, borderRadius: RADIUS.md, marginBottom: 20, border: `1px solid ${C.line}` }}>
+                                    <div style={{ position: 'relative' }}>
+                                        <div
+                                            style={{
+                                                width: 68, height: 68, borderRadius: '50%',
+                                                background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: 26, fontWeight: 'bold', color: C.ink, overflow: 'hidden', cursor: 'pointer',
+                                                border: `2px solid ${C.gold}66`,
+                                            }}
+                                            onClick={() => fileInputRef.current?.click()}
+                                        >
+                                            {profilePicture ? <img src={profilePicture} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (profile?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'S')}
+                                        </div>
+                                        <button onClick={() => fileInputRef.current?.click()} style={{ position: 'absolute', bottom: -2, right: -2, width: 26, height: 26, borderRadius: '50%', background: C.ink, color: C.goldLight, border: `2px solid ${C.cream}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <Camera size={12} />
+                                        </button>
+                                        <input type="file" ref={fileInputRef} accept="image/*" style={{ display: 'none' }} onChange={handleProfilePictureUpload} disabled={uploading} />
+                                    </div>
+                                    <div>
+                                        <h4 style={{ fontSize: 17, color: C.inkSoft, margin: 0, fontFamily: FONT.display }}>{profile?.full_name || user?.first_name || 'Staff'}</h4>
+                                        <p style={{ fontSize: 13, color: C.sage, margin: '2px 0 0' }}>{profile?.department || 'Staff'} · {profile?.position || 'Staff Member'}</p>
+                                        <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <Shield size={12} /> {user?.role || 'staff'}
+                                        </span>
+                                    </div>
+                                    {uploading && <Loader2 size={18} color={C.sage} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
+                                </div>
+
+                                {isEditingProfile ? (
+                                    <form onSubmit={handleProfileUpdate} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                            <div>
+                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Full Name</label>
+                                                <input type="text" value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} style={inputStyle} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Email</label>
+                                                <input type="email" value={profileForm.email} disabled style={{ ...inputStyle, background: '#f5f5f5', cursor: 'not-allowed' }} />
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                            <div>
+                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Phone</label>
+                                                <input type="text" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} style={inputStyle} />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Department</label>
+                                                <input type="text" value={profileForm.department} onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })} style={inputStyle} />
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                            <div>
+                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Position</label>
+                                                <input type="text" value={profileForm.position} onChange={(e) => setProfileForm({ ...profileForm, position: e.target.value })} style={inputStyle} />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Bio</label>
+                                            <textarea value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 10, marginTop: 6, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
+                                            <Btn type="submit" variant="primary" icon={Save}>Save Profile</Btn>
+                                            <Btn type="button" variant="ghost" onClick={() => setIsEditingProfile(false)}>Cancel</Btn>
+                                        </div>
+                                    </form>
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '7px 20px' }}>
+                                        <span style={{ color: C.sage, fontSize: 13 }}>Name</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.full_name || user?.first_name || 'Not set'}</span>
+                                        <span style={{ color: C.sage, fontSize: 13 }}>Email</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{user?.email}</span>
+                                        <span style={{ color: C.sage, fontSize: 13 }}>Phone</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.phone || 'Not set'}</span>
+                                        <span style={{ color: C.sage, fontSize: 13 }}>Department</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.department || 'Staff'}</span>
+                                        <span style={{ color: C.sage, fontSize: 13 }}>Position</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.position || 'Staff Member'}</span>
+                                        <span style={{ color: C.sage, fontSize: 13 }}>Role</span><span style={{ color: C.gold, fontSize: 13, fontWeight: 600 }}>{user?.role || 'staff'}</span>
+                                        {profile?.bio && (
+                                            <>
+                                                <span style={{ color: C.sage, fontSize: 13, alignSelf: 'flex-start' }}>Bio</span>
+                                                <span style={{ color: C.inkSoft, fontSize: 13, lineHeight: 1.6 }}>{profile.bio}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </Card>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* ADD GUIDE MODAL */}
+            {showGuideModal && (
+                <ModalShell
+                    onClose={() => setShowGuideModal(false)}
+                    title="Add New Guide"
+                    subtitle="Create a new tour guide account"
+                    icon={Users}
+                    footer={
+                        <>
+                            <Btn variant="ghost" onClick={() => setShowGuideModal(false)}>Cancel</Btn>
+                            <Btn variant="primary" icon={Plus} onClick={handleAddGuide} disabled={guideLoading}>
+                                {guideLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                                {guideLoading ? 'Adding...' : 'Add Guide'}
+                            </Btn>
+                        </>
+                    }
+                >
+                    <form onSubmit={handleAddGuide} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Full Name <span style={{ color: C.danger }}>*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={guideForm.full_name}
+                                    onChange={(e) => setGuideForm({ ...guideForm, full_name: e.target.value })}
+                                    style={inputStyle}
+                                    required
+                                    placeholder="John Doe"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Email <span style={{ color: C.danger }}>*</span>
+                                </label>
+                                <input
+                                    type="email"
+                                    value={guideForm.email}
+                                    onChange={(e) => setGuideForm({ ...guideForm, email: e.target.value })}
+                                    style={inputStyle}
+                                    required
+                                    placeholder="guide@example.com"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Password <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={guideForm.password}
+                                onChange={(e) => setGuideForm({ ...guideForm, password: e.target.value })}
+                                style={inputStyle}
+                                required
+                                placeholder="Set a secure password"
+                            />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Phone
+                                </label>
+                                <input
+                                    type="text"
+                                    value={guideForm.phone}
+                                    onChange={(e) => setGuideForm({ ...guideForm, phone: e.target.value })}
+                                    style={inputStyle}
+                                    placeholder="+91 9876543210"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Experience (Years)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    value={guideForm.experience_years}
+                                    onChange={(e) => setGuideForm({ ...guideForm, experience_years: e.target.value })}
+                                    style={inputStyle}
+                                    placeholder="5"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Bio
+                            </label>
+                            <textarea
+                                rows="2"
+                                value={guideForm.bio}
+                                onChange={(e) => setGuideForm({ ...guideForm, bio: e.target.value })}
+                                style={{ ...inputStyle, resize: 'vertical' }}
+                                placeholder="Experienced tour guide with 5 years of experience..."
+                            />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Languages
+                                </label>
+                                <input
+                                    type="text"
+                                    value={guideForm.languages}
+                                    onChange={(e) => setGuideForm({ ...guideForm, languages: e.target.value })}
+                                    style={inputStyle}
+                                    placeholder="English, Malayalam, Hindi"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Primary District <span style={{ color: C.danger }}>*</span>
+                                </label>
+                                <select
+                                    value={guideForm.primary_district}
+                                    onChange={(e) => setGuideForm({ ...guideForm, primary_district: e.target.value })}
+                                    style={selectStyle}
+                                    required
+                                >
+                                    <option value="">Select District</option>
+                                    {KERALA_DISTRICTS.map(d => (
+                                        <option key={d.id} value={d.name}>{d.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Price/Day ($)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={guideForm.price_per_day}
+                                    onChange={(e) => setGuideForm({ ...guideForm, price_per_day: e.target.value })}
+                                    style={inputStyle}
+                                    placeholder="50"
+                                />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                    Price/Hour ($)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={guideForm.price_per_hour}
+                                    onChange={(e) => setGuideForm({ ...guideForm, price_per_hour: e.target.value })}
+                                    style={inputStyle}
+                                    placeholder="15"
+                                />
+                            </div>
+                        </div>
+                        <div style={{ padding: 12, background: C.cream, borderRadius: RADIUS.sm, border: `1px solid ${C.line}` }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
+                                <input
+                                    type="checkbox"
+                                    checked={autoVerify}
+                                    onChange={(e) => setAutoVerify(e.target.checked)}
+                                    style={{ width: 18, height: 18, cursor: 'pointer' }}
+                                />
+                                {autoVerify ? '✅ Auto-verify guide' : '⏳ Manual verification required'}
+                            </label>
+                        </div>
+                    </form>
+                </ModalShell>
+            )}
+
+            {/* CREDENTIALS MODAL */}
+            {showCredentialsModal && (
+                <ModalShell
+                    onClose={() => setShowCredentialsModal(false)}
+                    title="✅ Guide Created!"
+                    subtitle="Share these credentials with the guide"
+                    icon={UserCheck}
+                    footer={
+                        <>
+                            <Btn variant="primary" onClick={() => {
+                                navigator.clipboard?.writeText(`Email: ${guideForm.email}\nPassword: ${newGuidePassword}`);
+                                showToast('✅ Credentials copied!');
+                            }}>
+                                📋 Copy
+                            </Btn>
+                            <Btn variant="ghost" onClick={() => setShowCredentialsModal(false)}>Done</Btn>
+                        </>
+                    }
+                >
+                    <div style={{ padding: 16, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${C.line}` }}>
+                        <div style={{ marginBottom: 12 }}>
+                            <p style={{ fontSize: 11, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Email</p>
+                            <p style={{ fontSize: 16, fontWeight: 600, color: C.inkSoft, fontFamily: FONT.mono }}>{guideForm.email}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 11, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Password</p>
+                            <p style={{ fontSize: 16, fontWeight: 600, color: C.gold, fontFamily: FONT.mono }}>{newGuidePassword}</p>
+                        </div>
+                    </div>
+                    <p style={{ fontSize: 12, color: C.sage, marginTop: 12, textAlign: 'center' }}>
+                        🔒 Guide can login with these credentials and change password later.
+                    </p>
+                </ModalShell>
+            )}
+
+            {/* SUGGESTION DETAIL MODAL */}
+            {showSuggestionModal && selectedSuggestion && (
+                <ModalShell
+                    onClose={() => { setShowSuggestionModal(false); setSelectedSuggestion(null); }}
+                    title={selectedSuggestion.name || 'Details'}
+                    subtitle={selectedSuggestion.district || 'N/A'}
+                    icon={getTypeIcon(selectedSuggestion.suggestion_type)}
+                    footer={
+                        <>
+                            {selectedSuggestion.status === 'pending' && (
+                                <>
+                                    <Btn variant="success" icon={Check} onClick={() => processSuggestion(selectedSuggestion.id, 'approve', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Approve</Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Reject</Btn>
+                                    <Btn variant="primary" icon={CheckCircle} onClick={() => processSuggestion(selectedSuggestion.id, 'implement', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Implement</Btn>
+                                </>
+                            )}
+                            {selectedSuggestion.status === 'approved' && (
+                                <>
+                                    <Btn variant="primary" icon={CheckCircle} onClick={() => processSuggestion(selectedSuggestion.id, 'implement', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Implement</Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Reject</Btn>
+                                </>
+                            )}
+                            <Btn variant="danger" icon={Trash2} onClick={() => processSuggestion(selectedSuggestion.id, 'delete', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Delete</Btn>
+                            <Btn variant="ghost" onClick={() => { setShowSuggestionModal(false); setSelectedSuggestion(null); }}>Close</Btn>
+                        </>
+                    }
+                >
+                    {selectedSuggestion.image && typeof selectedSuggestion.image === 'string' && 
+                     selectedSuggestion.image.startsWith('http') && 
+                     !selectedSuggestion.image.includes('null') && 
+                     !selectedSuggestion.image.includes('undefined') && (
+                        <img 
+                            src={selectedSuggestion.image} 
+                            alt={selectedSuggestion.name} 
+                            style={{ 
+                                width: '100%', maxHeight: 300, objectFit: 'cover', 
+                                borderRadius: RADIUS.md, marginBottom: 16, 
+                                border: `1px solid ${C.line}` 
+                            }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                    )}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedSuggestion.district || 'N/A'}</span>
+                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>{getTypeBadge(selectedSuggestion.suggestion_type)}</span>
+                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedSuggestion.user_email || 'Anonymous'}</span>
+                        {selectedSuggestion.rating && (
+                            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>
+                                {'★'.repeat(Math.round(selectedSuggestion.rating))} {selectedSuggestion.rating}/5
+                            </span>
+                        )}
+                        <StatusPill status={selectedSuggestion.status} />
+                    </div>
+                    <p style={{ fontSize: 14, color: C.sage, lineHeight: 1.6, marginBottom: 12 }}>{selectedSuggestion.description || 'No description'}</p>
+                    {selectedSuggestion.admin_notes && (
+                        <div style={{ background: C.cream, padding: 12, borderRadius: RADIUS.sm }}>
+                            <p style={{ fontSize: 11, color: C.gold, margin: 0, fontWeight: 600 }}>📝 Staff Notes</p>
+                            <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedSuggestion.admin_notes}</p>
+                        </div>
+                    )}
+                    {selectedSuggestion.processed_by && (
+                        <div style={{ marginTop: 8, padding: 8, background: '#F0F7FF', borderRadius: RADIUS.sm }}>
+                            <p style={{ fontSize: 11, color: '#1E3A5F', margin: 0 }}>👤 Processed by: {selectedSuggestion.processed_by}</p>
+                            {selectedSuggestion.processed_at && (
+                                <p style={{ fontSize: 11, color: '#475569', margin: '4px 0 0' }}>
+                                    🕐 {new Date(selectedSuggestion.processed_at).toLocaleString()}
+                                </p>
+                            )}
+                        </div>
+                    )}
+                </ModalShell>
+            )}
+
+           
+            {/* TOAST */}
+            {toast && (
+                <div style={{
+                    position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+                    padding: '12px 24px', borderRadius: RADIUS.sm, background: C.ink, color: C.goldLight,
+                    fontSize: 13, fontFamily: FONT.body, boxShadow: '0 8px 24px rgba(7,46,42,0.25)', zIndex: 100,
+                }}>
+                    {toast.message}
+                </div>
+            )}
+        </div>
+    );
 };
 
 export default StaffDashboard;

@@ -1,15 +1,17 @@
-# guides/views.py - COMPLETE FIXED VERSION
+# guides/views.py - COMPLETE FIXED VERSION (NO ERRORS)
 
-from django.db.models import Q, Avg, Prefetch
+from django.db import models
+from django.db.models import Q, Avg, Prefetch, Sum, Count
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, filters
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
 from django_filters.rest_framework import DjangoFilterBackend
 from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
+from django.core.exceptions import ValidationError
 
 from .models import (
     District, GuideCategory, Guide, GuideAvailability, 
@@ -20,11 +22,15 @@ from .serializers import (
     GuideDetailSerializer, GuideAvailabilitySerializer, 
     BookingCreateSerializer, BookingListSerializer, 
     BookingDetailSerializer, BookingUpdateSerializer,
-    GuideReviewSerializer, GuideReviewCreateSerializer
+    GuideReviewSerializer, GuideReviewCreateSerializer,
 )
 
 logger = logging.getLogger(__name__)
 
+
+# ============================================
+# DISTRICT VIEWSET
+# ============================================
 
 class DistrictViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing districts"""
@@ -47,6 +53,10 @@ class DistrictViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
+# ============================================
+# GUIDE CATEGORY VIEWSET
+# ============================================
+
 class GuideCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing guide categories"""
     queryset = GuideCategory.objects.filter(is_active=True)
@@ -56,8 +66,12 @@ class GuideCategoryViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['name']
 
 
+# ============================================
+# GUIDE VIEWSET - COMPLETE FIXED
+# ============================================
+
 class GuideViewSet(viewsets.ModelViewSet):
-    """Complete Guide ViewSet with fixed district filtering"""
+    """Complete Guide ViewSet with availability management"""
     queryset = Guide.objects.filter(is_active=True, is_verified=True)
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -74,21 +88,15 @@ class GuideViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # ✅ FIXED: Proper district filtering
         district = self.request.query_params.get('district')
         if district:
             logger.info(f"🔍 Filtering by district: {district}")
-            
-            # ✅ CRITICAL FIX: Get the district object first, then filter
             try:
-                # Try exact match first (case insensitive)
                 district_obj = District.objects.get(name__iexact=district)
-                # Filter guides that have this district in their many-to-many relationship
                 queryset = queryset.filter(districts=district_obj)
                 logger.info(f"✅ Found {queryset.count()} guides for district: {district}")
             except District.DoesNotExist:
                 logger.warning(f"❌ District '{district}' not found in database")
-                # Return empty queryset if district doesn't exist
                 return queryset.none()
         
         date = self.request.query_params.get('date')
@@ -114,14 +122,12 @@ class GuideViewSet(viewsets.ModelViewSet):
         if language:
             queryset = queryset.filter(languages__icontains=language)
         
-        # Add distinct to avoid duplicates from many-to-many joins
         return queryset.distinct()
 
     def list(self, request, *args, **kwargs):
         """Override list to add debug logging"""
         queryset = self.filter_queryset(self.get_queryset())
         
-        # Log the query for debugging
         logger.info(f"📊 Total guides found: {queryset.count()}")
         if queryset.count() > 0:
             logger.info(f"📊 First guide: {queryset.first().full_name if queryset.first() else 'None'}")
@@ -134,67 +140,237 @@ class GuideViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['get'])
-    def availability(self, request, pk=None):
-        """Get availability for a specific guide"""
+    # ============================================
+    # AVAILABILITY ENDPOINTS
+    # ============================================
+    
+    @action(detail=True, methods=['get'], url_path='availability')
+    def get_availability(self, request, pk=None):
+        """Get availability slots for a specific guide"""
         guide = self.get_object()
         date = request.query_params.get('date')
-        days = int(request.query_params.get('days', 7))
+        days = int(request.query_params.get('days', 14))
         
-        if not date:
+        if date:
+            availabilities = guide.availabilities.filter(date=date)
+        else:
             start_date = datetime.now().date()
             end_date = start_date + timedelta(days=days)
             availabilities = guide.availabilities.filter(
                 date__range=[start_date, end_date]
             )
-        else:
-            availabilities = guide.availabilities.filter(date=date)
         
+        availabilities = availabilities.order_by('date', 'start_time')
         serializer = GuideAvailabilitySerializer(availabilities, many=True)
-        return Response(serializer.data)
+        return Response({
+            'success': True,
+            'data': serializer.data,
+            'count': availabilities.count()
+        })
 
-    @action(detail=False, methods=['get'])
-    def available_by_district(self, request):
-        """Get available guides for a specific district with filters"""
-        district_id = request.query_params.get('district_id')
-        category_id = request.query_params.get('category_id')
-        date = request.query_params.get('date')
+    @action(detail=True, methods=['post'], url_path='availability/add')
+    def add_availability(self, request, pk=None):
+        """Add availability slot for a guide - DATE ONLY"""
+        guide = self.get_object()
+        user = request.user
         
-        if not district_id:
-            return Response(
-                {'error': 'district_id is required'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if guide.user != user and user.role not in ['admin', 'staff']:
+            return Response({
+                'success': False,
+                'error': 'You can only add availability for yourself'
+            }, status=status.HTTP_403_FORBIDDEN)
         
-        queryset = self.get_queryset().filter(districts__id=district_id)
+        data = request.data
+        date_str = data.get('date')
+        max_bookings = int(data.get('max_bookings', 5))
         
-        if category_id:
-            queryset = queryset.filter(categories__id=category_id)
+        if not date_str:
+            return Response({
+                'success': False,
+                'error': 'Date is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
-        if date:
-            available_guides = GuideAvailability.objects.filter(
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({
+                'success': False,
+                'error': 'Invalid date format. Use YYYY-MM-DD'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if GuideAvailability.objects.filter(guide=guide, date=date).exists():
+            return Response({
+                'success': False,
+                'error': f'You already have availability on {date_str}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        availability = GuideAvailability.objects.create(
+            guide=guide,
+            date=date,
+            start_time='00:00:00',
+            end_time='23:59:59',
+            max_bookings=max_bookings,
+            current_bookings=0,
+            is_booked=False
+        )
+        
+        serializer = GuideAvailabilitySerializer(availability)
+        return Response({
+            'success': True,
+            'message': f'Availability added for {date_str}',
+            'data': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='availability/bulk-add')
+    def bulk_add_availability(self, request, pk=None):
+        """Add multiple availability slots at once"""
+        guide = self.get_object()
+        user = request.user
+        
+        if guide.user != user and user.role not in ['admin', 'staff']:
+            return Response({
+                'success': False,
+                'error': 'You can only add availability for yourself'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        data = request.data
+        dates = data.get('dates', [])
+        max_bookings = int(data.get('max_bookings', 5))
+        
+        if not dates:
+            return Response({
+                'success': False,
+                'error': 'Please provide a list of dates'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        created = []
+        skipped = []
+        errors = []
+        
+        for date_str in dates:
+            try:
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                errors.append(f'Invalid date format: {date_str}')
+                continue
+            
+            if GuideAvailability.objects.filter(guide=guide, date=date).exists():
+                skipped.append(date_str)
+                continue
+            
+            availability = GuideAvailability.objects.create(
+                guide=guide,
                 date=date,
+                start_time='00:00:00',
+                end_time='23:59:59',
+                max_bookings=max_bookings,
+                current_bookings=0,
                 is_booked=False
-            ).values_list('guide_id', flat=True)
-            queryset = queryset.filter(id__in=available_guides)
+            )
+            created.append(date_str)
         
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+        return Response({
+            'success': True,
+            'message': f'Added {len(created)} slots, skipped {len(skipped)} existing',
+            'created': created,
+            'skipped': skipped,
+            'errors': errors
+        })
+
+    @action(detail=True, methods=['delete'], url_path='availability/(?P<slot_id>[^/.]+)/delete')
+    def delete_availability(self, request, pk=None, slot_id=None):
+        """Delete a specific availability slot"""
+        guide = self.get_object()
+        user = request.user
         
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        if guide.user != user and user.role not in ['admin', 'staff']:
+            return Response({
+                'success': False,
+                'error': 'You can only delete your own availability'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            slot = GuideAvailability.objects.get(id=slot_id, guide=guide)
+        except GuideAvailability.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Availability slot not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        if slot.current_bookings > 0:
+            return Response({
+                'success': False,
+                'error': f'Cannot delete this slot. It has {slot.current_bookings} booking(s).'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if slot.is_booked:
+            return Response({
+                'success': False,
+                'error': 'Cannot delete a fully booked slot'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        slot.delete()
+        return Response({
+            'success': True,
+            'message': 'Availability slot deleted successfully'
+        })
+
+    @action(detail=True, methods=['get'], url_path='availability/bookings')
+    def get_availability_bookings(self, request, pk=None):
+        """Get all bookings for this guide's availability slots"""
+        guide = self.get_object()
+        
+        date = request.query_params.get('date')
+        if date:
+            availabilities = guide.availabilities.filter(date=date)
+        else:
+            availabilities = guide.availabilities.all()
+        
+        bookings = GuideBooking.objects.filter(
+            availability__in=availabilities
+        ).select_related('user', 'guide').order_by('date', 'created_at')
+        
+        data = []
+        for booking in bookings:
+            data.append({
+                'id': booking.id,
+                'booking_id': booking.booking_id,
+                'date': booking.date.isoformat(),
+                'time': booking.time.strftime('%H:%M') if booking.time else 'N/A',
+                'traveler': booking.user.username if booking.user else 'Anonymous',
+                'traveler_email': booking.user.email if booking.user else '',
+                'number_of_people': booking.number_of_people,
+                'status': booking.status,
+                'created_at': booking.created_at.isoformat()
+            })
+        
+        return Response({
+            'success': True,
+            'data': data,
+            'count': len(data)
+        })
 
     # ============================================
-    # ✅ GUIDE DASHBOARD ENDPOINTS
+    # GUIDE DASHBOARD ENDPOINTS - FIXED
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='profile', permission_classes=[IsAuthenticated])
     def guide_profile(self, request):
-        """Get guide profile for dashboard"""
+        """Get guide profile for dashboard - FIXED: removed primary_district"""
         try:
             guide = Guide.objects.get(user=request.user)
+            
+            district_stats = []
+            for district in guide.districts.all():
+                bookings = GuideBooking.objects.filter(guide=guide, district=district)
+                district_stats.append({
+                    'district': district.name,
+                    'total': bookings.count(),
+                    'pending': bookings.filter(status='pending').count(),
+                    'confirmed': bookings.filter(status='confirmed').count(),
+                    'completed': bookings.filter(status='completed').count(),
+                })
+            
             return Response({
                 'success': True,
                 'profile': {
@@ -208,7 +384,85 @@ class GuideViewSet(viewsets.ModelViewSet):
                     'rating': float(guide.rating),
                     'total_reviews': guide.total_reviews,
                     'is_verified': guide.is_verified,
-                    'primary_district': guide.districts.first().name if guide.districts.exists() else None,
+                    'districts': [d.name for d in guide.districts.all()],
+                    'profile_image': guide.profile_image.url if guide.profile_image else None,
+                    'price_per_day': float(guide.price_per_day),
+                    'price_per_hour': float(guide.price_per_hour),
+                    'specialties': [c.name for c in guide.categories.all()],
+                    'district_stats': district_stats,
+                }
+            })
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            logger.error(f"Error in guide_profile: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # UPDATE GUIDE PROFILE - COMPLETE FIX (POST only)
+    # ============================================
+    
+    @action(detail=False, methods=['post'], url_path='update-profile', permission_classes=[IsAuthenticated])
+    def update_guide_profile(self, request):
+        """Update guide profile - Uses POST method"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            data = request.data
+            
+            # Update fields
+            if 'full_name' in data:
+                guide.full_name = data['full_name']
+            if 'phone' in data:
+                guide.phone_number = data['phone']
+            if 'bio' in data:
+                guide.bio = data['bio']
+            if 'years_of_experience' in data:
+                guide.years_of_experience = int(data['years_of_experience'])
+            if 'languages' in data:
+                guide.languages = data['languages']
+            if 'price_per_day' in data:
+                guide.price_per_day = Decimal(str(data['price_per_day']))
+            if 'price_per_hour' in data:
+                guide.price_per_hour = Decimal(str(data['price_per_hour']))
+            if 'facebook' in data:
+                guide.facebook = data['facebook']
+            if 'instagram' in data:
+                guide.instagram = data['instagram']
+            if 'website' in data:
+                guide.website = data['website']
+            
+            # Handle specialties (many-to-many)
+            if 'specialties' in data and data['specialties']:
+                specialty_names = data['specialties']
+                if isinstance(specialty_names, str):
+                    specialty_names = [s.strip() for s in specialty_names.split(',') if s.strip()]
+                
+                guide.categories.clear()
+                for name in specialty_names:
+                    category, _ = GuideCategory.objects.get_or_create(name=name)
+                    guide.categories.add(category)
+            
+            # Handle profile image
+            if 'profile_image' in request.FILES:
+                guide.profile_image = request.FILES['profile_image']
+            
+            guide.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Profile updated successfully',
+                'profile': {
+                    'id': guide.id,
+                    'full_name': guide.full_name,
+                    'email': guide.email,
+                    'phone': guide.phone_number,
+                    'bio': guide.bio,
+                    'experience_years': guide.years_of_experience,
+                    'languages': guide.languages,
+                    'rating': float(guide.rating),
+                    'total_reviews': guide.total_reviews,
+                    'is_verified': guide.is_verified,
+                    'districts': [d.name for d in guide.districts.all()],
                     'profile_image': guide.profile_image.url if guide.profile_image else None,
                     'price_per_day': float(guide.price_per_day),
                     'price_per_hour': float(guide.price_per_hour),
@@ -216,126 +470,223 @@ class GuideViewSet(viewsets.ModelViewSet):
                 }
             })
         except Guide.DoesNotExist:
-            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+            return Response({'success': False, 'error': 'Guide not found'}, status=404)
         except Exception as e:
+            logger.error(f"Error updating profile: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
+
+   # guides/views.py - FIXED guide_bookings method
 
     @action(detail=False, methods=['get'], url_path='bookings', permission_classes=[IsAuthenticated])
     def guide_bookings(self, request):
-        """Get guide's bookings"""
+        """Get guide's bookings with district-wise stats"""
         try:
             guide = Guide.objects.get(user=request.user)
             status_filter = request.query_params.get('status')
+            district_filter = request.query_params.get('district')
             
             bookings = GuideBooking.objects.filter(guide=guide)
+            
             if status_filter:
                 bookings = bookings.filter(status=status_filter)
+            if district_filter:
+                bookings = bookings.filter(district__name__iexact=district_filter)
             
+            # ✅ FIXED: Ensure we return all bookings with proper data
             data = []
             for booking in bookings.order_by('-created_at'):
+                # Get user info safely
+                user_info = {
+                    'username': booking.user.username if booking.user else 'Anonymous',
+                    'email': booking.user.email if booking.user else '',
+                }
+                
+                # Get district info safely
+                district_info = {
+                    'name': booking.district.name if booking.district else 'N/A'
+                }
+                
                 data.append({
                     'id': booking.id,
                     'booking_id': booking.booking_id,
-                    'user': {
-                        'username': booking.user.username if booking.user else 'Anonymous',
-                        'email': booking.user.email if booking.user else '',
-                    },
+                    'user': user_info,
                     'traveler_email': booking.user.email if booking.user else '',
                     'guide_name': booking.guide.full_name if booking.guide else 'Unknown',
-                    'district': {
-                        'name': booking.district.name if booking.district else 'N/A'
+                    'guide': {
+                        'id': booking.guide.id if booking.guide else None,
+                        'full_name': booking.guide.full_name if booking.guide else 'Unknown'
                     },
+                    'district': district_info,
                     'date': booking.date.isoformat(),
-                    'time': booking.time.strftime('%H:%M'),
+                    'time': booking.time.strftime('%H:%M') if booking.time else 'N/A',
                     'status': booking.status,
+                    'number_of_people': booking.number_of_people,
+                    'total_price': float(booking.total_price) if booking.total_price else 0,
+                    'special_requests': booking.special_requests or '',
+                    'duration_hours': booking.duration_hours,
                     'created_at': booking.created_at.isoformat(),
+                    'updated_at': booking.updated_at.isoformat(),
+                    'has_review': hasattr(booking, 'review'),
                 })
-            return Response({'success': True, 'bookings': data})
+            
+            # District-wise breakdown
+            district_breakdown = []
+            for district in guide.districts.all():
+                district_bookings = bookings.filter(district=district)
+                district_breakdown.append({
+                    'district': district.name,
+                    'total': district_bookings.count(),
+                    'pending': district_bookings.filter(status='pending').count(),
+                    'confirmed': district_bookings.filter(status='confirmed').count(),
+                    'completed': district_bookings.filter(status='completed').count(),
+                    'cancelled': district_bookings.filter(status='cancelled').count(),
+                    'rejected': district_bookings.filter(status='rejected').count(),
+                })
+            
+            stats = {
+                'total': bookings.count(),
+                'pending': bookings.filter(status='pending').count(),
+                'confirmed': bookings.filter(status='confirmed').count(),
+                'completed': bookings.filter(status='completed').count(),
+                'cancelled': bookings.filter(status='cancelled').count(),
+                'rejected': bookings.filter(status='rejected').count(),
+                'district_breakdown': district_breakdown,
+            }
+            
+            return Response({
+                'success': True,
+                'stats': stats,
+                'bookings': data,
+                'count': len(data)
+            })
         except Guide.DoesNotExist:
             return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
         except Exception as e:
+            logger.error(f"Error in guide_bookings: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
-
-    @action(detail=False, methods=['get'], url_path='availability', permission_classes=[IsAuthenticated])
-    def guide_availability(self, request):
-        """Get guide's availability slots - ONLY for this guide"""
+        
+    @action(detail=False, methods=['get'], url_path='availability-slots', permission_classes=[IsAuthenticated])
+    def guide_availability_slots(self, request):
+        """Get guide's availability slots with booking info per slot"""
         try:
             guide = Guide.objects.get(user=request.user)
-            availability = GuideAvailability.objects.filter(guide=guide).order_by('date', 'start_time')
+            date_from = request.query_params.get('date_from')
+            date_to = request.query_params.get('date_to')
+            
+            availabilities = GuideAvailability.objects.filter(guide=guide)
+            
+            if date_from:
+                availabilities = availabilities.filter(date__gte=date_from)
+            if date_to:
+                availabilities = availabilities.filter(date__lte=date_to)
             
             data = []
-            for slot in availability:
+            for slot in availabilities.order_by('date'):
+                bookings = GuideBooking.objects.filter(availability=slot)
+                
                 data.append({
                     'id': slot.id,
                     'date': slot.date.isoformat(),
-                    'start_time': slot.start_time.strftime('%H:%M'),
-                    'end_time': slot.end_time.strftime('%H:%M'),
+                    'start_time': slot.start_time.strftime('%H:%M') if slot.start_time else 'N/A',
+                    'end_time': slot.end_time.strftime('%H:%M') if slot.end_time else 'N/A',
                     'is_booked': slot.is_booked,
                     'max_bookings': slot.max_bookings,
                     'current_bookings': slot.current_bookings,
+                    'available_slots': slot.max_bookings - slot.current_bookings,
+                    'bookings': [
+                        {
+                            'booking_id': b.booking_id,
+                            'traveler': b.user.username if b.user else 'Anonymous',
+                            'traveler_email': b.user.email if b.user else '',
+                            'status': b.status,
+                            'number_of_people': b.number_of_people,
+                            'created_at': b.created_at.isoformat(),
+                        } for b in bookings
+                    ]
                 })
-            return Response({'success': True, 'availability': data})
+            
+            return Response({
+                'success': True,
+                'availability': data,
+                'count': len(data)
+            })
         except Guide.DoesNotExist:
             return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
         except Exception as e:
+            logger.error(f"Error in guide_availability_slots: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
-    @action(detail=False, methods=['post'], url_path='availability/add', permission_classes=[IsAuthenticated])
-    def guide_add_availability(self, request):
-        """Add availability slot - ONLY for this guide"""
+    @action(detail=False, methods=['post'], url_path='availability/add-slot', permission_classes=[IsAuthenticated])
+    def add_availability_slot(self, request):
+        """Add availability slot for the currently logged-in guide"""
         try:
             guide = Guide.objects.get(user=request.user)
             
             data = request.data
-            date = datetime.strptime(data.get('date'), '%Y-%m-%d').date()
-            start_time = datetime.strptime(data.get('start_time'), '%H:%M').time()
-            end_time = datetime.strptime(data.get('end_time'), '%H:%M').time()
+            date_str = data.get('date')
+            max_bookings = int(data.get('max_bookings', 5))
             
-            existing = GuideAvailability.objects.filter(
-                guide=guide,
-                date=date,
-                start_time=start_time
-            ).first()
-            
-            if existing:
+            if not date_str:
                 return Response({
                     'success': False,
-                    'error': 'Slot already exists for this date and time'
+                    'error': 'Date is required'
+                }, status=400)
+            
+            try:
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid date format. Use YYYY-MM-DD'
+                }, status=400)
+            
+            if GuideAvailability.objects.filter(guide=guide, date=date).exists():
+                return Response({
+                    'success': False,
+                    'error': f'You already have availability on {date_str}'
                 }, status=400)
             
             slot = GuideAvailability.objects.create(
                 guide=guide,
                 date=date,
-                start_time=start_time,
-                end_time=end_time,
-                max_bookings=int(data.get('max_bookings', 1)),
+                start_time='00:00:00',
+                end_time='23:59:59',
+                max_bookings=max_bookings,
                 current_bookings=0,
                 is_booked=False
             )
             
             return Response({
                 'success': True,
-                'message': 'Slot added successfully',
+                'message': f'Availability added for {date_str}',
                 'slot': {
                     'id': slot.id,
                     'date': slot.date.isoformat(),
-                    'start_time': slot.start_time.strftime('%H:%M'),
-                    'end_time': slot.end_time.strftime('%H:%M'),
                     'max_bookings': slot.max_bookings,
                     'current_bookings': slot.current_bookings,
+                    'is_booked': slot.is_booked,
                 }
             })
         except Guide.DoesNotExist:
             return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
         except Exception as e:
+            logger.error(f"Error adding availability: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
-    @action(detail=True, methods=['delete'], url_path='availability', permission_classes=[IsAuthenticated])
-    def guide_delete_availability(self, request, pk=None):
-        """Delete availability slot - ONLY if not booked"""
+    @action(detail=True, methods=['delete'], url_path='availability/(?P<slot_id>[^/.]+)', permission_classes=[IsAuthenticated])
+    def delete_availability_slot(self, request, pk=None, slot_id=None):
+        """Delete a specific availability slot for a guide"""
         try:
-            guide = Guide.objects.get(user=request.user)
-            slot = GuideAvailability.objects.get(id=pk, guide=guide)
+            guide = self.get_object()
+            user = request.user
+            
+            if guide.user != user and user.role not in ['admin', 'staff']:
+                return Response({
+                    'success': False,
+                    'error': 'You can only delete your own availability'
+                }, status=403)
+            
+            slot = GuideAvailability.objects.get(id=slot_id, guide=guide)
             
             if slot.current_bookings > 0:
                 return Response({
@@ -346,23 +697,130 @@ class GuideViewSet(viewsets.ModelViewSet):
             if slot.is_booked:
                 return Response({
                     'success': False,
-                    'error': 'Cannot delete a booked slot'
+                    'error': 'Cannot delete a fully booked slot'
                 }, status=400)
             
             slot.delete()
             return Response({
-                'success': True, 
-                'message': 'Slot deleted successfully'
+                'success': True,
+                'message': 'Availability slot deleted successfully'
             })
-            
-        except Guide.DoesNotExist:
-            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
         except GuideAvailability.DoesNotExist:
             return Response({'success': False, 'error': 'Slot not found'}, status=404)
         except Exception as e:
             logger.error(f"Error deleting availability: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
+    @action(detail=True, methods=['get'], url_path='availability/(?P<slot_id>[^/.]+)/bookings')
+    def get_slot_bookings(self, request, pk=None, slot_id=None):
+        """Get all bookings for a specific availability slot"""
+        try:
+            guide = self.get_object()
+            slot = GuideAvailability.objects.get(id=slot_id, guide=guide)
+            
+            bookings = GuideBooking.objects.filter(availability=slot).order_by('-created_at')
+            
+            data = []
+            for booking in bookings:
+                data.append({
+                    'id': booking.id,
+                    'booking_id': booking.booking_id,
+                    'traveler': booking.user.username if booking.user else 'Anonymous',
+                    'traveler_email': booking.user.email if booking.user else '',
+                    'date': booking.date.isoformat(),
+                    'time': booking.time.strftime('%H:%M') if booking.time else 'N/A',
+                    'number_of_people': booking.number_of_people,
+                    'status': booking.status,
+                    'total_price': float(booking.total_price),
+                    'created_at': booking.created_at.isoformat(),
+                })
+            
+            return Response({
+                'success': True,
+                'slot': {
+                    'id': slot.id,
+                    'date': slot.date.isoformat(),
+                    'max_bookings': slot.max_bookings,
+                    'current_bookings': slot.current_bookings,
+                    'is_booked': slot.is_booked,
+                },
+                'bookings': data,
+                'count': len(data)
+            })
+        except GuideAvailability.DoesNotExist:
+            return Response({'success': False, 'error': 'Slot not found'}, status=404)
+        except Exception as e:
+            logger.error(f"Error getting slot bookings: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    @action(detail=False, methods=['get'], url_path='available-slots')
+    def get_available_slots(self, request):
+        """Get available slots for booking - used by travelers"""
+        district = request.query_params.get('district')
+        date = request.query_params.get('date')
+        
+        if not district:
+            return Response({
+                'success': False,
+                'error': 'District is required'
+            }, status=400)
+        
+        if not date:
+            return Response({
+                'success': False,
+                'error': 'Date is required'
+            }, status=400)
+        
+        try:
+            date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({
+                'success': False,
+                'error': 'Invalid date format. Use YYYY-MM-DD'
+            }, status=400)
+        
+        guides = Guide.objects.filter(
+            districts__name__iexact=district,
+            is_active=True,
+            is_available=True
+        )
+        
+        slots = GuideAvailability.objects.filter(
+            guide__in=guides,
+            date=date_obj,
+            is_booked=False,
+            current_bookings__lt=models.F('max_bookings')
+        ).select_related('guide')
+        
+        data = []
+        for slot in slots:
+            data.append({
+                'id': slot.id,
+                'guide': {
+                    'id': slot.guide.id,
+                    'full_name': slot.guide.full_name,
+                    'rating': float(slot.guide.rating),
+                    'total_reviews': slot.guide.total_reviews,
+                    'price_per_day': float(slot.guide.price_per_day),
+                    'price_per_hour': float(slot.guide.price_per_hour),
+                    'profile_image': slot.guide.profile_image.url if slot.guide.profile_image else None,
+                },
+                'date': slot.date.isoformat(),
+                'available_slots': slot.max_bookings - slot.current_bookings,
+                'max_bookings': slot.max_bookings,
+                'current_bookings': slot.current_bookings,
+            })
+        
+        return Response({
+            'success': True,
+            'data': data,
+            'count': len(data)
+        })
+
+    # ============================================
+    # REVIEWS ENDPOINTS
+    # ============================================
+    
     @action(detail=False, methods=['get'], url_path='reviews', permission_classes=[IsAuthenticated])
     def guide_reviews(self, request):
         """Get reviews for the currently logged-in guide"""
@@ -377,6 +835,14 @@ class GuideViewSet(viewsets.ModelViewSet):
                 })
             
             reviews = GuideReview.objects.filter(guide=guide).order_by('-created_at')
+            
+            stats = {
+                'total': reviews.count(),
+                'approved': reviews.filter(is_approved=True).count(),
+                'pending': reviews.filter(is_approved=False).count(),
+                'average_rating': reviews.aggregate(Avg('rating'))['rating__avg'] or 0,
+            }
+            
             data = []
             for review in reviews:
                 data.append({
@@ -391,7 +857,13 @@ class GuideViewSet(viewsets.ModelViewSet):
                     'is_approved': review.is_approved,
                     'created_at': review.created_at.isoformat(),
                 })
-            return Response({'success': True, 'reviews': data})
+            
+            return Response({
+                'success': True,
+                'stats': stats,
+                'reviews': data,
+                'count': len(data)
+            })
         except Exception as e:
             return Response({
                 'success': True,
@@ -399,6 +871,98 @@ class GuideViewSet(viewsets.ModelViewSet):
                 'error': str(e)
             })
 
+    @action(detail=False, methods=['post'], url_path='reviews/(?P<review_id>[^/.]+)/approve', permission_classes=[IsAuthenticated])
+    def approve_review(self, request, review_id=None):
+        """Approve a review (guide only)"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            review = GuideReview.objects.get(id=review_id, guide=guide)
+            
+            review.is_approved = True
+            review.save()
+            
+            avg_rating = guide.reviews.filter(is_approved=True).aggregate(Avg('rating'))['rating__avg']
+            guide.rating = avg_rating or 0
+            guide.total_reviews = guide.reviews.filter(is_approved=True).count()
+            guide.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Review approved successfully',
+                'review': GuideReviewSerializer(review).data
+            })
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide not found'}, status=404)
+        except GuideReview.DoesNotExist:
+            return Response({'success': False, 'error': 'Review not found'}, status=404)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # STATS ENDPOINT - FIXED
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='stats', permission_classes=[IsAuthenticated])
+    def guide_stats(self, request):
+        """Get complete stats for the guide - FIXED: removed primary_district"""
+        try:
+            guide = Guide.objects.get(user=request.user)
+            
+            bookings = GuideBooking.objects.filter(guide=guide)
+            reviews = GuideReview.objects.filter(guide=guide)
+            
+            district_stats = []
+            for district in guide.districts.all():
+                district_bookings = bookings.filter(district=district)
+                district_stats.append({
+                    'district': district.name,
+                    'total': district_bookings.count(),
+                    'pending': district_bookings.filter(status='pending').count(),
+                    'confirmed': district_bookings.filter(status='confirmed').count(),
+                    'completed': district_bookings.filter(status='completed').count(),
+                    'cancelled': district_bookings.filter(status='cancelled').count(),
+                    'rejected': district_bookings.filter(status='rejected').count(),
+                    'revenue': district_bookings.filter(status='completed').aggregate(
+                        total=Sum('total_price')
+                    )['total'] or 0,
+                })
+            
+            from django.db.models.functions import TruncMonth
+            monthly_stats = bookings.annotate(
+                month=TruncMonth('created_at')
+            ).values('month').annotate(
+                count=Count('id'),
+                revenue=Sum('total_price')
+            ).order_by('-month')[:12]
+            
+            return Response({
+                'success': True,
+                'stats': {
+                    'total_bookings': bookings.count(),
+                    'pending_bookings': bookings.filter(status='pending').count(),
+                    'confirmed_bookings': bookings.filter(status='confirmed').count(),
+                    'completed_bookings': bookings.filter(status='completed').count(),
+                    'cancelled_bookings': bookings.filter(status='cancelled').count(),
+                    'rejected_bookings': bookings.filter(status='rejected').count(),
+                    'total_reviews': reviews.count(),
+                    'average_rating': float(guide.rating),
+                    'total_revenue': bookings.filter(status='completed').aggregate(
+                        total=Sum('total_price')
+                    )['total'] or 0,
+                    'district_stats': district_stats,
+                    'monthly_stats': monthly_stats,
+                }
+            })
+        except Guide.DoesNotExist:
+            return Response({'success': False, 'error': 'Guide profile not found'}, status=404)
+        except Exception as e:
+            logger.error(f"Error in guide_stats: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+
+# ============================================
+# BOOKING VIEWSET
+# ============================================
 
 class BookingViewSet(viewsets.ModelViewSet):
     """ViewSet for guide bookings with full review support"""
@@ -419,7 +983,7 @@ class BookingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_staff or user.is_superuser:
+        if user.is_staff or user.is_superuser or user.role in ['admin', 'staff']:
             return GuideBooking.objects.all()
         return GuideBooking.objects.filter(
             Q(user=user) | Q(guide__user=user)
@@ -449,6 +1013,8 @@ class BookingViewSet(viewsets.ModelViewSet):
             availability.save()
             booking.availability = availability
             booking.save()
+
+    # guides/views.py - Verify this method exists in BookingViewSet
 
     @action(detail=True, methods=['post'], url_path='process')
     def process_booking(self, request, pk=None):
@@ -523,7 +1089,7 @@ class BookingViewSet(viewsets.ModelViewSet):
                 'success': False,
                 'error': str(e)
             }, status=400)
-
+            
     @action(detail=True, methods=['post'], url_path='complete')
     def complete_booking(self, request, pk=None):
         """Complete a booking"""
@@ -671,6 +1237,10 @@ class BookingViewSet(viewsets.ModelViewSet):
             })
 
 
+# ============================================
+# GUIDE REVIEW VIEWSET
+# ============================================
+
 class GuideReviewViewSet(viewsets.ModelViewSet):
     """ViewSet for managing guide reviews"""
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -761,3 +1331,85 @@ class GuideReviewViewSet(viewsets.ModelViewSet):
             'success': True,
             'message': 'Review deleted successfully'
         })
+        
+        
+# ============================================
+# AVAILABILITY VIEWSET - COMPLETE FIXED
+# ============================================
+
+class AvailabilityViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing guide availability slots"""
+    permission_classes = [IsAuthenticated]
+    serializer_class = GuideAvailabilitySerializer
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser or user.role in ['admin', 'staff']:
+            return GuideAvailability.objects.all()
+        try:
+            guide = Guide.objects.get(user=user)
+            return GuideAvailability.objects.filter(guide=guide)
+        except Guide.DoesNotExist:
+            return GuideAvailability.objects.none()
+    
+    def create(self, request, *args, **kwargs):
+        try:
+            guide = Guide.objects.get(user=request.user)
+        except Guide.DoesNotExist:
+            return Response(
+                {'error': 'Guide profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        data = request.data.copy()
+        data['guide'] = guide.id
+        
+        # Check for overlapping slots
+        date = data.get('date')
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        
+        if date and start_time and end_time:
+            overlapping = GuideAvailability.objects.filter(
+                guide=guide,
+                date=date,
+                start_time__lt=end_time,
+                end_time__gt=start_time
+            ).exists()
+            if overlapping:
+                return Response(
+                    {'error': 'Overlapping availability slot exists'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+    
+    def perform_create(self, serializer):
+        try:
+            guide = Guide.objects.get(user=self.request.user)
+        except Guide.DoesNotExist:
+            raise ValidationError({'error': 'Guide profile not found'})
+        
+        date = self.request.data.get('date')
+        start_time = self.request.data.get('start_time')
+        end_time = self.request.data.get('end_time')
+        
+        if date and start_time and end_time:
+            overlapping = GuideAvailability.objects.filter(
+                guide=guide,
+                date=date,
+                start_time__lt=end_time,
+                end_time__gt=start_time
+            ).exists()
+            if overlapping:
+                raise ValidationError({'error': 'Overlapping availability slot exists'})
+        
+        serializer.save(guide=guide)

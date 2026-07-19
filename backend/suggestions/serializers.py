@@ -1,4 +1,4 @@
-# suggestions/serializers.py - FIXED WITH ABSOLUTE IMAGE URLS
+# suggestions/serializers.py - COMPLETE WITH ALL FIELDS
 
 from rest_framework import serializers
 from django.core.validators import MaxLengthValidator
@@ -16,6 +16,13 @@ class SuggestionSerializer(serializers.ModelSerializer):
     guide_name = serializers.CharField(source='guide.full_name', read_only=True, allow_null=True)
     processed_by_name = serializers.CharField(source='processed_by.email', read_only=True, allow_null=True)
     district_name = serializers.CharField(source='district', read_only=True)
+    
+    # Who approved/rejected
+    guide_approved_by_name = serializers.CharField(source='guide_approved_by.email', read_only=True, allow_null=True)
+    guide_rejected_by_name = serializers.CharField(source='guide_rejected_by.email', read_only=True, allow_null=True)
+    staff_approved_by_name = serializers.CharField(source='staff_approved_by.email', read_only=True, allow_null=True)
+    staff_rejected_by_name = serializers.CharField(source='staff_rejected_by.email', read_only=True, allow_null=True)
+    admin_implemented_by_name = serializers.CharField(source='admin_implemented_by.email', read_only=True, allow_null=True)
     
     status_display = serializers.SerializerMethodField()
     suggestion_type_display = serializers.SerializerMethodField()
@@ -37,6 +44,17 @@ class SuggestionSerializer(serializers.ModelSerializer):
             'image', 'image_url', 'images',
             'rating', 'metadata', 'visit_date',
             'guide_processed_at', 'processed_at',
+            # Tracking fields
+            'guide_approved_by', 'guide_approved_by_name',
+            'guide_approved_at',
+            'guide_rejected_by', 'guide_rejected_by_name',
+            'guide_rejected_at',
+            'staff_approved_by', 'staff_approved_by_name',
+            'staff_approved_at',
+            'staff_rejected_by', 'staff_rejected_by_name',
+            'staff_rejected_at',
+            'admin_implemented_by', 'admin_implemented_by_name',
+            'admin_implemented_at',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
@@ -56,23 +74,19 @@ class SuggestionSerializer(serializers.ModelSerializer):
         return dict(Suggestion.SuggestionType.choices).get(obj.suggestion_type, obj.suggestion_type)
     
     def get_image_url(self, obj):
-        """✅ FIXED: Return absolute URL for image"""
         if obj.image and hasattr(obj.image, 'url'):
             try:
                 request = self.context.get('request')
                 if request:
-                    # Build absolute URI with request
                     return request.build_absolute_uri(obj.image.url)
-                # Fallback: return the URL as is
                 return obj.image.url
-            except Exception as e:
-                print(f"Error getting image URL: {e}")
+            except Exception:
                 return None
         return None
 
 
 class SuggestionCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating suggestions - ONLY MAX LIMITS"""
+    """Serializer for creating suggestions"""
     
     class Meta:
         model = Suggestion
@@ -84,7 +98,6 @@ class SuggestionCreateSerializer(serializers.ModelSerializer):
         ]
     
     def validate(self, data):
-        """Validate - ONLY MAX LIMITS and required checks"""
         suggestion_type = data.get('suggestion_type')
         name = data.get('name')
         description = data.get('description')
@@ -92,109 +105,52 @@ class SuggestionCreateSerializer(serializers.ModelSerializer):
         category = data.get('category')
         rating = data.get('rating')
         
-        # Name is required
         if not name:
-            raise serializers.ValidationError({
-                'name': 'Name is required'
-            })
+            raise serializers.ValidationError({'name': 'Name is required'})
         if len(name) > 200:
-            raise serializers.ValidationError({
-                'name': 'Name cannot exceed 200 characters'
-            })
+            raise serializers.ValidationError({'name': 'Name cannot exceed 200 characters'})
         
-        # Description is required
         if not description:
-            raise serializers.ValidationError({
-                'description': 'Description is required'
-            })
+            raise serializers.ValidationError({'description': 'Description is required'})
         if len(description) > 5000:
-            raise serializers.ValidationError({
-                'description': 'Description cannot exceed 5000 characters'
-            })
+            raise serializers.ValidationError({'description': 'Description cannot exceed 5000 characters'})
         
-        # District is required
         if not district:
-            raise serializers.ValidationError({
-                'district': 'District is required'
-            })
+            raise serializers.ValidationError({'district': 'District is required'})
         if len(district) > 100:
-            raise serializers.ValidationError({
-                'district': 'District cannot exceed 100 characters'
-            })
+            raise serializers.ValidationError({'district': 'District cannot exceed 100 characters'})
         
-        # Category validation for new/hidden_gem
         if suggestion_type in ['new', 'hidden_gem']:
             if not category:
-                raise serializers.ValidationError({
-                    'category': 'Category is required for new place/hidden gem suggestions'
-                })
+                raise serializers.ValidationError({'category': 'Category is required for new place/hidden gem suggestions'})
             if len(category) > 50:
-                raise serializers.ValidationError({
-                    'category': 'Category cannot exceed 50 characters'
-                })
+                raise serializers.ValidationError({'category': 'Category cannot exceed 50 characters'})
         
-        # Rating validation for reviews
         if suggestion_type == 'review':
             if not rating:
-                raise serializers.ValidationError({
-                    'rating': 'Rating is required for reviews'
-                })
+                raise serializers.ValidationError({'rating': 'Rating is required for reviews'})
             if rating > 5:
-                raise serializers.ValidationError({
-                    'rating': 'Rating cannot exceed 5'
-                })
+                raise serializers.ValidationError({'rating': 'Rating cannot exceed 5'})
         
-        # Location info max length
         if data.get('location_info') and len(data['location_info']) > 1000:
-            raise serializers.ValidationError({
-                'location_info': 'Location info cannot exceed 1000 characters'
-            })
+            raise serializers.ValidationError({'location_info': 'Location info cannot exceed 1000 characters'})
         
         return data
 
 
-class SuggestionStatusUpdateSerializer(serializers.Serializer):
-    """Serializer for updating suggestion status"""
-    status = serializers.ChoiceField(choices=Suggestion.Status.choices)
-    admin_notes = serializers.CharField(
-        max_length=2000,
-        required=False,
-        allow_blank=True
-    )
-    guide_notes = serializers.CharField(
-        max_length=1000,
-        required=False,
-        allow_blank=True
-    )
-    rejection_reason = serializers.CharField(
-        max_length=500,
-        required=False,
-        allow_blank=True
-    )
-    
-    def validate_admin_notes(self, value):
-        if value and len(value) > 2000:
-            raise serializers.ValidationError("Admin notes cannot exceed 2000 characters")
-        return value
-    
-    def validate_guide_notes(self, value):
-        if value and len(value) > 1000:
-            raise serializers.ValidationError("Guide notes cannot exceed 1000 characters")
-        return value
-    
-    def validate_rejection_reason(self, value):
-        if value and len(value) > 500:
-            raise serializers.ValidationError("Rejection reason cannot exceed 500 characters")
-        return value
-
-
 class SuggestionListSerializer(serializers.ModelSerializer):
-    """✅ FIXED: Lightweight serializer for listing suggestions with ABSOLUTE IMAGE URL"""
+    """Lightweight serializer for listing suggestions"""
+    
     user_email = serializers.EmailField(source='user.email', read_only=True)
     username = serializers.CharField(source='user.username', read_only=True)
     status_display = serializers.SerializerMethodField()
     suggestion_type_display = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
+    
+    # Who approved/rejected
+    guide_approved_by_name = serializers.CharField(source='guide_approved_by.email', read_only=True, allow_null=True)
+    staff_approved_by_name = serializers.CharField(source='staff_approved_by.email', read_only=True, allow_null=True)
+    admin_implemented_by_name = serializers.CharField(source='admin_implemented_by.email', read_only=True, allow_null=True)
     
     class Meta:
         model = Suggestion
@@ -204,6 +160,9 @@ class SuggestionListSerializer(serializers.ModelSerializer):
             'status', 'status_display',
             'user_email', 'username', 'district',
             'image_url', 'rating',
+            'guide_approved_by_name', 'guide_approved_at',
+            'staff_approved_by_name', 'staff_approved_at',
+            'admin_implemented_by_name', 'admin_implemented_at',
             'created_at', 'updated_at'
         ]
     
@@ -214,20 +173,12 @@ class SuggestionListSerializer(serializers.ModelSerializer):
         return dict(Suggestion.SuggestionType.choices).get(obj.suggestion_type, obj.suggestion_type)
     
     def get_image_url(self, obj):
-        """✅ FIXED: Return absolute URL for image with request context"""
         if obj.image and hasattr(obj.image, 'url'):
             try:
-                # Get request from context
                 request = self.context.get('request')
                 if request:
-                    # Build absolute URI
-                    full_url = request.build_absolute_uri(obj.image.url)
-                    print(f"✅ Generated image URL: {full_url}")  # Debug log
-                    return full_url
-                # Fallback: return the URL as is
-                print(f"⚠️ No request context, returning relative URL: {obj.image.url}")
+                    return request.build_absolute_uri(obj.image.url)
                 return obj.image.url
-            except Exception as e:
-                print(f"❌ Error getting image URL: {e}")
+            except Exception:
                 return None
         return None
