@@ -615,6 +615,7 @@ class GuideViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error in guide_availability_slots: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
+        
 
     @action(detail=False, methods=['post'], url_path='availability/add-slot', permission_classes=[IsAuthenticated])
     def add_availability_slot(self, request):
@@ -672,6 +673,73 @@ class GuideViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error adding availability: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
+        
+        
+    @action(detail=False, methods=['get'], url_path='bulk-availability')
+    def bulk_availability(self, request):
+        """
+        Get availability for all guides in a single API call.
+        Query params: guide_ids (comma-separated), days (default: 30)
+        """
+        try:
+            guide_ids = request.query_params.get('guide_ids', '')
+            days = int(request.query_params.get('days', 30))
+            
+            if not guide_ids:
+                return Response({
+                    'success': False,
+                    'error': 'guide_ids parameter is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            guide_ids_list = [int(id.strip()) for id in guide_ids.split(',') if id.strip().isdigit()]
+            
+            if not guide_ids_list:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid guide_ids format'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            start_date = datetime.now().date()
+            end_date = start_date + timedelta(days=days)
+            
+            # Fetch all availability for these guides
+            availabilities = GuideAvailability.objects.filter(
+                guide_id__in=guide_ids_list,
+                date__gte=start_date,
+                date__lte=end_date
+            ).select_related('guide')
+            
+            # Group by guide_id
+            result = {}
+            for guide_id in guide_ids_list:
+                result[str(guide_id)] = []
+            
+            for av in availabilities:
+                guide_id_str = str(av.guide_id)
+                if guide_id_str in result:
+                    result[guide_id_str].append({
+                        'id': av.id,
+                        'date': av.date.isoformat(),
+                        'start_time': av.start_time.strftime('%H:%M'),
+                        'end_time': av.end_time.strftime('%H:%M') if av.end_time else None,
+                        'max_bookings': av.max_bookings,
+                        'current_bookings': av.current_bookings,
+                        'is_booked': av.is_booked,
+                        'available_slots': av.max_bookings - av.current_bookings
+                    })
+            
+            return Response({
+                'success': True,
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in bulk_availability: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
 
     @action(detail=True, methods=['delete'], url_path='availability/(?P<slot_id>[^/.]+)', permission_classes=[IsAuthenticated])
     def delete_availability_slot(self, request, pk=None, slot_id=None):
@@ -1413,3 +1481,5 @@ class AvailabilityViewSet(viewsets.ModelViewSet):
                 raise ValidationError({'error': 'Overlapping availability slot exists'})
         
         serializer.save(guide=guide)
+        
+        

@@ -1,10 +1,10 @@
-// pages/Guides.jsx - COMPLETE FIXED WITH ONLY AVAILABLE SLOTS
+// pages/Guides.jsx - COMPLETE FIXED VERSION with destination input
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
-import { Loader2, Clock, Users, X, CheckCircle, Calendar } from 'lucide-react';
+import api, { AuthAPI } from '../services/api';
+import { Loader2, Clock, X, CheckCircle, AlertCircle, MapPin } from 'lucide-react';
 
 // ============================================
 // DESIGN TOKENS
@@ -14,7 +14,6 @@ const C = {
     inkSoft: '#0B2422',
     paper: '#FFFFFF',
     cream: '#FBF6EA',
-    cream2: '#F5EDD6',
     gold: '#C79A3E',
     goldLight: '#E4C77B',
     goldSoft: 'rgba(199,154,62,0.14)',
@@ -69,6 +68,11 @@ export default function Guides() {
     const [activeDistrict, setActiveDistrict] = useState(null);
     const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
     
+    // ✅ AVAILABILITY
+    const [availability, setAvailability] = useState({});
+    const [loadingAvailability, setLoadingAvailability] = useState(false);
+    const [availabilityError, setAvailabilityError] = useState(null);
+    
     // Booking Modal
     const [selectedGuide, setSelectedGuide] = useState(null);
     const [bookingData, setBookingData] = useState({
@@ -76,26 +80,23 @@ export default function Guides() {
         time: '',
         duration_hours: 4,
         number_of_people: 1,
+        destination: '', // ✅ Added destination field
         special_requests: ''
     });
     const [showBookingModal, setShowBookingModal] = useState(false);
     const [bookingLoading, setBookingLoading] = useState(false);
     const [bookingSuccess, setBookingSuccess] = useState(false);
     const [bookingError, setBookingError] = useState(null);
-    
-    // ✅ Available Slots only
     const [availableSlots, setAvailableSlots] = useState([]);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [showConfirmationModal, setShowConfirmationModal] = useState(false);
-    
-    // Availability state
-    const [guideAvailability, setGuideAvailability] = useState({});
-    const [loadingAvailability, setLoadingAvailability] = useState({});
-    const availabilityFetchedRef = useRef({});
+    const [fetchingSlots, setFetchingSlots] = useState(false);
+    const [isSlotFullyBooked, setIsSlotFullyBooked] = useState(false);
     
     const districtRef = useRef(null);
     const initialFetchDone = useRef(false);
     const fetchTimeoutRef = useRef(null);
+    const availabilityFetchedRef = useRef(false);
 
     // Redirect if not logged in
     useEffect(() => {
@@ -131,44 +132,7 @@ export default function Guides() {
         }
     }, [location.search]);
 
-    // ✅ Fetch availability for a specific guide
-    const fetchGuideAvailability = useCallback(async (guideId) => {
-        if (availabilityFetchedRef.current[guideId]) return;
-        if (loadingAvailability[guideId]) return;
-        
-        setLoadingAvailability(prev => ({ ...prev, [guideId]: true }));
-        
-        try {
-            const response = await api.get(`/guides/guides/${guideId}/availability/`, {
-                params: { days: 30 }
-            });
-            
-            if (response.data?.success) {
-                const allSlots = response.data.data || [];
-                // ✅ Filter only available slots
-                const available = allSlots.filter(slot => 
-                    !slot.is_booked && slot.current_bookings < slot.max_bookings
-                );
-                setGuideAvailability(prev => ({
-                    ...prev,
-                    [guideId]: available
-                }));
-                availabilityFetchedRef.current[guideId] = true;
-            }
-        } catch (error) {
-            if (error.response?.status === 404) {
-                setGuideAvailability(prev => ({
-                    ...prev,
-                    [guideId]: []
-                }));
-                availabilityFetchedRef.current[guideId] = true;
-            }
-        } finally {
-            setLoadingAvailability(prev => ({ ...prev, [guideId]: false }));
-        }
-    }, [loadingAvailability]);
-
-    // Fetch guides
+    // ✅ Fetch guides
     const fetchGuides = useCallback(async () => {
         if (!isLoggedIn) {
             setLoading(false);
@@ -177,6 +141,7 @@ export default function Guides() {
 
         setLoading(true);
         setError(null);
+        setAvailabilityError(null);
 
         try {
             const params = {};
@@ -212,21 +177,19 @@ export default function Guides() {
                     districts: guide.districts || [],
                     district: guide.districts && guide.districts.length > 0 ? guide.districts[0].name : null,
                     created_at: guide.created_at || new Date().toISOString(),
+                    max_bookings_per_slot: guide.max_bookings_per_slot || 1,
                 }));
                 
                 setGuides(formattedGuides);
                 setFilteredGuides(formattedGuides);
                 
-                const newGuideIds = formattedGuides
-                    .map(g => g.id)
-                    .filter(id => !availabilityFetchedRef.current[id]);
-                
-                if (newGuideIds.length > 0) {
-                    newGuideIds.forEach(guideId => fetchGuideAvailability(guideId));
+                if (formattedGuides.length > 0) {
+                    await fetchBulkAvailability(formattedGuides);
                 }
             } else {
                 setGuides([]);
                 setFilteredGuides([]);
+                setAvailability({});
             }
         } catch (error) {
             if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
@@ -237,7 +200,68 @@ export default function Guides() {
         } finally {
             setLoading(false);
         }
-    }, [activeDistrict, searchTerm, isLoggedIn, fetchGuideAvailability]);
+    }, [activeDistrict, searchTerm, isLoggedIn]);
+
+    // ✅ Fetch availability for all guides
+    const fetchBulkAvailability = async (guidesList) => {
+        if (availabilityFetchedRef.current) return;
+        
+        setLoadingAvailability(true);
+        setAvailabilityError(null);
+        
+        try {
+            const guideIds = guidesList.map(g => g.id).join(',');
+            const response = await AuthAPI.getBulkAvailability(guideIds, 30);
+            
+            console.log('Bulk availability response:', response);
+            
+            if (response?.success) {
+                const data = response.data || {};
+                setAvailability(data);
+                availabilityFetchedRef.current = true;
+            } else {
+                setAvailability({});
+                setAvailabilityError('No availability data');
+            }
+        } catch (error) {
+            console.error('Error fetching bulk availability:', error);
+            setAvailability({});
+            setAvailabilityError('Failed to fetch availability');
+        } finally {
+            setLoadingAvailability(false);
+        }
+    };
+
+    // ✅ Fetch availability for a single guide
+    const fetchGuideAvailability = async (guideId) => {
+        setFetchingSlots(true);
+        try {
+            const response = await AuthAPI.getGuideAvailability(guideId, 30);
+            
+            console.log(`Availability for guide ${guideId}:`, response);
+            
+            if (response?.success) {
+                const slots = response.data || [];
+                // Filter out fully booked slots
+                const availableSlots = slots.filter(slot => {
+                    const maxBookings = slot.max_bookings || 1;
+                    const currentBookings = slot.current_bookings || 0;
+                    return currentBookings < maxBookings;
+                });
+                setAvailability(prev => ({
+                    ...prev,
+                    [guideId]: availableSlots
+                }));
+                return availableSlots;
+            }
+            return [];
+        } catch (error) {
+            console.error(`Error fetching availability for guide ${guideId}:`, error);
+            return [];
+        } finally {
+            setFetchingSlots(false);
+        }
+    };
 
     // Debounced fetch
     const debouncedFetchGuides = useCallback(() => {
@@ -311,39 +335,85 @@ export default function Guides() {
         navigate(`/guides?${params.toString()}`);
     };
 
-    // ✅ Book Guide - Show only available slots
-    const handleBookGuide = (guide) => {
+    // ✅ Check if slot is available (not fully booked)
+    const isSlotAvailable = (slot) => {
+        if (!slot) return false;
+        const maxBookings = slot.max_bookings || 1;
+        const currentBookings = slot.current_bookings || 0;
+        return currentBookings < maxBookings;
+    };
+
+    // ✅ Get available slots count
+    const getAvailableSlotsCount = (slots) => {
+        if (!slots || slots.length === 0) return 0;
+        return slots.filter(slot => isSlotAvailable(slot)).length;
+    };
+
+    // ✅ Book Guide
+    const handleBookGuide = async (guide) => {
         setSelectedGuide(guide);
         setBookingData({
             date: '',
             time: '',
             duration_hours: 4,
             number_of_people: 1,
+            destination: '', // ✅ Reset destination
             special_requests: ''
         });
         setBookingSuccess(false);
         setBookingError(null);
         setSelectedSlot(null);
         setShowConfirmationModal(false);
+        setIsSlotFullyBooked(false);
         
-        // ✅ Get only available slots for this guide
-        const slots = guideAvailability[guide.id] || [];
-        setAvailableSlots(slots);
+        // Get slots from cached availability or fetch
+        let slots = availability[guide.id] || [];
+        
+        if (slots.length === 0) {
+            slots = await fetchGuideAvailability(guide.id);
+        }
+        
+        // Filter out fully booked slots
+        const availableOnly = slots.filter(slot => isSlotAvailable(slot));
+        setAvailableSlots(availableOnly);
+        
+        if (availableOnly.length === 0) {
+            setIsSlotFullyBooked(true);
+        }
+        
         setShowBookingModal(true);
     };
 
     // ✅ Close booking modal
-    const closeBookingModal = () => {
+    const closeBookingModal = useCallback(() => {
         if (!bookingLoading) {
             setShowBookingModal(false);
             setBookingError(null);
             setSelectedSlot(null);
             setShowConfirmationModal(false);
+            setSelectedGuide(null);
+            setAvailableSlots([]);
+            setBookingSuccess(false);
+            setIsSlotFullyBooked(false);
         }
-    };
+    }, [bookingLoading]);
 
-    // ✅ Select time slot and show confirmation
+    // ✅ Handle escape key to close modal
+    useEffect(() => {
+        const handleEscape = (e) => {
+            if (e.key === 'Escape' && showBookingModal) {
+                closeBookingModal();
+            }
+        };
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, [showBookingModal, closeBookingModal]);
+
     const handleSlotSelect = (slot) => {
+        if (!isSlotAvailable(slot)) {
+            setBookingError('This slot is fully booked. Please select another slot.');
+            return;
+        }
         setSelectedSlot(slot);
         setBookingData({ 
             ...bookingData, 
@@ -354,98 +424,163 @@ export default function Guides() {
         setShowConfirmationModal(true);
     };
 
-    // ✅ Confirm booking
-    const handleConfirmBooking = async () => {
-        if (!selectedGuide || !selectedSlot) {
-            setBookingError('Missing booking information');
-            return;
-        }
+/// In Guides.jsx - FIXED handleConfirmBooking with proper response detection
 
+const handleConfirmBooking = async () => {
+    if (!selectedGuide || !selectedSlot) {
+        setBookingError('Missing booking information');
+        return;
+    }
+
+    // ✅ Validate destination
+    if (!bookingData.destination || !bookingData.destination.trim()) {
+        setBookingError('Please enter a destination/place name');
+        setBookingLoading(false);
+        return;
+    }
+
+    // Check if slot is still available
+    if (!isSlotAvailable(selectedSlot)) {
+        setBookingError('This slot is no longer available. Please select another slot.');
         setShowConfirmationModal(false);
-        setBookingLoading(true);
-        setBookingError(null);
-
-        try {
-            let districtId = null;
-            if (selectedGuide.districts && selectedGuide.districts.length > 0) {
-                districtId = selectedGuide.districts[0].id;
-            } else if (selectedGuide.district) {
-                const found = KERALA_DISTRICTS.find(
-                    d => d.name.toLowerCase() === selectedGuide.district.toLowerCase()
-                );
-                if (found) districtId = found.id;
-            }
-
-            const bookingPayload = {
-                guide: selectedGuide.id,
-                date: selectedSlot.date,
-                time: selectedSlot.start_time,
-                duration_hours: parseInt(bookingData.duration_hours) || 4,
-                number_of_people: parseInt(bookingData.number_of_people) || 1,
-                special_requests: bookingData.special_requests || ''
-            };
-
-            if (districtId) {
-                bookingPayload.district = districtId;
-            }
-
-            const response = await api.post('/guides/bookings/', bookingPayload);
-
-            if (response.data) {
-                setBookingSuccess(true);
-                
-                try {
-                    const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
-                    const newBooking = {
-                        id: response.data.id || Date.now(),
-                        booking_id: response.data.booking_id || response.data.id,
-                        guide_name: selectedGuide.full_name,
-                        guideId: selectedGuide.id,
-                        district: selectedGuide.district || selectedGuide.districts?.[0]?.name || '',
-                        destination: bookingData.special_requests || 'Kerala Tour',
-                        date: selectedSlot.date,
-                        time: selectedSlot.start_time,
-                        duration_hours: bookingData.duration_hours,
-                        number_of_people: bookingData.number_of_people,
-                        status: 'pending',
-                        travelerEmail: selectedGuide.email || 'traveler',
-                        created_at: new Date().toISOString(),
-                    };
-                    travelerBookings.push(newBooking);
-                    localStorage.setItem('traveler_bookings', JSON.stringify(travelerBookings));
-                    window.dispatchEvent(new StorageEvent('storage', { key: 'traveler_bookings' }));
-                    window.dispatchEvent(new CustomEvent('bookingsUpdated'));
-                } catch (e) {
-                    console.log('Error saving to localStorage:', e);
-                }
-
-                setTimeout(() => {
-                    setShowBookingModal(false);
-                    setBookingSuccess(false);
-                    setBookingError(null);
-                    setSelectedGuide(null);
-                    setSelectedSlot(null);
-                    setShowConfirmationModal(false);
-                    navigate('/guides');
-                }, 2000);
-            }
-        } catch (error) {
-            let errorMsg = 'Failed to book guide. Please try again.';
-            if (error.response?.data) {
-                const data = error.response.data;
-                if (data.date) errorMsg = `Date: ${Array.isArray(data.date) ? data.date.join(', ') : data.date}`;
-                else if (data.time) errorMsg = `Time: ${Array.isArray(data.time) ? data.time.join(', ') : data.time}`;
-                else if (data.non_field_errors) errorMsg = Array.isArray(data.non_field_errors) ? data.non_field_errors.join(', ') : data.non_field_errors;
-                else if (data.error) errorMsg = data.error;
-                else if (data.message) errorMsg = data.message;
-                else if (data.detail) errorMsg = data.detail;
-            }
-            setBookingError(errorMsg);
-            setBookingLoading(false);
-            setShowConfirmationModal(true);
+        const slots = await fetchGuideAvailability(selectedGuide.id);
+        const availableOnly = slots.filter(slot => isSlotAvailable(slot));
+        setAvailableSlots(availableOnly);
+        if (availableOnly.length === 0) {
+            setIsSlotFullyBooked(true);
         }
-    };
+        setBookingLoading(false);
+        return;
+    }
 
+    setShowConfirmationModal(false);
+    setBookingLoading(true);
+    setBookingError(null);
+
+    try {
+        // ✅ Get district ID
+        let districtId = null;
+        let districtName = null;
+        
+        if (selectedGuide.districts && selectedGuide.districts.length > 0) {
+            districtId = selectedGuide.districts[0].id;
+            districtName = selectedGuide.districts[0].name;
+        } else if (selectedGuide.district) {
+            const found = KERALA_DISTRICTS.find(
+                d => d.name.toLowerCase() === selectedGuide.district.toLowerCase()
+            );
+            if (found) {
+                districtId = found.id;
+                districtName = found.name;
+            }
+        }
+
+        // ✅ Get destination
+        const destination = bookingData.destination.trim();
+        
+        // ✅ Build special requests
+        let specialRequests = bookingData.special_requests || '';
+        if (!specialRequests.toLowerCase().includes(destination.toLowerCase())) {
+            specialRequests = `Destination: ${destination}\n${specialRequests}`;
+        }
+
+        // ✅ Format time as HH:MM
+        let formattedTime = selectedSlot.start_time;
+        if (formattedTime) {
+            formattedTime = formattedTime.trim();
+            const parts = formattedTime.split(':');
+            if (parts.length === 3) {
+                formattedTime = `${parts[0]}:${parts[1]}`;
+            }
+        }
+
+        // ✅ Build payload
+        const bookingPayload = {
+            guide: selectedGuide.id,
+            date: selectedSlot.date,
+            time: formattedTime,
+            duration_hours: parseInt(bookingData.duration_hours) || 4,
+            number_of_people: parseInt(bookingData.number_of_people) || 1,
+            special_requests: specialRequests.trim(),
+        };
+
+        if (districtId) {
+            bookingPayload.district = districtId;
+        }
+
+        console.log('📝 Sending booking payload:', JSON.stringify(bookingPayload, null, 2));
+
+        // ✅ Create booking
+        const response = await AuthAPI.createBooking(bookingPayload);
+
+        console.log('✅ Booking response:', response);
+
+        // ✅ FIXED: Check for any valid response (201 Created or 200 OK)
+        // The response could have 'id', 'booking_id', or just be a success object
+        const isSuccess = response && (
+            response.id || 
+            response.booking_id || 
+            response.success === true ||
+            response.status === 'success' ||
+            // If the response has data and it has an id
+            (response.data && (response.data.id || response.data.booking_id)) ||
+            // If the response is a number (ID) or has a message
+            typeof response === 'object'
+        );
+
+        if (isSuccess) {
+            setBookingSuccess(true);
+            
+            // Update local storage
+            try {
+                const travelerBookings = JSON.parse(localStorage.getItem('traveler_bookings') || '[]');
+                const newBooking = {
+                    id: response.id || response.booking_id || Date.now(),
+                    booking_id: response.booking_id || response.id,
+                    guide_name: selectedGuide.full_name,
+                    guideId: selectedGuide.id,
+                    district: districtName || selectedGuide.district || selectedGuide.districts?.[0]?.name || '',
+                    destination: destination,
+                    place_name: destination,
+                    date: selectedSlot.date,
+                    time: selectedSlot.start_time,
+                    duration_hours: bookingData.duration_hours,
+                    number_of_people: bookingData.number_of_people,
+                    status: 'pending',
+                    travelerEmail: selectedGuide.email || 'traveler',
+                    created_at: new Date().toISOString(),
+                    special_requests: specialRequests.trim(),
+                };
+                travelerBookings.push(newBooking);
+                localStorage.setItem('traveler_bookings', JSON.stringify(travelerBookings));
+                window.dispatchEvent(new StorageEvent('storage', { key: 'traveler_bookings' }));
+                window.dispatchEvent(new CustomEvent('bookingsUpdated'));
+            } catch (e) {
+                console.log('Error saving to localStorage:', e);
+            }
+
+            setTimeout(() => {
+                closeBookingModal();
+                navigate('/guides');
+            }, 2000);
+        } else {
+            // Only show error if response explicitly says failed
+            setBookingError(response?.message || response?.error || 'Failed to create booking');
+            setBookingLoading(false);
+        }
+    } catch (error) {
+        console.error('❌ Booking error:', error);
+        let errorMsg = 'Failed to book guide. Please try again.';
+        
+        if (error.message) {
+            errorMsg = error.message;
+        }
+        
+        setBookingError(errorMsg);
+        setBookingLoading(false);
+        setShowConfirmationModal(true);
+    }
+};
     const handleProtectedClick = (path) => {
         if (!isLoggedIn) {
             alert('⚠️ Login required to access this page.');
@@ -737,9 +872,18 @@ export default function Guides() {
                     transition: all 0.3s ease;
                     font-family: 'Inter', sans-serif;
                 }
-                .book-btn:hover {
+                .book-btn:hover:not(:disabled) {
                     transform: scale(1.03);
                     box-shadow: 0 4px 16px rgba(199,154,62,0.3);
+                }
+                .book-btn:disabled {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                    transform: none !important;
+                }
+                .book-btn.fully-booked {
+                    background: #9CA3AF;
+                    cursor: not-allowed;
                 }
 
                 .modal-overlay {
@@ -778,6 +922,10 @@ export default function Guides() {
                     border-color: #C79A3E;
                     outline: none;
                     box-shadow: 0 0 0 3px rgba(199,154,62,0.1);
+                }
+                .modal-input.destination-input {
+                    border-color: #C79A3E;
+                    background: rgba(199,154,62,0.05);
                 }
                 .modal-error {
                     background: #FEE2E2;
@@ -825,8 +973,11 @@ export default function Guides() {
                     background: #F3F4F6;
                     color: #6B7280;
                 }
+                .availability-badge.fully-booked {
+                    background: #FEE2E2;
+                    color: #991B1B;
+                }
                 
-                /* ✅ Slot Cards */
                 .slot-grid {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -845,7 +996,7 @@ export default function Guides() {
                     transition: all 0.3s ease;
                     text-align: center;
                 }
-                .slot-card:hover {
+                .slot-card:hover:not(.fully-booked) {
                     border-color: #C79A3E;
                     box-shadow: 0 4px 16px rgba(199,154,62,0.15);
                     transform: translateY(-3px);
@@ -857,6 +1008,12 @@ export default function Guides() {
                     box-shadow: 0 4px 16px rgba(199,154,62,0.25);
                     transform: translateY(-3px);
                 }
+                .slot-card.fully-booked {
+                    opacity: 0.5;
+                    cursor: not-allowed;
+                    border-color: #E5E7EB;
+                    background: #F9FAFB;
+                }
                 .slot-card .slot-date {
                     font-size: 13px;
                     font-weight: 600;
@@ -866,6 +1023,9 @@ export default function Guides() {
                 .slot-card.selected .slot-date {
                     color: #fff;
                 }
+                .slot-card.fully-booked .slot-date {
+                    color: #9CA3AF;
+                }
                 .slot-card .slot-time {
                     font-size: 18px;
                     font-weight: 700;
@@ -874,6 +1034,9 @@ export default function Guides() {
                 .slot-card.selected .slot-time {
                     color: #fff;
                 }
+                .slot-card.fully-booked .slot-time {
+                    color: #9CA3AF;
+                }
                 .slot-card .slot-info {
                     font-size: 10px;
                     color: #5A5548;
@@ -881,6 +1044,9 @@ export default function Guides() {
                 }
                 .slot-card.selected .slot-info {
                     color: rgba(255,255,255,0.8);
+                }
+                .slot-card.fully-booked .slot-info {
+                    color: #9CA3AF;
                 }
                 
                 .no-slots-message {
@@ -891,6 +1057,11 @@ export default function Guides() {
                     color: #92400E;
                     font-size: 14px;
                     text-align: center;
+                }
+                .no-slots-message.fully-booked {
+                    background: #FEE2E2;
+                    border-color: #FCA5A5;
+                    color: #991B1B;
                 }
                 
                 .confirmation-card {
@@ -948,6 +1119,11 @@ export default function Guides() {
                     color: #5A5548;
                     margin: 0 0 16px;
                 }
+
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
             `}</style>
 
             {/* Header */}
@@ -971,7 +1147,6 @@ export default function Guides() {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                             <Link to="/my-bookings" style={{ padding: "10px 20px", borderRadius: 999, border: "1px solid rgba(199,154,62,0.3)", background: "rgba(255,255,255,0.06)", color: "#E4C77B", cursor: "pointer", fontSize: 13, fontWeight: 500, textDecoration: "none", display: "flex", alignItems: "center", gap: 8, transition: "all 0.3s ease" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.transform = "scale(1.02)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.transform = "scale(1)"; }}><span>📅</span>My Bookings</Link>
-                            <button onClick={() => navigate('/guides')} className="wl-book-guide-btn" style={{ background: "linear-gradient(135deg, #C79A3E, #E4C77B)", color: "#072E2A", border: "none", padding: "10px 24px", borderRadius: 999, fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all 0.3s ease", boxShadow: "0 4px 16px rgba(199,154,62,0.3)", fontFamily: "'Inter', sans-serif" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.03)"; e.currentTarget.style.boxShadow = "0 6px 24px rgba(199,154,62,0.4)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(199,154,62,0.3)"; }}><span style={{ fontSize: 18 }}>👤</span>Book a Guide</button>
                         </div>
                     </div>
 
@@ -1013,9 +1188,12 @@ export default function Guides() {
                 ) : (
                     <div className="gd-grid">
                         {filteredGuides.map((guide) => {
-                            const slots = guideAvailability[guide.id] || [];
-                            const hasAvailability = slots.length > 0;
-                            const isLoadingAvailability = loadingAvailability[guide.id];
+                            const slots = availability[guide.id] || [];
+                            const availableSlotsCount = getAvailableSlotsCount(slots);
+                            const hasAvailability = availableSlotsCount > 0;
+                            const isLoadingSlots = loadingAvailability || fetchingSlots;
+                            const isFullyBooked = slots.length > 0 && availableSlotsCount === 0;
+                            
                             return (
                                 <div key={guide.id} className="gd-guide-card">
                                     <div style={{ padding: 20 }}>
@@ -1035,11 +1213,25 @@ export default function Guides() {
                                             {guide.languages && guide.languages.slice(0, 2).map((lang, i) => <span key={i} style={{ background: "rgba(14,92,83,0.08)", color: "#0E5C53", padding: "2px 10px", borderRadius: 999, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}>{lang}</span>)}
                                         </div>
                                         <div style={{ marginTop: 10 }}>
-                                            {isLoadingAvailability ? <span className="availability-badge loading"><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading...</span> : hasAvailability ? <span className="availability-badge available">✅ {slots.length} slots available</span> : <span className="availability-badge unavailable">❌ No slots available</span>}
+                                            {isLoadingSlots ? (
+                                                <span className="availability-badge loading"><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading...</span>
+                                            ) : isFullyBooked ? (
+                                                <span className="availability-badge fully-booked">🔴 Fully Booked</span>
+                                            ) : hasAvailability ? (
+                                                <span className="availability-badge available">✅ {availableSlotsCount} slots available</span>
+                                            ) : (
+                                                <span className="availability-badge unavailable">❌ No slots available</span>
+                                            )}
                                         </div>
                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, borderTop: "1px solid rgba(199,154,62,0.15)", paddingTop: 14 }}>
                                             <div><span style={{ fontSize: 12, color: "#8A9A95" }}>Rate</span><p style={{ fontSize: 18, fontWeight: 700, color: "#072E2A", margin: 0 }}>₹{guide.price_per_hour || 500}<span style={{ fontSize: 12, fontWeight: 400, color: "#8A9A95" }}>/hr</span></p></div>
-                                            <button onClick={(e) => { e.stopPropagation(); handleBookGuide(guide); }} className="book-btn" disabled={!hasAvailability} style={{ opacity: hasAvailability ? 1 : 0.5, cursor: hasAvailability ? 'pointer' : 'not-allowed' }}>{hasAvailability ? 'Book Now' : 'Unavailable'}</button>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleBookGuide(guide); }} 
+                                                className={`book-btn ${!hasAvailability || isLoadingSlots || isFullyBooked ? 'fully-booked' : ''}`}
+                                                disabled={!hasAvailability || isLoadingSlots || isFullyBooked}
+                                            >
+                                                {isLoadingSlots ? 'Loading...' : (isFullyBooked ? 'Fully Booked' : (hasAvailability ? 'Book Now' : 'Unavailable'))}
+                                            </button>
                                         </div>
                                         {guide.is_available === false && <div style={{ marginTop: 8, padding: "4px 12px", background: "#FEE2E2", borderRadius: 999, color: "#DC2626", fontSize: 11, display: "inline-block" }}>Currently Unavailable</div>}
                                     </div>
@@ -1050,90 +1242,157 @@ export default function Guides() {
                 )}
             </div>
 
-            {/* Booking Modal - Only Available Slots */}
+            {/* Booking Modal */}
             {showBookingModal && selectedGuide && (
                 <div className="modal-overlay" onClick={closeBookingModal}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                        {/* Modal Header with Close Button */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                            <div>
+                                <h2 className="gd-font-display" style={{ fontSize: 22, color: "#072E2A", margin: 0, fontStyle: "italic" }}>
+                                    Book {selectedGuide.full_name}
+                                </h2>
+                                <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0 0" }}>
+                                    📍 {getDistrictName(selectedGuide)} · ₹{selectedGuide.price_per_hour || 500}/hr
+                                </p>
+                            </div>
+                            <button 
+                                onClick={closeBookingModal}
+                                disabled={bookingLoading}
+                                style={{
+                                    background: "none",
+                                    border: "none",
+                                    cursor: bookingLoading ? "not-allowed" : "pointer",
+                                    color: "#5C6E69",
+                                    padding: "8px",
+                                    borderRadius: "50%",
+                                    transition: "all 0.2s ease",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    opacity: bookingLoading ? 0.5 : 1,
+                                }}
+                                onMouseEnter={(e) => { 
+                                    if (!bookingLoading) {
+                                        e.currentTarget.style.background = "#F3F4F6";
+                                    }
+                                }}
+                                onMouseLeave={(e) => { 
+                                    e.currentTarget.style.background = "transparent";
+                                }}
+                            >
+                                <X size={22} />
+                            </button>
+                        </div>
+
                         {bookingSuccess ? (
                             <div style={{ textAlign: "center", padding: "20px 0" }}>
                                 <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
                                 <h2 style={{ color: "#072E2A", fontFamily: "'Fraunces', serif" }}>Booking Confirmed!</h2>
                                 <p style={{ color: "#5C6E69" }}>Your guide has been booked successfully.</p>
-
+                                <button 
+                                    onClick={closeBookingModal}
+                                    style={{
+                                        marginTop: 16,
+                                        padding: "10px 24px",
+                                        background: "#C79A3E",
+                                        color: "#fff",
+                                        border: "none",
+                                        borderRadius: 999,
+                                        cursor: "pointer",
+                                        fontSize: 14,
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    Close
+                                </button>
                             </div>
                         ) : (
                             <>
-                                {/* Header with Close Button */}
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                                    <div>
-                                        <h2 className="gd-font-display" style={{ fontSize: 22, color: "#072E2A", margin: 0, fontStyle: "italic" }}>
-                                            Book {selectedGuide.full_name}
-                                        </h2>
-                                        <p style={{ fontSize: 13, color: "#5C6E69", margin: "2px 0 0" }}>
-                                            📍 {getDistrictName(selectedGuide)} · ₹{selectedGuide.price_per_hour || 500}/hr
-                                        </p>
-                                    </div>
-                                    <button 
-                                        onClick={closeBookingModal}
-                                        style={{ 
-                                            background: "none", 
-                                            border: "none", 
-                                            cursor: "pointer", 
-                                            color: "#5C6E69",
-                                            padding: "8px",
-                                            borderRadius: "50%",
-                                            transition: "all 0.2s ease",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center"
-                                        }}
-                                        onMouseEnter={(e) => { e.currentTarget.style.background = "#F3F4F6"; }}
-                                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                                    >
-                                        <X size={22} />
-                                    </button>
-                                </div>
-
                                 {bookingError && <div className="modal-error"><span>⚠️</span>{bookingError}</div>}
 
-                                {/* ✅ Available Slots - Only these */}
+                                {/* Available Slots */}
                                 <div style={{ marginBottom: 14 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                                         <Clock size={18} color={C.gold} />
-                                        <span style={{ fontSize: 15, fontWeight: 600, color: '#0B2422' }}>
-                                            Available Slots
-                                        </span>
-                                        {availableSlots.length > 0 && (
-                                            <span style={{ fontSize: 12, fontWeight: 400, color: C.success, background: C.successBg, padding: '2px 12px', borderRadius: 999 }}>
-                                                {availableSlots.length} slots
-                                            </span>
-                                        )}
+                                        <span style={{ fontSize: 15, fontWeight: 600, color: '#0B2422' }}>Available Slots</span>
+                                        {availableSlots.length > 0 && <span style={{ fontSize: 12, fontWeight: 400, color: C.success, background: C.successBg, padding: '2px 12px', borderRadius: 999 }}>{availableSlots.length} slots</span>}
+                                        {fetchingSlots && <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginLeft: 4 }} />}
                                     </div>
                                     
-                                    {availableSlots.length > 0 ? (
+                                    {fetchingSlots ? (
+                                        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                                            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: C.gold }} />
+                                            <p style={{ marginTop: 12, color: '#5C6E69' }}>Loading available slots...</p>
+                                        </div>
+                                    ) : availableSlots.length > 0 ? (
                                         <div className="slot-grid">
                                             {availableSlots.map((slot, index) => {
                                                 const isSelected = selectedSlot?.id === slot.id;
-                                                const bookingsText = slot.current_bookings > 0 ? `${slot.current_bookings}/${slot.max_bookings} booked` : 'Available';
+                                                const isSlotFullyBooked = !isSlotAvailable(slot);
+                                                const maxBookings = slot.max_bookings || 1;
+                                                const currentBookings = slot.current_bookings || 0;
+                                                const bookingsText = currentBookings > 0 ? `${currentBookings}/${maxBookings} booked` : 'Available';
                                                 
                                                 return (
-                                                    <div
-                                                        key={index}
-                                                        className={`slot-card ${isSelected ? 'selected' : ''}`}
-                                                        onClick={() => handleSlotSelect(slot)}
+                                                    <div 
+                                                        key={index} 
+                                                        className={`slot-card ${isSelected ? 'selected' : ''} ${isSlotFullyBooked ? 'fully-booked' : ''}`} 
+                                                        onClick={() => {
+                                                            if (!isSlotFullyBooked) {
+                                                                handleSlotSelect(slot);
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            cursor: isSlotFullyBooked ? 'not-allowed' : 'pointer',
+                                                            opacity: isSlotFullyBooked ? 0.5 : 1,
+                                                        }}
                                                     >
                                                         <div className="slot-date">{formatDate(slot.date)}</div>
                                                         <div className="slot-time">{formatTime(slot.start_time)}</div>
-                                                        <div className="slot-info">{bookingsText}</div>
+                                                        <div className="slot-info">
+                                                            {isSlotFullyBooked ? '🔴 Fully Booked' : bookingsText}
+                                                        </div>
                                                     </div>
                                                 );
                                             })}
+                                        </div>
+                                    ) : isSlotFullyBooked ? (
+                                        <div className="no-slots-message fully-booked">
+                                            <AlertCircle size={24} style={{ marginBottom: 8 }} />
+                                            <p><strong>All slots are fully booked!</strong></p>
+                                            <p style={{ fontSize: 13, marginTop: 4 }}>Please check back later for new availability.</p>
                                         </div>
                                     ) : (
                                         <div className="no-slots-message">
                                             ⚠️ No available time slots for this guide. Please check back later.
                                         </div>
                                     )}
+                                </div>
+
+                                {/* ✅ DESTINATION / PLACE INPUT - REQUIRED FIELD */}
+                                <div style={{ marginBottom: 12 }}>
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>
+                                        <MapPin size={14} style={{ display: 'inline', marginRight: 4, color: C.gold }} />
+                                        Destination / Place <span style={{ color: C.danger }}>*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        className="modal-input destination-input"
+                                        placeholder="e.g., Munnar, Alleppey Backwaters, Fort Kochi..."
+                                        value={bookingData.destination}
+                                        onChange={(e) => {
+                                            setBookingData({ ...bookingData, destination: e.target.value });
+                                            setBookingError(null);
+                                        }}
+                                        style={{
+                                            borderColor: bookingData.destination ? '#C79A3E' : 'rgba(199,154,62,0.3)',
+                                            background: bookingData.destination ? 'rgba(199,154,62,0.05)' : '#fff',
+                                        }}
+                                    />
+                                    <p style={{ fontSize: 11, color: "#8A9A95", marginTop: 4 }}>
+                                        Enter the specific place you want to visit with this guide
+                                    </p>
                                 </div>
 
                                 {/* Duration */}
@@ -1155,8 +1414,15 @@ export default function Guides() {
 
                                 {/* Special Requests */}
                                 <div style={{ marginBottom: 14 }}>
-                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Special Requests</label>
-                                    <textarea className="modal-input" rows="2" placeholder="Any special requests or requirements?" value={bookingData.special_requests} onChange={(e) => { setBookingData({ ...bookingData, special_requests: e.target.value }); setBookingError(null); }} style={{ resize: "vertical" }} />
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Special Requests <span style={{ fontSize: 11, color: "#8A9A95", fontWeight: 400 }}>(optional)</span></label>
+                                    <textarea 
+                                        className="modal-input" 
+                                        rows="2" 
+                                        placeholder="Any special requirements or additional details..." 
+                                        value={bookingData.special_requests} 
+                                        onChange={(e) => { setBookingData({ ...bookingData, special_requests: e.target.value }); setBookingError(null); }} 
+                                        style={{ resize: "vertical" }} 
+                                    />
                                 </div>
 
                                 {/* Selected Slot Summary */}
@@ -1165,9 +1431,31 @@ export default function Guides() {
                                         <p style={{ fontSize: 13, color: '#1E3A5F', margin: 0 }}>
                                             <strong>Selected:</strong> {formatDate(selectedSlot.date)} at <strong>{formatTime(selectedSlot.start_time)}</strong>
                                         </p>
+                                        {bookingData.destination && (
+                                            <p style={{ fontSize: 13, color: '#1E3A5F', margin: '4px 0 0' }}>
+                                                <strong>Place:</strong> {bookingData.destination}
+                                            </p>
+                                        )}
                                         <p style={{ fontSize: 13, color: '#1E3A5F', margin: '4px 0 0' }}>
                                             <strong>Est. Price:</strong> ₹{selectedGuide.price_per_hour * bookingData.duration_hours}
                                         </p>
+                                    </div>
+                                )}
+
+                                {/* Show message if no slots available */}
+                                {availableSlots.length === 0 && !fetchingSlots && (
+                                    <div style={{ textAlign: 'center', padding: '10px', color: '#92400E', background: '#FEF3C7', borderRadius: 8 }}>
+                                        <p style={{ margin: 0, fontSize: 14 }}>
+                                            {isSlotFullyBooked ? '🔴 All slots are fully booked' : '⚠️ No slots available'}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Show message if destination is required */}
+                                {!bookingData.destination && availableSlots.length > 0 && (
+                                    <div style={{ textAlign: 'center', padding: '8px', color: '#C79A3E', background: 'rgba(199,154,62,0.08)', borderRadius: 8, fontSize: 12 }}>
+                                        <MapPin size={14} style={{ display: 'inline', marginRight: 4 }} />
+                                        Please enter a destination to continue
                                     </div>
                                 )}
                             </>
@@ -1188,15 +1476,45 @@ export default function Guides() {
                                 <div className="row"><span className="label">Guide</span><span className="value">{selectedGuide.full_name}</span></div>
                                 <div className="row"><span className="label">Date</span><span className="value">{formatDate(selectedSlot.date)}</span></div>
                                 <div className="row"><span className="label">Time</span><span className="value">{formatTime(selectedSlot.start_time)}</span></div>
+                                <div className="row"><span className="label">Destination</span><span className="value">{bookingData.destination || 'Not specified'}</span></div>
                                 <div className="row"><span className="label">Duration</span><span className="value">{bookingData.duration_hours} hrs</span></div>
                                 <div className="row"><span className="label">People</span><span className="value">{bookingData.number_of_people}</span></div>
                                 <div className="row"><span className="label">Location</span><span className="value">{getDistrictName(selectedGuide)}</span></div>
+                                {bookingData.special_requests && (
+                                    <div className="row"><span className="label">Special Requests</span><span className="value" style={{ fontSize: 12 }}>{bookingData.special_requests.substring(0, 30)}...</span></div>
+                                )}
                             </div>
                             <div className="price">₹{selectedGuide.price_per_hour * bookingData.duration_hours}</div>
                             <p className="price-label">Estimated total price</p>
                             <div style={{ display: 'flex', gap: 10 }}>
-                                <button onClick={() => setShowConfirmationModal(false)} style={{ flex: 1, padding: "12px 24px", borderRadius: 999, border: "1px solid #D1D5DB", background: "transparent", color: "#5C6E69", cursor: "pointer", fontSize: 14, fontWeight: 500 }}>Cancel</button>
-                                <button onClick={handleConfirmBooking} disabled={bookingLoading} className="book-btn" style={{ flex: 2, padding: "12px 24px", justifyContent: 'center', opacity: bookingLoading ? 0.6 : 1, cursor: bookingLoading ? 'not-allowed' : 'pointer' }}>
+                                <button 
+                                    onClick={() => setShowConfirmationModal(false)} 
+                                    style={{ 
+                                        flex: 1, 
+                                        padding: "12px 24px", 
+                                        borderRadius: 999, 
+                                        border: "1px solid #D1D5DB", 
+                                        background: "transparent", 
+                                        color: "#5C6E69", 
+                                        cursor: "pointer", 
+                                        fontSize: 14, 
+                                        fontWeight: 500 
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={handleConfirmBooking} 
+                                    disabled={bookingLoading} 
+                                    className="book-btn" 
+                                    style={{ 
+                                        flex: 2, 
+                                        padding: "12px 24px", 
+                                        justifyContent: 'center', 
+                                        opacity: bookingLoading ? 0.6 : 1, 
+                                        cursor: bookingLoading ? 'not-allowed' : 'pointer' 
+                                    }}
+                                >
                                     {bookingLoading ? <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Processing...</span> : <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle size={16} /> Confirm Booking</span>}
                                 </button>
                             </div>

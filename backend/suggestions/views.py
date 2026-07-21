@@ -6,7 +6,10 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
+from django.http import Http404
+from django.conf import settings
 import logging
+import os
 
 from .models import Suggestion
 from .serializers import (
@@ -41,38 +44,27 @@ class SuggestionViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = Suggestion.objects.select_related('user', 'guide', 'processed_by')
         
-        # ✅ FIXED: Check if user is authenticated
         if not user.is_authenticated:
-            # For non-authenticated users, show only implemented
             return queryset.filter(status=Suggestion.Status.IMPLEMENTED)
         
-        # ✅ For guides - show suggestions from their districts
         if user.role == 'guide':
             try:
                 guide = Guide.objects.get(user=user)
                 guide_districts = list(guide.districts.values_list('name', flat=True))
                 
                 if guide_districts:
-                    # Filter by guide's districts
                     district_filter = Q()
                     for d in guide_districts:
                         district_filter |= Q(district__iexact=d)
                     queryset = queryset.filter(district_filter)
-                    logger.info(f"📊 Guide {guide.full_name} - Districts: {guide_districts}")
-                    logger.info(f"📊 Found {queryset.count()} suggestions")
                 else:
-                    # If guide has no districts, show nothing
-                    logger.warning(f"⚠️ Guide {guide.full_name} has no districts assigned")
                     return queryset.none()
                     
             except Guide.DoesNotExist:
-                logger.error(f"❌ Guide not found for user {user.email}")
                 return queryset.none()
         else:
-            # For tourister or other roles, show only implemented
             queryset = queryset.filter(status=Suggestion.Status.IMPLEMENTED)
         
-        # Apply additional filters from query params
         suggestion_type = self.request.query_params.get('type')
         if suggestion_type:
             queryset = queryset.filter(suggestion_type=suggestion_type)
@@ -153,15 +145,12 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
     
     # ============================================
-    # LIST - FIXED
+    # LIST
     # ============================================
     
     def list(self, request, *args, **kwargs):
         try:
             queryset = self.filter_queryset(self.get_queryset())
-            
-            # Log for debugging
-            logger.info(f"📊 Total suggestions after filtering: {queryset.count()}")
             
             page = self.paginate_queryset(queryset)
             if page is not None:
@@ -333,7 +322,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             })
     
     # ============================================
-    # ✅ GUIDE APPROVE - FIXED
+    # ✅ GUIDE APPROVE
     # ============================================
     
     @action(detail=True, methods=['post'], url_path='guide-approve')
@@ -368,7 +357,6 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                     'error': f'Cannot approve. Current status: {suggestion.status}'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Update suggestion
             suggestion.status = 'approved_by_guide'
             suggestion.guide_approved_by = user
             suggestion.guide_approved_at = timezone.now()
@@ -394,7 +382,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
     
     # ============================================
-    # ✅ GUIDE REJECT - FIXED
+    # ✅ GUIDE REJECT
     # ============================================
     
     @action(detail=True, methods=['post'], url_path='guide-reject')
@@ -429,7 +417,6 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                     'error': f'Cannot reject. Current status: {suggestion.status}'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Update suggestion
             suggestion.status = 'rejected_by_guide'
             suggestion.guide_rejected_by = user
             suggestion.guide_rejected_at = timezone.now()
@@ -553,7 +540,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
     
     # ============================================
-    # ADMIN IMPLEMENT
+    # ✅ ADMIN IMPLEMENT
     # ============================================
     
     @action(detail=True, methods=['post'], url_path='admin-implement')
@@ -600,7 +587,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
     
     # ============================================
-    # MY SUGGESTIONS
+    # ✅ MY SUGGESTIONS
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='my')
@@ -659,3 +646,331 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                 'data': [],
                 'count': 0
             })
+
+    # ============================================
+    # ✅ ADMIN SUGGESTIONS - GET ALL (FIXED IMAGES)
+    # ============================================
+    
+    # suggestions/views.py - FIXED admin_suggestions method
+
+    # ============================================
+    # ✅ ADMIN SUGGESTIONS - GET ALL (FIXED - HANDLES None VALUES)
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='admin-suggestions')
+    def admin_suggestions(self, request):
+        """Admin endpoint to get all suggestions (hidden gems, insights, reviews) - FIXED"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            # Get all suggestions
+            suggestions = Suggestion.objects.all().order_by('-created_at')
+            
+            data = []
+            for s in suggestions.select_related('user', 'processed_by'):
+                try:
+                    user_email = 'Anonymous'
+                    user_username = ''
+                    if s.user:
+                        user_email = s.user.email or 'Anonymous'
+                        user_username = s.user.username or ''
+                    
+                    processed_by_email = None
+                    if s.processed_by:
+                        processed_by_email = s.processed_by.email or None
+                    
+                    # ✅ FIXED: Safely get image URL
+                    image_url = None
+                    if s.image:
+                        try:
+                            if hasattr(s.image, 'url'):
+                                image_url = s.image.url
+                            elif isinstance(s.image, str):
+                                image_url = s.image
+                            else:
+                                image_url = str(s.image)
+                        except Exception as e:
+                            logger.warning(f"Error getting image URL for suggestion {s.id}: {e}")
+                            image_url = None
+                    
+                    # ✅ FIXED: Safely get suggestion type - handle None
+                    suggestion_type = getattr(s, 'suggestion_type', 'general')
+                    if suggestion_type is None:
+                        suggestion_type = 'general'
+                    suggestion_type = str(suggestion_type).lower()
+                    
+                    if suggestion_type in ['hidden_gem', 'hidden']:
+                        suggestion_type = 'hidden_gem'
+                    elif suggestion_type in ['local_insight', 'insight', 'local']:
+                        suggestion_type = 'local_insight'
+                    elif suggestion_type in ['review', 'rating']:
+                        suggestion_type = 'review'
+                    else:
+                        suggestion_type = 'general'
+                    
+                    # ✅ FIXED: Safely get status - handle None
+                    status_val = getattr(s, 'status', 'pending')
+                    if status_val is None:
+                        status_val = 'pending'
+                    status_val = str(status_val)
+                    
+                    # ✅ FIXED: Safely get district - handle None
+                    district = getattr(s, 'district', '')
+                    if district is None:
+                        district = ''
+                    district = str(district)
+                    
+                    # ✅ FIXED: Safely get category - handle None
+                    category = getattr(s, 'category', 'General')
+                    if category is None:
+                        category = 'General'
+                    category = str(category)
+                    
+                    # ✅ FIXED: Safely get rating - handle None
+                    rating = getattr(s, 'rating', None)
+                    if rating is not None:
+                        try:
+                            rating = float(rating)
+                        except (ValueError, TypeError):
+                            rating = None
+                    
+                    # ✅ FIXED: Safely get name - handle None
+                    name = getattr(s, 'name', 'Untitled')
+                    if name is None:
+                        name = 'Untitled'
+                    name = str(name)
+                    
+                    # ✅ FIXED: Safely get description - handle None
+                    description = getattr(s, 'description', '')
+                    if description is None:
+                        description = ''
+                    description = str(description)
+                    
+                    # ✅ FIXED: Safely get admin_notes - handle None
+                    admin_notes = getattr(s, 'admin_notes', '')
+                    if admin_notes is None:
+                        admin_notes = ''
+                    admin_notes = str(admin_notes)
+                    
+                    # ✅ FIXED: Safely get guide_notes - handle None
+                    guide_notes = getattr(s, 'guide_notes', '')
+                    if guide_notes is None:
+                        guide_notes = ''
+                    guide_notes = str(guide_notes)
+                    
+                    # ✅ FIXED: Safely get location_info - handle None
+                    location_info = getattr(s, 'location_info', '')
+                    if location_info is None:
+                        location_info = ''
+                    location_info = str(location_info)
+                    
+                    # ✅ FIXED: Safely get images - handle None
+                    images_list = []
+                    if hasattr(s, 'images') and s.images:
+                        try:
+                            if isinstance(s.images, list):
+                                images_list = s.images
+                            elif hasattr(s.images, 'url'):
+                                images_list = [s.images.url]
+                            elif isinstance(s.images, str):
+                                images_list = [s.images]
+                        except Exception as e:
+                            logger.warning(f"Error getting images for suggestion {s.id}: {e}")
+                    
+                    # Get fallback image if no image
+                    if not image_url and not images_list:
+                        # Use category-based fallback images
+                        category_images = {
+                            'beach': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80',
+                            'backwater': 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+                            'waterfall': 'https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80',
+                            'hill': 'https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80',
+                            'wildlife': 'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80',
+                        }
+                        cat_lower = category.lower()
+                        image_url = category_images.get(cat_lower, 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80')
+                    
+                    # ✅ FIXED: Safely get created_at - handle None
+                    created_at = None
+                    if hasattr(s, 'created_at') and s.created_at:
+                        created_at = s.created_at.isoformat()
+                    else:
+                        created_at = timezone.now().isoformat()
+                    
+                    # ✅ FIXED: Safely get processed_at - handle None
+                    processed_at = None
+                    if hasattr(s, 'processed_at') and s.processed_at:
+                        processed_at = s.processed_at.isoformat()
+                    
+                    data.append({
+                        'id': s.id,
+                        'name': name,
+                        'title': name,
+                        'description': description,
+                        'category': category,
+                        'suggestion_type': suggestion_type,
+                        'type': suggestion_type,
+                        'status': status_val,
+                        'location_info': location_info,
+                        'district': district,
+                        'image': image_url,
+                        'images': images_list,
+                        'rating': rating,
+                        'user': {
+                            'email': user_email,
+                            'username': user_username,
+                        },
+                        'user_email': user_email,
+                        'admin_notes': admin_notes,
+                        'guide_notes': guide_notes,
+                        'processed_by': processed_by_email,
+                        'processed_at': processed_at,
+                        'created_at': created_at,
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing suggestion {s.id}: {e}")
+                    # Still add the suggestion with basic data
+                    data.append({
+                        'id': s.id,
+                        'name': getattr(s, 'name', 'Untitled') or 'Untitled',
+                        'title': getattr(s, 'name', 'Untitled') or 'Untitled',
+                        'description': getattr(s, 'description', '') or '',
+                        'category': getattr(s, 'category', 'General') or 'General',
+                        'suggestion_type': 'general',
+                        'type': 'general',
+                        'status': getattr(s, 'status', 'pending') or 'pending',
+                        'district': getattr(s, 'district', '') or '',
+                        'image': None,
+                        'images': [],
+                        'rating': None,
+                        'user_email': 'Anonymous',
+                        'admin_notes': '',
+                        'guide_notes': '',
+                        'processed_by': None,
+                        'processed_at': None,
+                        'created_at': timezone.now().isoformat(),
+                    })
+            
+            return Response({
+                'success': True,
+                'suggestions': data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching admin suggestions: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'suggestions': [],
+                'error': str(e)
+            }, status=status.HTTP_200_OK)
+    # ============================================
+    # ✅ ADMIN IMPLEMENT SUGGESTION
+    # ============================================
+    
+    @action(detail=False, methods=['post'], url_path='admin-suggestions/(?P<suggestion_id>[^/.]+)/implement')
+    def admin_implement_suggestion(self, request, suggestion_id=None):
+        """Admin endpoint to implement a suggestion"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            suggestion = get_object_or_404(Suggestion, id=suggestion_id)
+            notes = request.data.get('notes', f'Implemented by {request.user.email}')
+            
+            suggestion.status = 'implemented'
+            suggestion.admin_notes = notes
+            suggestion.processed_by = request.user
+            suggestion.processed_at = timezone.now()
+            suggestion.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion implemented successfully',
+                'suggestion': {
+                    'id': suggestion.id,
+                    'status': suggestion.status,
+                    'admin_notes': suggestion.admin_notes,
+                    'processed_by': request.user.email,
+                    'processed_at': suggestion.processed_at.isoformat()
+                }
+            })
+            
+        except Http404:
+            return Response({
+                'success': False,
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error implementing suggestion: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ ADMIN DELETE SUGGESTION
+    # ============================================
+    
+    @action(detail=False, methods=['delete'], url_path='admin-suggestions/(?P<suggestion_id>[^/.]+)/delete')
+    def admin_delete_suggestion(self, request, suggestion_id=None):
+        """Admin endpoint to delete a suggestion"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            suggestion = get_object_or_404(Suggestion, id=suggestion_id)
+            suggestion.delete()
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion deleted successfully'
+            })
+            
+        except Http404:
+            return Response({
+                'success': False,
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error deleting suggestion: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ ADMIN DELETE SUGGESTION (Alternative - by pk)
+    # ============================================
+    
+    @action(detail=True, methods=['delete'], url_path='admin-delete')
+    def admin_delete(self, request, pk=None):
+        """Admin endpoint to delete a suggestion by pk"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            suggestion = self.get_object()
+            suggestion.delete()
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion deleted successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error deleting suggestion: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)

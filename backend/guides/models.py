@@ -272,7 +272,7 @@ class GuideBooking(models.Model):
         default=0.00
     )
     currency = models.CharField(max_length=3, default='USD')
-    
+    reminder_sent = models.BooleanField(default=False)
     # Status
     status = models.CharField(
         max_length=20, 

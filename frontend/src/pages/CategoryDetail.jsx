@@ -1,4 +1,4 @@
-// pages/CategoryDetail.jsx - COMPLETE FIXED VERSION (With useRef to prevent double calls)
+// pages/CategoryDetail.jsx - COMPLETE FIXED VERSION (SHOWS PLACES)
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
@@ -53,8 +53,6 @@ export default function CategoryDetail() {
   
   const districtRef = useRef(null);
   const typeRef = useRef(null);
-  
-  // ✅ useRef to prevent double API calls (React Strict Mode)
   const dataLoadedRef = useRef(false);
   const wishlistFetchedRef = useRef(false);
   const abortControllerRef = useRef(null);
@@ -83,21 +81,13 @@ export default function CategoryDetail() {
     };
   }, []);
 
-  // ✅ Fetch wishlist from backend - with useRef
+  // ✅ Fetch wishlist from backend
   const fetchWishlist = async () => {
     if (!isLoggedIn) return;
-    
-    // ✅ Prevent duplicate calls
-    if (wishlistFetchedRef.current) {
-      console.log('⏳ Wishlist already fetched, skipping...');
-      return;
-    }
+    if (wishlistFetchedRef.current) return;
     
     try {
-      console.log('🔍 Fetching wishlist...');
       const response = await AuthAPI.getWishlist();
-      console.log('📊 Wishlist API Response:', response);
-      
       let items = [];
       if (response && response.results) {
         items = response.results.map(item => ({
@@ -111,8 +101,6 @@ export default function CategoryDetail() {
           rating: item.destination_rating || 0,
         }));
       }
-      console.log('✅ Formatted wishlist items:', items.length);
-      console.log('📋 Wishlist destination IDs:', items.map(i => i.id));
       setWishlist(items);
       wishlistFetchedRef.current = true;
     } catch (error) {
@@ -121,7 +109,7 @@ export default function CategoryDetail() {
     }
   };
 
-  // ✅ Toggle wishlist - FIXED
+  // ✅ Toggle wishlist
   const toggleWishlist = async (place, e) => {
     e.stopPropagation();
     
@@ -131,32 +119,22 @@ export default function CategoryDetail() {
       return;
     }
 
-    // ✅ CRITICAL FIX: Use destination_id, NOT place.id!
     const destinationId = place.destination_id;
     
-    // ✅ If destination_id is null/undefined, show error
     if (!destinationId) {
       console.error('❌ Place has no destination_id:', place);
       alert('This place is not properly linked. Please contact support.');
       return;
     }
     
-    console.log('🔄 Toggling for place:', place.name);
-    console.log('🔄 Using destination_id:', destinationId);
-    
     setWishlistLoading(true);
     try {
       const response = await AuthAPI.toggleWishlist(destinationId);
-      console.log('📊 Toggle response:', response);
       
       if (response && response.success) {
-        // ✅ Reset wishlist fetch flag to refresh
         wishlistFetchedRef.current = false;
         await fetchWishlist();
-        const action = response.action || 'toggled';
-        console.log(`✅ ${action} from wishlist:`, place.name);
       } else {
-        console.error('❌ Toggle failed:', response?.error || 'Unknown error');
         alert('Failed to update wishlist. Please try again.');
       }
     } catch (error) {
@@ -172,14 +150,9 @@ export default function CategoryDetail() {
     }
   };
 
-  // ✅ Check if place is in wishlist
   const isInWishlist = (placeId) => {
     if (!placeId) return false;
-    const found = wishlist.some(item => {
-      const itemId = item.id || item.destination;
-      return String(itemId) === String(placeId);
-    });
-    return found;
+    return wishlist.some(item => String(item.id || item.destination) === String(placeId));
   };
 
   // ✅ Get district from URL query params
@@ -198,7 +171,7 @@ export default function CategoryDetail() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ✅ Fetch category details - with useRef and AbortController
+  // ✅ Fetch category details - FIXED
   useEffect(() => {
     const fetchCategoryDetails = async () => {
       if (!isLoggedIn) {
@@ -206,13 +179,11 @@ export default function CategoryDetail() {
         return;
       }
       
-      // ✅ Prevent duplicate calls
       if (dataLoadedRef.current) {
         console.log('⏳ Category data already loaded, skipping...');
         return;
       }
       
-      // ✅ Create abort controller for cleanup
       abortControllerRef.current = new AbortController();
       
       setLoading(true);
@@ -221,23 +192,71 @@ export default function CategoryDetail() {
       try {
         console.log('📊 Fetching category data for:', categoryId);
         const response = await AuthAPI.getCategoryData();
-        console.log('📊 API Response:', response);
+        console.log('📊 Full API Response:', response);
         
         if (response && response.success && response.data && response.data.length > 0) {
-          const category = response.data.find(cat => cat.key === categoryId);
+          console.log('📊 Total categories:', response.data.length);
+          console.log('📊 Category keys:', response.data.map(c => c.key));
+          
+          // ✅ Try multiple ways to find the category
+          let category = null;
+          
+          // 1. Direct match
+          category = response.data.find(cat => cat.key === categoryId);
+          
+          // 2. Case-insensitive match
+          if (!category) {
+            category = response.data.find(cat => 
+              cat.key.toLowerCase() === categoryId.toLowerCase()
+            );
+          }
+          
+          // 3. Match by title
+          if (!category) {
+            category = response.data.find(cat => 
+              cat.title && cat.title.toLowerCase().replace(/\s+/g, '') === categoryId.toLowerCase().replace(/\s+/g, '')
+            );
+          }
+          
+          // 4. Match by partial key
+          if (!category) {
+            category = response.data.find(cat => 
+              cat.key.includes(categoryId) || categoryId.includes(cat.key)
+            );
+          }
+          
+          // 5. Try using the categoryData from localStorage as fallback
+          if (!category) {
+            try {
+              const cached = localStorage.getItem('categories_data');
+              if (cached) {
+                const parsed = JSON.parse(cached);
+                category = parsed.find(cat => 
+                  cat.key === categoryId || 
+                  cat.key.toLowerCase() === categoryId.toLowerCase()
+                );
+                if (category) {
+                  console.log('📦 Found category in localStorage:', category);
+                }
+              }
+            } catch (e) {}
+          }
           
           if (category) {
+            console.log('✅ Found category:', category.key, category.title);
+            console.log('✅ Places count:', category.places?.length || 0);
+            
             setCategoryInfo({
               title: category.title || categoryId,
               description: category.description || `Explore ${categoryId} in Kerala`
             });
             
-            // ✅ Use destination_id correctly
+            // ✅ Format places with all required fields
             const formattedPlaces = (category.places || []).map(place => ({
               id: place.id || Math.random(),
               destination_id: place.destination_id || null,
               name: place.name || 'Unknown',
-              location: place.location || '',
+              location: place.location || place.district || '',
               description: place.description || '',
               image: place.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
               type: place.type || 'well-known',
@@ -245,25 +264,29 @@ export default function CategoryDetail() {
               difficulty: place.difficulty || '',
               duration: place.duration || '',
               bestTime: place.best_time || '',
+              district: place.district || place.location || '',
             }));
             
             console.log('✅ Formatted', formattedPlaces.length, 'places');
             console.log('✅ First place:', formattedPlaces[0]);
+            
             setPlaces(formattedPlaces);
+            setFilteredPlaces(formattedPlaces);
             dataLoadedRef.current = true;
           } else {
+            console.error('❌ Category not found:', categoryId);
             setError(`Category "${categoryId}" not found`);
             setCategoryInfo({
               title: categoryId,
               description: 'Category not found'
             });
             setPlaces([]);
+            setFilteredPlaces([]);
           }
         } else {
           setError('No data received from server');
         }
       } catch (error) {
-        // ✅ Ignore aborted errors
         if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
           console.log('📊 Category fetch was cancelled');
           return;
@@ -279,7 +302,6 @@ export default function CategoryDetail() {
     fetchCategoryDetails();
     fetchWishlist();
     
-    // ✅ Cleanup: Abort fetch on unmount
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -295,18 +317,25 @@ export default function CategoryDetail() {
       return;
     }
 
+    console.log('🔄 Filtering places. Total:', places.length);
     let filtered = [...places];
     
+    // Filter by district
     if (selectedDistrict !== "All Districts") {
       filtered = filtered.filter(place => 
-        place.location && place.location.includes(selectedDistrict)
+        place.location && place.location.toLowerCase().includes(selectedDistrict.toLowerCase()) ||
+        place.district && place.district.toLowerCase().includes(selectedDistrict.toLowerCase())
       );
+      console.log('📍 After district filter:', filtered.length);
     }
     
+    // Filter by type
     if (selectedType !== "all") {
       filtered = filtered.filter(place => place.type === selectedType);
+      console.log('📂 After type filter:', filtered.length);
     }
 
+    // Filter by search
     if (searchTerm.trim() !== '') {
       const term = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(place =>
@@ -315,6 +344,7 @@ export default function CategoryDetail() {
         (place.location && place.location.toLowerCase().includes(term)) ||
         (place.hiddenGem && place.hiddenGem.toLowerCase().includes(term))
       );
+      console.log('🔍 After search filter:', filtered.length);
     }
     
     setFilteredPlaces(filtered);
@@ -356,11 +386,13 @@ export default function CategoryDetail() {
     placesLength: places.length,
     filteredLength: filteredPlaces.length,
     wishlistLength: wishlist.length,
-    wishlistIds: wishlist.map(i => i.id),
     error: error,
     categoryId: categoryId
   });
 
+  // ============================================
+  // BOTTOM NAVIGATION
+  // ============================================
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -437,22 +469,6 @@ export default function CategoryDetail() {
             }
           `}</style>
           <p style={{ marginTop: 12, color: "#5C6E69", fontFamily: "'Inter', sans-serif" }}>Loading places...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ ERROR
-  if (error) {
-    return (
-      <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: "20px" }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>😕</div>
-          <h2 style={{ color: "#072E2A" }}>Error Loading Category</h2>
-          <p style={{ color: "#5C6E69" }}>{error}</p>
-          <Link to="/categories" style={{ display: "inline-block", marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", borderRadius: 999, textDecoration: "none" }}>
-            Back to Categories
-          </Link>
         </div>
       </div>
     );
@@ -797,7 +813,6 @@ export default function CategoryDetail() {
         ) : (
           <div className="cd-grid">
             {filteredPlaces.map((place, index) => {
-              // ✅ Get the correct ID for wishlist check
               const placeId = place.destination_id || place.id;
               const inWishlist = isInWishlist(placeId);
               

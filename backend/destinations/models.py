@@ -49,6 +49,7 @@ class CategoryPlace(models.Model):
     category = models.CharField(max_length=100, db_index=True)
     name = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
+    district = models.CharField(max_length=100, blank=True, null=True, help_text="District where this place is located")
     description = models.TextField()
     difficulty = models.CharField(max_length=50, blank=True, null=True)
     duration = models.CharField(max_length=100, blank=True, null=True)

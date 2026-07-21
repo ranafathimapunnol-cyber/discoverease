@@ -1,4 +1,4 @@
-# accounts/views.py - COMPLETE FIXED VERSION (Session Only, NO TOKEN)
+# accounts/views.py - COMPLETE FIXED VERSION
 
 import logging
 import requests
@@ -281,7 +281,6 @@ class AuthViewSet(viewsets.ModelViewSet):
             elif role == 'staff':
                 dashboard_url = '/staff-dashboard'
 
-            # ✅ Response WITHOUT token - session cookie handles auth
             response_data = {
                 'success': True,
                 'message': 'Login successful',
@@ -439,13 +438,13 @@ class AuthViewSet(viewsets.ModelViewSet):
             })
 
     # ============================================
-    # ✅ PROFILE DATA - SINGLE API CALL (OPTIMIZED)
+    # ✅ PROFILE DATA - COMPLETE FIXED
     # ============================================
     @action(detail=False, methods=['get'], url_path='profile-data', permission_classes=[IsAuthenticated])
     def profile_data(self, request):
         """
         Get ALL profile data in a SINGLE API call
-        Combines: user, stats, suggestions, reviews
+        Includes: user, stats, suggestions (with images), reviews
         """
         try:
             user = request.user
@@ -490,7 +489,7 @@ class AuthViewSet(viewsets.ModelViewSet):
                 'confirmed_trips': confirmed_bookings,
             }
 
-            # 3. User suggestions (limit to 20)
+            # 3. User suggestions (with images)
             suggestions_data = []
             suggestion_stats = {
                 'total': 0,
@@ -502,23 +501,53 @@ class AuthViewSet(viewsets.ModelViewSet):
 
             try:
                 from suggestions.models import Suggestion
-                suggestions = Suggestion.objects.filter(user=user).order_by('-created_at')[:20]
+                suggestions = Suggestion.objects.filter(user=user).order_by('-created_at')
 
                 for s in suggestions:
+                    # Get image URL safely
+                    image_url = None
+                    if s.image:
+                        try:
+                            if hasattr(s.image, 'url'):
+                                image_url = s.image.url
+                            elif isinstance(s.image, str):
+                                if s.image.startswith('http') or s.image.startswith('/media/'):
+                                    image_url = s.image
+                                else:
+                                    image_url = str(s.image)
+                        except Exception as e:
+                            logger.warning(f"Error getting image for suggestion {s.id}: {e}")
+                            image_url = None
+
+                    # Fallback image
+                    if not image_url:
+                        category = getattr(s, 'category', '').lower()
+                        category_images = {
+                            'beach': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80',
+                            'backwater': 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+                            'waterfall': 'https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80',
+                            'hill': 'https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80',
+                            'wildlife': 'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80',
+                        }
+                        image_url = category_images.get(category, 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80')
+
                     suggestions_data.append({
                         'id': s.id,
-                        'name': s.name,
-                        'description': s.description,
-                        'category': s.category,
-                        'location_info': s.location_info,
-                        'district': s.district,
-                        'status': s.status,
-                        'suggestion_type': s.suggestion_type,
-                        'created_at': s.created_at,
-                        'admin_notes': s.admin_notes,
+                        'name': s.name or 'Untitled',
+                        'title': s.name or 'Untitled',
+                        'description': s.description or '',
+                        'category': getattr(s, 'category', 'General'),
+                        'location_info': getattr(s, 'location_info', ''),
+                        'district': getattr(s, 'district', ''),
+                        'status': s.status or 'pending',
+                        'suggestion_type': getattr(s, 'suggestion_type', 'hidden_gem'),
+                        'type': getattr(s, 'suggestion_type', 'hidden_gem'),
+                        'image': image_url,
+                        'rating': getattr(s, 'rating', None),
+                        'admin_notes': getattr(s, 'admin_notes', ''),
+                        'created_at': s.created_at.isoformat() if s.created_at else None,
                     })
 
-                # Suggestion stats
                 suggestion_stats = {
                     'total': Suggestion.objects.filter(user=user).count(),
                     'pending': Suggestion.objects.filter(user=user, status='pending').count(),
@@ -529,21 +558,40 @@ class AuthViewSet(viewsets.ModelViewSet):
             except Exception as e:
                 logger.warning(f"Error fetching suggestions: {e}")
 
-            # 4. User reviews (limit to 20)
+            # 4. User reviews
             reviews_data = []
             try:
                 from guides.models import GuideReview
-                reviews = GuideReview.objects.filter(user=user).order_by('-created_at')[:20]
+                reviews = GuideReview.objects.filter(user=user).order_by('-created_at')
 
                 for r in reviews:
+                    image_url = None
+                    if r.guide and r.guide.profile_image:
+                        try:
+                            if hasattr(r.guide.profile_image, 'url'):
+                                image_url = r.guide.profile_image.url
+                            else:
+                                image_url = str(r.guide.profile_image)
+                        except:
+                            image_url = None
+
+                    if not image_url:
+                        image_url = 'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80'
+
                     reviews_data.append({
                         'id': r.id,
                         'rating': r.rating,
-                        'comment': r.comment,
+                        'comment': r.comment or r.review_text or '',
+                        'review_text': r.comment or r.review_text or '',
                         'guide_name': r.guide.full_name if r.guide else None,
-                        'destination': r.booking.destination if r.booking else None,
-                        'created_at': r.created_at,
-                        'is_approved': r.is_approved,
+                        'destination': r.booking.destination if r.booking and hasattr(r.booking, 'destination') else None,
+                        'district': r.guide.primary_district if r.guide else '',
+                        'category': 'Guide Review',
+                        'status': 'approved' if r.is_approved else 'pending',
+                        'image': image_url,
+                        'suggestion_type': 'review',
+                        'type': 'review',
+                        'created_at': r.created_at.isoformat() if r.created_at else None,
                     })
             except Exception as e:
                 logger.warning(f"Error fetching reviews: {e}")
@@ -561,6 +609,8 @@ class AuthViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             logger.error(f"Profile data error: {e}")
+            import traceback
+            traceback.print_exc()
             return Response({
                 'success': False,
                 'error': str(e)
@@ -573,7 +623,6 @@ class AuthViewSet(viewsets.ModelViewSet):
     def admin_users(self, request):
         """Get all users for admin dashboard"""
         try:
-            # Check if user is admin
             if request.user.role != 'admin' and not request.user.is_superuser:
                 return Response({
                     'success': False,

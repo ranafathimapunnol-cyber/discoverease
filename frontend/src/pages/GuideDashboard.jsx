@@ -1,8 +1,7 @@
-// pages/GuideDashboard.jsx - FULLY FIXED VERSION
-// No full refresh on actions - only updates specific booking
+// pages/GuideDashboard.jsx - COMPLETE FIXED VERSION with Delete for Rejected & Cancellation Notes
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import {
@@ -41,6 +40,9 @@ import {
     XCircle,
     Plus,
     Minus,
+    Send,
+    FileText,
+    Trophy,
 } from 'lucide-react';
 
 // ============================================
@@ -64,6 +66,8 @@ const C = {
     warnBg: '#FBF1DC',
     danger: '#B4472A',
     dangerBg: '#FDF1EC',
+    info: '#2A6F8A',
+    infoBg: '#E6F0F5',
 };
 
 const FONT = {
@@ -102,6 +106,7 @@ const Btn = ({ children, variant = 'primary', icon: Icon, size = 'md', style, ..
         success: { background: C.success, color: '#fff', border: 'none' },
         danger: { background: 'transparent', color: C.danger, border: `1px solid #EFCBB5` },
         ghost: { background: 'transparent', border: `1px solid ${C.line}`, color: C.sage },
+        info: { background: C.info, color: '#fff', border: 'none' },
     };
     const v = variants[variant] || variants.primary;
     const sizes = { sm: { padding: '5px 12px', fontSize: 11 }, md: { padding: '9px 18px', fontSize: 13 }, lg: { padding: '12px 24px', fontSize: 14 } };
@@ -124,20 +129,27 @@ const Btn = ({ children, variant = 'primary', icon: Icon, size = 'md', style, ..
 const StatusPill = ({ status }) => {
     const map = {
         pending: { fg: C.warn, bg: C.warnBg, label: 'Pending' },
-        pending_guide: { fg: C.warn, bg: C.warnBg, label: 'Pending' },
+        pending_guide: { fg: C.warn, bg: C.warnBg, label: 'Pending Guide' },
+        pending_admin: { fg: C.warn, bg: C.warnBg, label: 'Pending Admin' },
         confirmed: { fg: C.success, bg: C.successBg, label: 'Confirmed' },
         completed: { fg: C.inkSoft, bg: '#EDECE4', label: 'Completed' },
         cancelled: { fg: C.danger, bg: C.dangerBg, label: 'Cancelled' },
+        cancelled_requested: { fg: C.warn, bg: C.warnBg, label: 'Cancellation Requested' },
         rejected: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
-        rejected_by_guide: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
+        rejected_by_guide: { fg: C.danger, bg: C.dangerBg, label: 'Rejected by Guide' },
+        rejected_by_admin: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
         available: { fg: C.success, bg: C.successBg, label: 'Available' },
         full: { fg: C.danger, bg: C.dangerBg, label: 'Full' },
         approved: { fg: C.success, bg: C.successBg, label: 'Approved' },
-        approved_by_guide: { fg: C.success, bg: C.successBg, label: 'Approved' },
-        implemented: { fg: C.gold, bg: C.warnBg, label: 'Implemented' },
+        approved_by_guide: { fg: C.success, bg: C.successBg, label: 'Approved by Guide' },
+        approved_by_admin: { fg: C.success, bg: C.successBg, label: 'Approved' },
+        implemented: { fg: C.gold, bg: C.warnBg, label: '✅ Implemented' },
         staff_approved: { fg: C.success, bg: C.successBg, label: 'Staff Approved' },
         staff_rejected: { fg: C.danger, bg: C.dangerBg, label: 'Staff Rejected' },
         booked: { fg: C.warn, bg: C.warnBg, label: 'Booked' },
+        review: { fg: C.gold, bg: C.goldSoft, label: '⭐ Review' },
+        hidden_gem: { fg: C.gold, bg: C.goldSoft, label: '💎 Hidden Gem' },
+        local_insight: { fg: C.info, bg: C.infoBg, label: '💡 Insight' },
     };
     const s = map[status] || { fg: C.sage, bg: '#EEEEEE', label: status };
     return (
@@ -398,10 +410,42 @@ const GuideDashboard = () => {
     const [bookingStats, setBookingStats] = useState({
         total: 0, pending: 0, confirmed: 0, completed: 0, cancelled: 0, rejected: 0
     });
+    const [selectedBooking, setSelectedBooking] = useState(null);
+    const [showBookingDetailModal, setShowBookingDetailModal] = useState(false);
+    const [bookingsPage, setBookingsPage] = useState(1);
+
+    // Reviews
+    const [reviews, setReviews] = useState([]);
+    const [reviewsFilter, setReviewsFilter] = useState('pending');
+    const [reviewStats, setReviewStats] = useState({
+        total: 0, pending: 0, approved: 0, rejected: 0, implemented: 0
+    });
+    const [showReviewModal, setShowReviewModal] = useState(false);
+    const [selectedReview, setSelectedReview] = useState(null);
+    const [reviewsPage, setReviewsPage] = useState(1);
 
     // Suggestions
     const [suggestions, setSuggestions] = useState([]);
     const [suggestionStatusFilter, setSuggestionStatusFilter] = useState('all');
+    const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+    const [selectedSuggestion, setSelectedSuggestion] = useState(null);
+    const [hiddenGemsPage, setHiddenGemsPage] = useState(1);
+    const [localInsightsPage, setLocalInsightsPage] = useState(1);
+
+    // Add Suggestion Modal
+    const [showAddSuggestion, setShowAddSuggestion] = useState(false);
+    const [addSuggestionType, setAddSuggestionType] = useState('hidden_gem');
+    const [newSuggestion, setNewSuggestion] = useState({
+        name: '',
+        description: '',
+        district: '',
+        category: '',
+        location_info: '',
+        image_url: '',
+    });
+    const [submittingSuggestion, setSubmittingSuggestion] = useState(false);
+    const [suggestionImageFile, setSuggestionImageFile] = useState(null);
+    const suggestionFileInputRef = useRef(null);
 
     // Availability
     const [availability, setAvailability] = useState([]);
@@ -420,11 +464,6 @@ const GuideDashboard = () => {
         full: 0,
     });
     const [addingSlot, setAddingSlot] = useState(false);
-
-    // Pagination states
-    const [hiddenGemsPage, setHiddenGemsPage] = useState(1);
-    const [localInsightsPage, setLocalInsightsPage] = useState(1);
-    const [reviewsPage, setReviewsPage] = useState(1);
     const [availabilityPage, setAvailabilityPage] = useState(1);
 
     // Stats
@@ -437,6 +476,8 @@ const GuideDashboard = () => {
         totalRevenue: 0,
     });
 
+    const [processingId, setProcessingId] = useState(null);
+    const [actionLoading, setActionLoading] = useState(false);
     const dataFetchedRef = useRef(false);
 
     const showToast = (message, type = 'info') => {
@@ -445,51 +486,42 @@ const GuideDashboard = () => {
     };
 
     // ============================================
-    // ✅ FETCH FUNCTIONS
+    // HELPER: Get image URL
     // ============================================
-
-    const fetchProfile = useCallback(async () => {
-        try {
-            const response = await api.get('/guides/guides/profile/');
-            if (response.data?.success) {
-                const p = response.data.profile || response.data;
-                setProfile(p);
-                setProfileForm({
-                    full_name: p.full_name || '',
-                    phone: p.phone || '',
-                    bio: p.bio || '',
-                    experience_years: p.experience_years || '',
-                    languages: p.languages || '',
-                    specialties: p.specialties?.join(', ') || '',
-                    price_per_day: p.price_per_day || '',
-                    price_per_hour: p.price_per_hour || '',
-                    facebook: p.facebook || '',
-                    instagram: p.instagram || '',
-                    website: p.website || '',
-                });
-                if (p.profile_image) setProfilePicture(p.profile_image);
-                return p;
-            }
-            return null;
-        } catch (error) {
-            console.error('Error fetching profile:', error);
-            return null;
+    const getImageUrl = (item) => {
+        if (!item) return null;
+        
+        const imageField = item.image || item.image_url || item.profile_image || item.photo || item.avatar;
+        
+        if (!imageField || typeof imageField !== 'string') return null;
+        
+        const cleanedUrl = imageField.trim();
+        
+        if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
+            return cleanedUrl;
         }
-    }, []);
+        
+        if (cleanedUrl.startsWith('/media/') || cleanedUrl.startsWith('/uploads/')) {
+            const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+            const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+            const mediaBase = cleanBase.replace('/api', '');
+            return `${mediaBase}${cleanedUrl}`;
+        }
+        
+        return null;
+    };
 
+    // ============================================
+    // FETCH BOOKINGS with cancellation reason
+    // ============================================
     const fetchBookings = useCallback(async () => {
         try {
-            console.log('📊 Fetching guide bookings...');
-            
             let response;
             try {
                 response = await api.get('/guides/guides/bookings/');
             } catch (e) {
-                console.log('First endpoint failed, trying fallback...');
                 response = await api.get('/guides/bookings/');
             }
-            
-            console.log('📊 Response data:', response.data);
             
             let bookingsData = [];
             let statsData = {};
@@ -505,23 +537,38 @@ const GuideDashboard = () => {
                 bookingsData = response.data.results;
             }
             
-            const formatted = bookingsData.map(b => ({
-                id: b.id || b.booking_id,
-                booking_id: b.booking_id || b.id,
-                user: b.user || { username: b.traveler_email || 'Anonymous', email: b.traveler_email || '' },
-                traveler_email: b.traveler_email || b.user?.email || '',
-                guide_name: b.guide_name || b.guide?.full_name || 'Unknown',
-                district: b.district?.name || b.district || 'N/A',
-                date: b.date || 'N/A',
-                time: b.time || 'N/A',
-                status: b.status || 'pending',
-                number_of_people: b.number_of_people || 1,
-                total_price: b.total_price || b.price || 0,
-                special_requests: b.special_requests || '',
-                duration_hours: b.duration_hours || 4,
-                created_at: b.created_at || new Date().toISOString(),
-                has_review: b.has_review || false,
-            }));
+            const formatted = bookingsData.map(b => {
+                let place = b.destination || b.place || b.destination_name || b.location || 'N/A';
+                if ((place === 'N/A' || !place) && b.special_requests) {
+                    const destMatch = b.special_requests.match(/Destination:\s*([^\n]+)/);
+                    if (destMatch && destMatch[1]) {
+                        place = destMatch[1].trim();
+                    }
+                }
+                
+                return {
+                    id: b.id || b.booking_id,
+                    booking_id: b.booking_id || b.id,
+                    user: b.user || { username: b.traveler_email || 'Anonymous', email: b.traveler_email || '' },
+                    traveler_email: b.traveler_email || b.user?.email || '',
+                    guide_name: b.guide_name || b.guide?.full_name || 'Unknown',
+                    place: place,
+                    district: b.district?.name || b.district || 'N/A',
+                    date: b.date || 'N/A',
+                    time: b.time || 'N/A',
+                    status: b.status || 'pending',
+                    number_of_people: b.number_of_people || 1,
+                    total_price: b.total_price || b.price || 0,
+                    special_requests: b.special_requests || '',
+                    duration_hours: b.duration_hours || 4,
+                    created_at: b.created_at || new Date().toISOString(),
+                    has_review: b.has_review || false,
+                    // ✅ CANCELLATION REASON - Get from booking data
+                    cancellation_reason: b.cancellation_reason || b.reason || b.cancel_reason || '',
+                    cancelled_by: b.cancelled_by || b.canceled_by || '',
+                    cancellation_requested_at: b.cancellation_requested_at || b.cancelled_at || null,
+                };
+            });
             
             setBookings(formatted);
             
@@ -539,16 +586,11 @@ const GuideDashboard = () => {
                 .filter(b => b.status === 'completed' || b.status === 'confirmed')
                 .reduce((sum, b) => sum + (b.total_price || 0), 0);
             
-            const avgRating = formatted
-                .filter(b => b.rating)
-                .reduce((sum, b) => sum + b.rating, 0) / (formatted.filter(b => b.rating).length || 1);
-            
             setStats(prev => ({
                 ...prev,
                 totalBookings: formatted.length,
                 pendingBookings: formatted.filter(b => b.status === 'pending').length,
                 totalRevenue: totalRevenue,
-                rating: avgRating || 0,
             }));
             
             return formatted;
@@ -560,6 +602,181 @@ const GuideDashboard = () => {
         }
     }, []);
 
+    // ============================================
+    // FETCH REVIEWS
+    // ============================================
+    const fetchReviews = useCallback(async () => {
+        try {
+            console.log('📊 Fetching reviews...');
+            
+            const response = await api.get('/suggestions/', {
+                params: { 
+                    suggestion_type: 'review',
+                    page: 1, 
+                    page_size: 100 
+                }
+            });
+            
+            console.log('📊 Reviews response:', response.data);
+            
+            let reviewsData = [];
+            if (response.data) {
+                if (response.data.results?.data) {
+                    reviewsData = response.data.results.data;
+                } else if (response.data.data) {
+                    reviewsData = response.data.data;
+                } else if (Array.isArray(response.data)) {
+                    reviewsData = response.data;
+                }
+            }
+            
+            const formatted = reviewsData.map(r => ({
+                id: r.id,
+                name: r.name || r.place || 'Review',
+                title: r.title || r.name || 'Review',
+                description: r.description || r.comment || '',
+                review_text: r.comment || r.description || '',
+                suggestion_type: 'review',
+                status: r.status || 'pending',
+                district: r.district || 'N/A',
+                rating: r.rating || 0,
+                user_email: r.user_email || r.username || 'Anonymous',
+                image: r.image || r.image_url || null,
+                created_at: r.created_at || new Date().toISOString(),
+                booking_id: r.booking_id || null,
+                implemented_at: r.implemented_at || null,
+                implemented_by: r.implemented_by || null,
+                admin_notes: r.admin_notes || '',
+                guide_notes: r.guide_notes || '',
+                is_guide_submitted: r.is_guide_submitted || false,
+            }));
+            
+            setReviews(formatted);
+            
+            const stats = {
+                total: formatted.length,
+                pending: formatted.filter(r => r.status === 'pending' || r.status === 'pending_guide' || r.status === 'pending_admin').length,
+                approved: formatted.filter(r => r.status === 'approved' || r.status === 'approved_by_guide' || r.status === 'approved_by_admin' || r.status === 'staff_approved').length,
+                rejected: formatted.filter(r => r.status === 'rejected' || r.status === 'rejected_by_guide' || r.status === 'rejected_by_admin' || r.status === 'staff_rejected').length,
+                implemented: formatted.filter(r => r.status === 'implemented').length,
+            };
+            setReviewStats(stats);
+            
+            return formatted;
+        } catch (error) {
+            console.error('❌ Error fetching reviews:', error);
+            setReviews([]);
+            setReviewStats({ total: 0, pending: 0, approved: 0, rejected: 0, implemented: 0 });
+            return [];
+        }
+    }, []);
+
+    // ============================================
+    // PROCESS REVIEW
+    // ============================================
+    const processReview = async (reviewId, action) => {
+        setProcessingId(reviewId);
+        setActionLoading(true);
+        
+        try {
+            let endpoint = '';
+            if (action === 'approve') {
+                endpoint = `/suggestions/${reviewId}/guide-approve/`;
+            } else if (action === 'reject') {
+                endpoint = `/suggestions/${reviewId}/guide-reject/`;
+            } else {
+                showToast('Invalid action');
+                setActionLoading(false);
+                setProcessingId(null);
+                return;
+            }
+            
+            const payload = action === 'approve' 
+                ? { notes: 'Approved by guide' }
+                : { notes: 'Rejected by guide', reason: 'Not suitable' };
+            
+            const response = await api.post(endpoint, payload);
+            
+            if (response?.data?.success) {
+                const newStatus = action === 'approve' ? 'approved_by_guide' : 'rejected_by_guide';
+                showToast(`✅ Review ${action}ed successfully!`);
+                
+                setReviews(prev => prev.map(r => 
+                    r.id === reviewId ? { ...r, status: newStatus } : r
+                ));
+                
+                setReviewStats(prev => {
+                    const newStats = { ...prev };
+                    newStats.pending = Math.max(0, prev.pending - 1);
+                    if (action === 'approve') newStats.approved = (prev.approved || 0) + 1;
+                    else newStats.rejected = (prev.rejected || 0) + 1;
+                    return newStats;
+                });
+                
+                if (showReviewModal) {
+                    setShowReviewModal(false);
+                    setSelectedReview(null);
+                }
+            } else {
+                showToast(response?.data?.error || 'Error processing review');
+            }
+        } catch (error) {
+            console.error('Error processing review:', error);
+            showToast(error.response?.data?.error || 'Error processing review');
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
+        }
+    };
+
+    // ============================================
+    // FETCH PROFILE
+    // ============================================
+    const fetchProfile = useCallback(async () => {
+        try {
+            const response = await api.get('/guides/guides/profile/');
+            
+            if (response.data?.success) {
+                const p = response.data.profile || response.data;
+                setProfile(p);
+                setProfileForm({
+                    full_name: p.full_name || '',
+                    phone: p.phone || '',
+                    bio: p.bio || '',
+                    experience_years: p.experience_years || '',
+                    languages: p.languages || '',
+                    specialties: p.specialties?.join(', ') || '',
+                    price_per_day: p.price_per_day || '',
+                    price_per_hour: p.price_per_hour || '',
+                    facebook: p.facebook || '',
+                    instagram: p.instagram || '',
+                    website: p.website || '',
+                });
+                
+                const imageUrl = p.profile_image || p.image || p.avatar || p.photo;
+                if (imageUrl) {
+                    let fullImageUrl = imageUrl;
+                    if (imageUrl.startsWith('/media/') || imageUrl.startsWith('/uploads/') || imageUrl.startsWith('/')) {
+                        const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+                        const cleanBaseURL = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+                        fullImageUrl = `${cleanBaseURL}${imageUrl}`;
+                    }
+                    setProfilePicture(fullImageUrl);
+                } else {
+                    setProfilePicture(null);
+                }
+                return p;
+            }
+            return null;
+        } catch (error) {
+            console.error('❌ Error fetching profile:', error);
+            return null;
+        }
+    }, []);
+
+    // ============================================
+    // FETCH SUGGESTIONS
+    // ============================================
     const fetchSuggestions = useCallback(async () => {
         try {
             const response = await api.get('/suggestions/', {
@@ -568,53 +785,40 @@ const GuideDashboard = () => {
             
             let suggestionsData = [];
             if (response.data) {
-                if (response.data.results) {
-                    if (response.data.results.success && response.data.results.data) {
-                        suggestionsData = response.data.results.data;
-                    } else if (Array.isArray(response.data.results)) {
-                        suggestionsData = response.data.results;
-                    } else if (response.data.results.data && Array.isArray(response.data.results.data)) {
-                        suggestionsData = response.data.results.data;
-                    }
-                } else if (response.data.data && Array.isArray(response.data.data)) {
+                if (response.data.results?.data) {
+                    suggestionsData = response.data.results.data;
+                } else if (response.data.data) {
                     suggestionsData = response.data.data;
-                } else if (response.data.success && response.data.data && Array.isArray(response.data.data)) {
-                    suggestionsData = response.data.data;
+                } else if (Array.isArray(response.data)) {
+                    suggestionsData = response.data;
                 }
             }
             
-            if (!Array.isArray(suggestionsData)) {
-                suggestionsData = [];
-            }
-
-            const formatted = suggestionsData.map(s => {
-                let type = (s.suggestion_type || s.type || 'review').toLowerCase();
-                if (type === 'new' || type === 'new place') type = 'hidden_gem';
-                if (type === 'insight' || type === 'local insight') type = 'local_insight';
-                if (type === 'hidden_gem' || type === 'hidden gems') type = 'hidden_gem';
-
-                return {
-                    id: s.id,
-                    name: s.name || s.title || 'Untitled',
-                    title: s.title || s.name || 'Untitled',
-                    description: s.description || '',
-                    suggestion_type: type,
-                    status: s.status || 'pending',
-                    district: s.district || 'Unknown',
-                    category: s.category || 'general',
-                    location_info: s.location_info || '',
-                    user_email: s.user_email || s.username || 'Anonymous',
-                    rating: s.rating || null,
-                    image_url: s.image_url || null,
-                    guide_notes: s.guide_notes || '',
-                    admin_notes: s.admin_notes || '',
-                    created_at: s.created_at || new Date().toISOString(),
-                };
-            });
-
+            const formatted = suggestionsData.map(s => ({
+                id: s.id,
+                name: s.name || s.title || 'Untitled',
+                title: s.title || s.name || 'Untitled',
+                description: s.description || '',
+                suggestion_type: s.suggestion_type || 'local_insight',
+                status: s.status || 'pending',
+                district: s.district || 'Unknown',
+                category: s.category || 'general',
+                location_info: s.location_info || '',
+                user_email: s.user_email || s.username || 'Anonymous',
+                rating: s.rating || null,
+                image: s.image || s.image_url || null,
+                created_at: s.created_at || new Date().toISOString(),
+                implemented_at: s.implemented_at || null,
+                implemented_by: s.implemented_by || null,
+                admin_notes: s.admin_notes || '',
+                guide_notes: s.guide_notes || '',
+                is_guide_submitted: s.is_guide_submitted || false,
+            }));
+            
             setSuggestions(formatted);
+            
             const total = formatted.length;
-            const pending = formatted.filter(s => s.status === 'pending' || s.status === 'pending_guide').length;
+            const pending = formatted.filter(s => s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin').length;
             setStats(prev => ({ 
                 ...prev, 
                 totalSuggestions: total, 
@@ -625,11 +829,13 @@ const GuideDashboard = () => {
         } catch (error) {
             console.error('❌ Error fetching suggestions:', error);
             setSuggestions([]);
-            setStats(prev => ({ ...prev, totalSuggestions: 0, pendingSuggestions: 0 }));
             return [];
         }
     }, []);
 
+    // ============================================
+    // FETCH AVAILABILITY
+    // ============================================
     const fetchAvailability = useCallback(async () => {
         try {
             const response = await api.get('/guides/availability/');
@@ -665,6 +871,9 @@ const GuideDashboard = () => {
         }
     }, []);
 
+    // ============================================
+    // FETCH ALL DATA
+    // ============================================
     const fetchAllData = useCallback(async () => {
         if (!user) return;
         if (dataFetchedRef.current) return;
@@ -677,6 +886,7 @@ const GuideDashboard = () => {
                 fetchProfile(),
                 fetchBookings(),
                 fetchSuggestions(),
+                fetchReviews(),
                 fetchAvailability(),
             ]);
         } catch (error) {
@@ -687,7 +897,7 @@ const GuideDashboard = () => {
             setRefreshing(false);
             setTimeout(() => { dataFetchedRef.current = false; }, 1000);
         }
-    }, [user, fetchProfile, fetchBookings, fetchSuggestions, fetchAvailability]);
+    }, [user, fetchProfile, fetchBookings, fetchSuggestions, fetchReviews, fetchAvailability]);
 
     useEffect(() => {
         if (!user) {
@@ -703,53 +913,65 @@ const GuideDashboard = () => {
         }
     }, [user, navigate, fetchAllData]);
 
-    // ============================================
-    // ✅ BOOKING ACTIONS - ONLY UPDATE SPECIFIC BOOKING
-    // ============================================
+    // Reset pages when filters change
+    useEffect(() => {
+        setBookingsPage(1);
+    }, [bookingFilter]);
 
-    const [processingId, setProcessingId] = useState(null);
+    useEffect(() => {
+        setReviewsPage(1);
+    }, [reviewsFilter]);
 
-    // ✅ Process booking - updates only the specific booking
+    useEffect(() => {
+        setHiddenGemsPage(1);
+    }, [suggestionStatusFilter]);
+
+    useEffect(() => {
+        setLocalInsightsPage(1);
+    }, [suggestionStatusFilter]);
+
+    useEffect(() => {
+        setAvailabilityPage(1);
+    }, [availabilityFilter]);
+
+    // ============================================
+    // BOOKING ACTIONS
+    // ============================================
     const processBooking = async (bookingId, action) => {
         setProcessingId(bookingId);
-        console.log(`📤 Processing booking ${bookingId} with action: ${action}`);
         
         try {
             const response = await api.post(`/guides/bookings/${bookingId}/process/`, { action });
             
-            console.log('✅ Process booking response:', response.data);
-            
             if (response.data?.success) {
                 showToast(`✅ Booking ${action}ed successfully!`);
                 
-                // ✅ ONLY update the specific booking in state - NO full refresh
+                const statusMap = {
+                    confirm: 'confirmed',
+                    complete: 'completed',
+                    reject: 'rejected'
+                };
+                const newStatus = statusMap[action] || action;
+                
                 setBookings(prevBookings => 
                     prevBookings.map(b => 
                         (b.id === bookingId || b.booking_id === bookingId) 
-                            ? { 
-                                ...b, 
-                                status: action === 'confirm' ? 'confirmed' : 
-                                       action === 'complete' ? 'completed' : 
-                                       action === 'reject' ? 'rejected' : b.status 
-                              }
+                            ? { ...b, status: newStatus }
                             : b
                     )
                 );
                 
-                // ✅ Update booking stats
                 setBookingStats(prev => {
                     const newStats = { ...prev };
                     const oldStatus = bookings.find(b => b.id === bookingId || b.booking_id === bookingId)?.status;
                     
-                    if (oldStatus && oldStatus !== (action === 'confirm' ? 'confirmed' : action === 'complete' ? 'completed' : action === 'reject' ? 'rejected' : oldStatus)) {
+                    if (oldStatus && oldStatus !== newStatus) {
                         newStats[oldStatus] = Math.max(0, (newStats[oldStatus] || 0) - 1);
-                        const newStatus = action === 'confirm' ? 'confirmed' : action === 'complete' ? 'completed' : action === 'reject' ? 'rejected' : oldStatus;
                         newStats[newStatus] = (newStats[newStatus] || 0) + 1;
                     }
                     return newStats;
                 });
                 
-                // ✅ Update revenue stats if completed
                 if (action === 'complete') {
                     const completedBooking = bookings.find(b => b.id === bookingId || b.booking_id === bookingId);
                     if (completedBooking) {
@@ -760,66 +982,27 @@ const GuideDashboard = () => {
                     }
                 }
             } else {
-                if (response.data?.message) {
-                    showToast(response.data.message);
-                } else if (response.data?.error) {
-                    showToast(response.data.error);
-                } else {
-                    showToast(`Booking ${action}ed successfully!`);
-                    // Still update local state even if no success flag
-                    setBookings(prevBookings => 
-                        prevBookings.map(b => 
-                            (b.id === bookingId || b.booking_id === bookingId) 
-                                ? { 
-                                    ...b, 
-                                    status: action === 'confirm' ? 'confirmed' : 
-                                           action === 'complete' ? 'completed' : 
-                                           action === 'reject' ? 'rejected' : b.status 
-                                  }
-                                : b
-                        )
-                    );
-                }
+                showToast(response.data?.message || response.data?.error || `Failed to ${action} booking`);
             }
         } catch (error) {
             console.error('❌ Error processing booking:', error);
-            console.error('❌ Error response:', error.response?.data);
-            
-            if (error.response?.data?.error) {
-                showToast(error.response.data.error);
-            } else if (error.response?.data?.message) {
-                showToast(error.response.data.message);
-            } else if (error.response?.data?.detail) {
-                showToast(error.response.data.detail);
-            } else if (error.response?.status === 404) {
-                showToast(`Booking ${bookingId} not found. Please refresh and try again.`);
-            } else if (error.response?.status === 403) {
-                showToast('You do not have permission to process this booking.');
-            } else if (error.response?.status === 400) {
-                showToast(error.response?.data?.error || 'Invalid action for this booking.');
-            } else {
-                showToast(`Failed to ${action} booking. Please try again.`);
-            }
+            showToast(error.response?.data?.error || error.response?.data?.message || `Failed to ${action} booking`);
         } finally {
             setProcessingId(null);
         }
     };
 
-    // ✅ Cancel booking - updates only the specific booking
+    // ✅ Cancel booking (guide initiated)
     const cancelBooking = async (bookingId) => {
-        if (!window.confirm('Cancel this booking?')) return;
-        setProcessingId(bookingId);
-        console.log(`📤 Cancelling booking ${bookingId}`);
+        if (!window.confirm('Are you sure you want to cancel this booking?')) return;
         
+        setProcessingId(bookingId);
         try {
             const response = await api.post(`/guides/bookings/${bookingId}/cancel/`);
-            
-            console.log('✅ Cancel booking response:', response.data);
             
             if (response.data?.success) {
                 showToast('✅ Booking cancelled successfully!');
                 
-                // ✅ ONLY update the specific booking in state - NO full refresh
                 setBookings(prevBookings => 
                     prevBookings.map(b => 
                         (b.id === bookingId || b.booking_id === bookingId) 
@@ -828,7 +1011,6 @@ const GuideDashboard = () => {
                     )
                 );
                 
-                // ✅ Update booking stats
                 setBookingStats(prev => {
                     const newStats = { ...prev };
                     const oldStatus = bookings.find(b => b.id === bookingId || b.booking_id === bookingId)?.status;
@@ -839,33 +1021,62 @@ const GuideDashboard = () => {
                     return newStats;
                 });
             } else {
-                if (response.data?.message) {
-                    showToast(response.data.message);
-                } else if (response.data?.error) {
-                    showToast(response.data.error);
-                } else {
-                    showToast('Booking cancelled successfully!');
-                    // Still update local state
-                    setBookings(prevBookings => 
-                        prevBookings.map(b => 
-                            (b.id === bookingId || b.booking_id === bookingId) 
-                                ? { ...b, status: 'cancelled' }
-                                : b
-                        )
-                    );
-                }
+                showToast(response.data?.error || 'Failed to cancel booking');
             }
         } catch (error) {
             console.error('❌ Error cancelling booking:', error);
+            showToast(error.response?.data?.error || 'Failed to cancel booking');
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    // ✅ DELETE BOOKING - For rejected/cancelled bookings
+    const deleteBooking = async (bookingId) => {
+        if (!window.confirm('Delete this booking permanently?')) return;
+        
+        setProcessingId(bookingId);
+        try {
+            const response = await api.delete(`/guides/bookings/${bookingId}/`);
             
-            if (error.response?.data?.error) {
-                showToast(error.response.data.error);
-            } else if (error.response?.data?.detail) {
-                showToast(error.response.data.detail);
-            } else if (error.response?.status === 404) {
-                showToast(`Booking ${bookingId} not found. Please refresh and try again.`);
+            if (response?.data?.success || response?.status === 204) {
+                showToast('🗑️ Booking deleted successfully!');
+                
+                // Remove from UI
+                setBookings(prev => prev.filter(b => b.id !== bookingId && b.booking_id !== bookingId));
+                
+                setBookingStats(prev => {
+                    const newStats = { ...prev };
+                    const status = bookings.find(b => b.id === bookingId || b.booking_id === bookingId)?.status;
+                    if (status && newStats[status] > 0) {
+                        newStats[status] = Math.max(0, newStats[status] - 1);
+                        newStats.total = Math.max(0, newStats.total - 1);
+                    }
+                    return newStats;
+                });
+                
+                if (showBookingDetailModal) {
+                    setShowBookingDetailModal(false);
+                    setSelectedBooking(null);
+                }
             } else {
-                showToast('Failed to cancel booking. Please try again.');
+                showToast(response?.data?.error || 'Failed to delete booking');
+            }
+        } catch (error) {
+            console.error('❌ Error deleting booking:', error);
+            
+            // Try fallback endpoints
+            try {
+                await api.delete(`/guides/guides/bookings/${bookingId}/`);
+                showToast('🗑️ Booking deleted successfully!');
+                setBookings(prev => prev.filter(b => b.id !== bookingId && b.booking_id !== bookingId));
+                if (showBookingDetailModal) {
+                    setShowBookingDetailModal(false);
+                    setSelectedBooking(null);
+                }
+            } catch (e) {
+                showToast('Failed to delete booking', 'error');
+                await fetchBookings();
             }
         } finally {
             setProcessingId(null);
@@ -873,9 +1084,8 @@ const GuideDashboard = () => {
     };
 
     // ============================================
-    // ✅ AVAILABILITY ACTIONS
+    // AVAILABILITY ACTIONS
     // ============================================
-
     const handleAddAvailability = async (e) => {
         e.preventDefault();
         
@@ -916,27 +1126,13 @@ const GuideDashboard = () => {
                     end_time: '',
                     max_bookings: 1,
                 });
-                // ✅ Only refresh availability, not all data
                 await fetchAvailability();
             } else {
                 showToast(response.data?.error || 'Error adding availability');
             }
         } catch (error) {
             console.error('❌ Error adding availability:', error);
-            if (error.response?.data) {
-                const data = error.response.data;
-                if (data.error) {
-                    showToast(data.error);
-                } else if (data.non_field_errors) {
-                    showToast(data.non_field_errors.join(', '));
-                } else if (data.detail) {
-                    showToast(data.detail);
-                } else {
-                    showToast('Error adding availability. Please check your input.');
-                }
-            } else {
-                showToast('Error adding availability. Please try again.');
-            }
+            showToast(error.response?.data?.error || 'Error adding availability');
         } finally {
             setAddingSlot(false);
         }
@@ -948,14 +1144,7 @@ const GuideDashboard = () => {
             const response = await api.delete(`/guides/availability/${id}/`);
             if (response.status === 204 || response.data?.success || response.status === 200) {
                 showToast('✅ Availability deleted successfully!');
-                // ✅ Only update local state - remove the deleted slot
                 setAvailability(prev => prev.filter(a => a.id !== id));
-                // ✅ Update stats
-                setAvailabilityStats(prev => ({
-                    ...prev,
-                    total: prev.total - 1,
-                    available: prev.available - 1,
-                }));
             } else {
                 showToast('Error deleting availability');
             }
@@ -966,13 +1155,8 @@ const GuideDashboard = () => {
     };
 
     // ============================================
-    // ✅ SUGGESTION ACTIONS - ONLY UPDATE SPECIFIC SUGGESTION
+    // SUGGESTION ACTIONS
     // ============================================
-
-    const [actionLoading, setActionLoading] = useState(false);
-    const [selectedSuggestion, setSelectedSuggestion] = useState(null);
-    const [showSuggestionModal, setShowSuggestionModal] = useState(false);
-
     const processSuggestion = async (suggestionId, action) => {
         setActionLoading(true);
         setProcessingId(suggestionId);
@@ -992,20 +1176,16 @@ const GuideDashboard = () => {
             
             const payload = action === 'approve' 
                 ? { notes: 'Approved by guide' }
-                : { notes: 'Rejected by guide', reason: 'Not suitable for this district' };
+                : { notes: 'Rejected by guide', reason: 'Not suitable' };
             
             const response = await api.post(endpoint, payload);
             
             if (response?.data?.success) {
-                showToast(`Suggestion ${action}ed successfully! 🎉`);
-                
                 const newStatus = action === 'approve' ? 'approved_by_guide' : 'rejected_by_guide';
+                showToast(`✅ Suggestion ${action}ed successfully!`);
                 
-                // ✅ ONLY update the specific suggestion in state
                 setSuggestions(prev => prev.map(s => 
-                    s.id === suggestionId 
-                        ? { ...s, status: newStatus }
-                        : s
+                    s.id === suggestionId ? { ...s, status: newStatus } : s
                 ));
                 
                 if (showSuggestionModal) {
@@ -1017,17 +1197,35 @@ const GuideDashboard = () => {
             }
         } catch (error) {
             console.error('Error processing suggestion:', error);
+            showToast(error.response?.data?.error || 'Error processing suggestion');
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
+        }
+    };
+
+    const deleteSuggestion = async (suggestionId) => {
+        if (!window.confirm('Are you sure you want to delete this suggestion?')) return;
+        
+        setActionLoading(true);
+        setProcessingId(suggestionId);
+        
+        try {
+            const response = await api.delete(`/suggestions/${suggestionId}/`);
             
-            if (error.response?.status === 404) {
-                showToast('Suggestion not found. It may have been deleted.');
-            } else if (error.response?.status === 400) {
-                const errorMsg = error.response?.data?.error || 'This suggestion may already be processed.';
-                showToast(errorMsg);
-            } else if (error.response?.status === 403) {
-                showToast('You don\'t have permission to process this suggestion.');
+            if (response?.data?.success || response.status === 204 || response.status === 200) {
+                showToast('🗑️ Suggestion deleted successfully!');
+                setSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+                if (showSuggestionModal) {
+                    setShowSuggestionModal(false);
+                    setSelectedSuggestion(null);
+                }
             } else {
-                showToast('Error processing suggestion. Please try again.');
+                showToast(response?.data?.error || 'Failed to delete suggestion');
             }
+        } catch (error) {
+            console.error('❌ Error deleting suggestion:', error);
+            showToast('Failed to delete suggestion. Please try again.');
         } finally {
             setActionLoading(false);
             setProcessingId(null);
@@ -1035,9 +1233,78 @@ const GuideDashboard = () => {
     };
 
     // ============================================
+    // ADD SUGGESTION
+    // ============================================
+    const handleAddSuggestion = async (e) => {
+        e.preventDefault();
+        
+        if (!newSuggestion.name) {
+            showToast('Please enter a name/title');
+            return;
+        }
+        if (!newSuggestion.description) {
+            showToast('Please enter a description');
+            return;
+        }
+        if (!newSuggestion.district) {
+            showToast('Please enter a district');
+            return;
+        }
+
+        setSubmittingSuggestion(true);
+        
+        try {
+            const formData = new FormData();
+            formData.append('name', newSuggestion.name);
+            formData.append('title', newSuggestion.name);
+            formData.append('description', newSuggestion.description);
+            formData.append('suggestion_type', addSuggestionType);
+            formData.append('district', newSuggestion.district);
+            formData.append('category', newSuggestion.category || 'general');
+            formData.append('location_info', newSuggestion.location_info || '');
+            formData.append('is_guide_submitted', 'true');
+            formData.append('status', 'pending_admin');
+            
+            if (suggestionImageFile) {
+                formData.append('image', suggestionImageFile);
+            }
+            
+            const response = await api.post('/suggestions/', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            
+            if (response.data?.success || response.status === 201 || response.status === 200) {
+                const typeLabel = addSuggestionType === 'hidden_gem' ? 'Hidden Gem' : 'Insight';
+                showToast(`✅ ${typeLabel} submitted for admin review!`);
+                
+                setNewSuggestion({
+                    name: '',
+                    description: '',
+                    district: '',
+                    category: '',
+                    location_info: '',
+                    image_url: '',
+                });
+                setSuggestionImageFile(null);
+                if (suggestionFileInputRef.current) {
+                    suggestionFileInputRef.current.value = '';
+                }
+                setShowAddSuggestion(false);
+                await fetchSuggestions();
+            } else {
+                showToast(response.data?.error || 'Error adding suggestion');
+            }
+        } catch (error) {
+            console.error('❌ Error adding suggestion:', error);
+            showToast(error.response?.data?.error || 'Error adding suggestion');
+        } finally {
+            setSubmittingSuggestion(false);
+        }
+    };
+
+    // ============================================
     // PROFILE UPDATE
     // ============================================
-
     const handleProfileUpdate = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -1085,13 +1352,32 @@ const GuideDashboard = () => {
             const response = await api.post('/guides/guides/update-profile/', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
+            
             if (response.data?.success) {
-                await fetchProfile();
-                showToast('Profile picture updated!');
+                const updatedProfile = response.data.profile || response.data;
+                const newImageUrl = updatedProfile.profile_image || updatedProfile.image || updatedProfile.avatar;
+                
+                if (newImageUrl) {
+                    let fullImageUrl = newImageUrl;
+                    if (newImageUrl.startsWith('/media/') || newImageUrl.startsWith('/uploads/') || newImageUrl.startsWith('/')) {
+                        const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+                        const cleanBaseURL = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+                        fullImageUrl = `${cleanBaseURL}${newImageUrl}`;
+                    }
+                    setProfilePicture(fullImageUrl);
+                }
+                
+                setProfile(prev => ({ ...prev, ...updatedProfile }));
+                showToast('Profile picture updated! ✅');
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            } else {
+                showToast(response.data?.error || 'Error uploading picture');
             }
         } catch (error) {
-            console.error('Error uploading profile picture:', error);
-            showToast('Error uploading picture');
+            console.error('❌ Error uploading profile picture:', error);
+            showToast(error.response?.data?.error || 'Error uploading picture');
         } finally {
             setUploading(false);
         }
@@ -1110,69 +1396,61 @@ const GuideDashboard = () => {
 
     const getSuggestionTypeLabel = (type) => {
         const labels = {
-            review: 'Review',
-            local_insight: 'Local Insight',
-            hidden_gem: 'Hidden Gem',
-            new: 'Suggestion',
+            review: '⭐ Review',
+            local_insight: '💡 Local Insight',
+            hidden_gem: '💎 Hidden Gem',
+            new: '📍 Suggestion',
         };
         return labels[type] || type || 'Suggestion';
+    };
+
+    const getSuggestionTypeIcon = (type) => {
+        const icons = {
+            review: Star,
+            local_insight: Lightbulb,
+            hidden_gem: Sparkles,
+            new: MapPin,
+        };
+        return icons[type] || MapPin;
     };
 
     // ============================================
     // FILTERED DATA
     // ============================================
-
     const filteredBookings = useMemo(
         () => bookingFilter === 'all' ? bookings : bookings.filter(b => b.status === bookingFilter),
         [bookings, bookingFilter]
     );
 
+    const filteredReviews = useMemo(() => {
+        if (reviewsFilter === 'all') return reviews;
+        if (reviewsFilter === 'pending') return reviews.filter(r => r.status === 'pending' || r.status === 'pending_guide' || r.status === 'pending_admin');
+        return reviews.filter(r => r.status === reviewsFilter);
+    }, [reviews, reviewsFilter]);
+
     const hiddenGems = useMemo(() => {
-        return suggestions.filter(s =>
-            s.suggestion_type === 'hidden_gem' || s.suggestion_type === 'new'
-        );
+        return suggestions.filter(s => s.suggestion_type === 'hidden_gem' || s.suggestion_type === 'new');
     }, [suggestions]);
 
     const localInsights = useMemo(() => {
-        return suggestions.filter(s =>
-            s.suggestion_type === 'local_insight'
-        );
-    }, [suggestions]);
-
-    const reviews = useMemo(() => {
-        return suggestions.filter(s =>
-            s.suggestion_type === 'review'
-        );
+        return suggestions.filter(s => s.suggestion_type === 'local_insight');
     }, [suggestions]);
 
     const filteredHiddenGems = useMemo(() => {
-        return suggestionStatusFilter === 'all'
-            ? hiddenGems
-            : hiddenGems.filter(s => s.status === suggestionStatusFilter);
+        return suggestionStatusFilter === 'all' ? hiddenGems : hiddenGems.filter(s => s.status === suggestionStatusFilter);
     }, [hiddenGems, suggestionStatusFilter]);
 
     const filteredLocalInsights = useMemo(() => {
-        return suggestionStatusFilter === 'all'
-            ? localInsights
-            : localInsights.filter(s => s.status === suggestionStatusFilter);
+        return suggestionStatusFilter === 'all' ? localInsights : localInsights.filter(s => s.status === suggestionStatusFilter);
     }, [localInsights, suggestionStatusFilter]);
 
-    const filteredReviews = useMemo(() => {
-        return suggestionStatusFilter === 'all'
-            ? reviews
-            : reviews.filter(s => s.status === suggestionStatusFilter);
-    }, [reviews, suggestionStatusFilter]);
-
     const filteredAvailability = useMemo(() => {
-        return availabilityFilter === 'all'
-            ? availability
-            : availability.filter(a => a.status === availabilityFilter);
+        return availabilityFilter === 'all' ? availability : availability.filter(a => a.status === availabilityFilter);
     }, [availability, availabilityFilter]);
 
     // ============================================
     // PAGINATION HELPERS
     // ============================================
-
     const getPaginatedData = (data, page) => {
         const startIndex = (page - 1) * ITEMS_PER_PAGE;
         const endIndex = startIndex + ITEMS_PER_PAGE;
@@ -1183,56 +1461,27 @@ const GuideDashboard = () => {
         return Math.ceil(data.length / ITEMS_PER_PAGE);
     };
 
-    useEffect(() => {
-        setHiddenGemsPage(1);
-    }, [suggestionStatusFilter]);
-
-    useEffect(() => {
-        setLocalInsightsPage(1);
-    }, [suggestionStatusFilter]);
-
-    useEffect(() => {
-        setReviewsPage(1);
-    }, [suggestionStatusFilter]);
-
-    useEffect(() => {
-        setAvailabilityPage(1);
-    }, [availabilityFilter]);
-
     // ============================================
     // NAV ITEMS
     // ============================================
-
     const navItems = [
         { key: 'overview', label: 'Overview', icon: Compass },
         { key: 'availability', label: 'Availability', icon: Calendar },
         { key: 'bookings', label: 'Bookings', icon: CalendarDays },
+        { key: 'reviews', label: 'Reviews', icon: Star, badge: reviewStats.pending },
         { key: 'hidden-gems', label: 'Hidden Gems', icon: Sparkles },
         { key: 'insights', label: 'Local Insights', icon: Lightbulb },
-        { key: 'reviews', label: 'Reviews', icon: Star },
         { key: 'profile', label: 'Profile', icon: User },
     ];
 
     const activeNavItem = navItems.find(n => n.key === activeTab);
 
-    const tabDescriptions = {
-        overview: 'Your dashboard at a glance',
-        availability: 'Manage your availability slots',
-        bookings: 'Manage your bookings',
-        'hidden-gems': 'Hidden gems shared by travelers',
-        insights: 'Local insights from travelers',
-        reviews: 'Reviews from travelers',
-        profile: 'Your guide profile',
-    };
-
     // ============================================
     // RENDER SUGGESTION CARD
     // ============================================
     const renderSuggestionCard = (s, typeLabel) => {
-        const hasImage = s.image_url && typeof s.image_url === 'string' && 
-                        s.image_url.startsWith('http') && 
-                        !s.image_url.includes('null') &&
-                        !s.image_url.includes('undefined');
+        const imageUrl = getImageUrl(s);
+        const hasImage = !!imageUrl;
 
         const getFallbackEmoji = () => {
             switch(s.suggestion_type) {
@@ -1243,29 +1492,47 @@ const GuideDashboard = () => {
             }
         };
 
+        const isImplemented = s.status === 'implemented';
+        const isPending = s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin';
+        const isGuideSubmitted = s.is_guide_submitted === true;
+        const isUserSubmitted = !isGuideSubmitted && s.user_email && s.user_email !== user?.email;
+
         return (
             <div
                 key={s.id}
                 onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }}
                 style={{
                     display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md,
-                    border: `1px solid ${C.line}`, cursor: 'pointer', alignItems: 'flex-start', transition: 'all 0.2s ease',
+                    border: `1px solid ${isImplemented ? C.success : isPending ? C.warn : isGuideSubmitted ? C.info : C.line}`,
+                    cursor: 'pointer', alignItems: 'flex-start', transition: 'all 0.2s ease',
+                    opacity: isImplemented ? 0.85 : 1,
                 }}
             >
                 <div style={{ 
                     width: 80, height: 80, borderRadius: RADIUS.sm, 
                     background: C.paper, border: `1px solid ${C.line}`, 
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0, overflow: 'hidden',
+                    flexShrink: 0, overflow: 'hidden', position: 'relative',
                 }}>
-                    {hasImage ? (
+                    {isImplemented && (
+                        <div style={{
+                            position: 'absolute', top: 4, right: 4,
+                            background: C.success, color: '#fff',
+                            padding: '2px 6px', borderRadius: 999,
+                            fontSize: 8, fontWeight: 600,
+                        }}>✅</div>
+                    )}
+                    {hasImage && imageUrl ? (
                         <img 
-                            src={s.image_url} 
+                            src={imageUrl} 
                             alt={s.name} 
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             onError={(e) => {
                                 e.target.style.display = 'none';
-                                e.target.parentElement.innerHTML = `<span style="font-size: 32px;">${getFallbackEmoji()}</span>`;
+                                const parent = e.target.parentElement;
+                                if (parent) {
+                                    parent.innerHTML = `<span style="font-size: 32px;">${getFallbackEmoji()}</span>`;
+                                }
                             }}
                         />
                     ) : (
@@ -1276,7 +1543,10 @@ const GuideDashboard = () => {
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                         <div>
-                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{s.name}</h4>
+                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
+                                {s.name}
+                                {isImplemented && <span style={{ fontSize: 11, color: C.success, marginLeft: 8 }}>✅ Implemented</span>}
+                            </h4>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
                                 <span style={{ fontSize: 11, color: C.sage }}>{s.user_email} · {s.district}</span>
                                 <span style={{ fontSize: 9, padding: '2px 9px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>{typeLabel}</span>
@@ -1289,13 +1559,10 @@ const GuideDashboard = () => {
                         {s.description || 'No description'}
                     </p>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                        {(s.status === 'pending' || s.status === 'pending_guide') && (
+                        {isPending && isUserSubmitted && (
                             <>
                                 <button 
-                                    onClick={(e) => { 
-                                        e.stopPropagation(); 
-                                        processSuggestion(s.id, 'approve'); 
-                                    }} 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'approve'); }} 
                                     disabled={actionLoading}
                                     style={{ 
                                         padding: '4px 12px', borderRadius: 999, border: 'none', 
@@ -1308,10 +1575,7 @@ const GuideDashboard = () => {
                                     <Check size={11} /> Approve
                                 </button>
                                 <button 
-                                    onClick={(e) => { 
-                                        e.stopPropagation(); 
-                                        processSuggestion(s.id, 'reject'); 
-                                    }} 
+                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'reject'); }} 
                                     disabled={actionLoading}
                                     style={{ 
                                         padding: '4px 12px', borderRadius: 999, 
@@ -1326,6 +1590,34 @@ const GuideDashboard = () => {
                                 </button>
                             </>
                         )}
+                        
+                        {isGuideSubmitted && !isImplemented && (
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); deleteSuggestion(s.id); }} 
+                                disabled={actionLoading}
+                                style={{ 
+                                    padding: '4px 12px', borderRadius: 999, 
+                                    border: `1px solid #EFCBB5`, background: C.dangerBg, 
+                                    color: C.danger, fontSize: 11, 
+                                    cursor: actionLoading ? 'not-allowed' : 'pointer', 
+                                    display: 'flex', alignItems: 'center', gap: 4, 
+                                    opacity: actionLoading && processingId === s.id ? 0.5 : 1 
+                                }}
+                            >
+                                <Trash2 size={11} /> Delete
+                            </button>
+                        )}
+                        
+                        {isPending && isGuideSubmitted && (
+                            <span style={{ fontSize: 11, color: C.info, padding: '4px 12px', background: C.infoBg, borderRadius: 999 }}>
+                                ⏳ Awaiting admin review
+                            </span>
+                        )}
+                        {isImplemented && (
+                            <span style={{ fontSize: 11, color: C.gold, padding: '4px 12px', background: C.warnBg, borderRadius: 999 }}>
+                                🎉 Implemented!
+                            </span>
+                        )}
                         <button 
                             onClick={(e) => { e.stopPropagation(); setSelectedSuggestion(s); setShowSuggestionModal(true); }}
                             style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
@@ -1339,9 +1631,235 @@ const GuideDashboard = () => {
     };
 
     // ============================================
+    // RENDER REVIEW CARD
+    // ============================================
+    const renderReviewCard = (review) => {
+        const imageUrl = getImageUrl(review);
+        const hasImage = !!imageUrl;
+        const isPending = review.status === 'pending' || review.status === 'pending_guide' || review.status === 'pending_admin';
+        const isImplemented = review.status === 'implemented';
+
+        return (
+            <div
+                key={review.id}
+                onClick={() => { setSelectedReview(review); setShowReviewModal(true); }}
+                style={{
+                    display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md,
+                    border: `1px solid ${isImplemented ? C.success : isPending ? C.warn : C.line}`,
+                    cursor: 'pointer', alignItems: 'flex-start', transition: 'all 0.2s ease',
+                }}
+            >
+                <div style={{ 
+                    width: 80, height: 80, borderRadius: RADIUS.sm, 
+                    background: C.paper, border: `1px solid ${C.line}`, 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0, overflow: 'hidden', position: 'relative',
+                }}>
+                    {isImplemented && (
+                        <div style={{
+                            position: 'absolute', top: 4, right: 4,
+                            background: C.success, color: '#fff',
+                            padding: '2px 6px', borderRadius: 999,
+                            fontSize: 8, fontWeight: 600,
+                        }}>✅</div>
+                    )}
+                    {hasImage && imageUrl ? (
+                        <img 
+                            src={imageUrl} 
+                            alt={review.name} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                const parent = e.target.parentElement;
+                                if (parent) {
+                                    parent.innerHTML = `<span style="font-size: 32px;">⭐</span>`;
+                                }
+                            }}
+                        />
+                    ) : (
+                        <span style={{ fontSize: 32 }}>⭐</span>
+                    )}
+                </div>
+                
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
+                                {review.name || 'Review'}
+                                {isImplemented && <span style={{ fontSize: 11, color: C.success, marginLeft: 8 }}>✅ Implemented</span>}
+                            </h4>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                                <span style={{ fontSize: 11, color: C.sage }}>{review.user_email} · {review.district}</span>
+                                {review.rating > 0 && (
+                                    <span style={{ fontSize: 11, color: C.gold }}>{'★'.repeat(Math.round(review.rating))} {review.rating}/5</span>
+                                )}
+                            </div>
+                        </div>
+                        <StatusPill status={review.status} />
+                    </div>
+                    <p style={{ fontSize: 12.5, color: C.sage, margin: '6px 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {review.review_text || review.description || 'No review content'}
+                    </p>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        {isPending && (
+                            <>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processReview(review.id, 'approve'); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.success, color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === review.id ? 0.5 : 1 }}
+                                >
+                                    <Check size={11} /> Approve
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); processReview(review.id, 'reject'); }} 
+                                    disabled={actionLoading}
+                                    style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === review.id ? 0.5 : 1 }}
+                                >
+                                    <X size={11} /> Reject
+                                </button>
+                            </>
+                        )}
+                        {isImplemented && (
+                            <span style={{ fontSize: 11, color: C.gold, padding: '4px 12px', background: C.warnBg, borderRadius: 999 }}>🎉 Implemented!</span>
+                        )}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedReview(review); setShowReviewModal(true); }}
+                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                            <Eye size={11} /> View
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // ============================================
+    // RENDER BOOKING CARD with Cancellation Reason & Delete for Rejected
+    // ============================================
+    const renderBookingCard = (booking) => {
+        const isCancelled = booking.status === 'cancelled' || booking.status === 'rejected';
+        const hasCancellationReason = booking.cancellation_reason && booking.cancellation_reason.length > 0;
+        const isRejected = booking.status === 'rejected';
+
+        return (
+            <div
+                key={booking.id}
+                style={{
+                    display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md,
+                    border: `1px solid ${isCancelled ? C.danger : booking.status === 'pending' ? C.warn : booking.status === 'completed' ? C.success : C.line}`,
+                    cursor: 'pointer', alignItems: 'flex-start', transition: 'all 0.2s ease',
+                }}
+            >
+                <div 
+                    onClick={() => { setSelectedBooking(booking); setShowBookingDetailModal(true); }}
+                    style={{ display: 'flex', gap: 14, flex: 1, cursor: 'pointer', alignItems: 'flex-start' }}
+                >
+                    <div style={{ 
+                        width: 60, height: 60, borderRadius: RADIUS.sm, 
+                        background: C.paper, border: `1px solid ${C.line}`, 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0, overflow: 'hidden',
+                    }}>
+                        <span style={{ fontSize: 28 }}>📅</span>
+                    </div>
+                    
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                            <div>
+                                <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
+                                    {booking.place || booking.district || 'Booking'}
+                                    {isCancelled && <span style={{ fontSize: 11, color: C.danger, marginLeft: 8 }}>❌ {booking.status === 'rejected' ? 'Rejected' : 'Cancelled'}</span>}
+                                    {booking.status === 'pending' && <span style={{ fontSize: 11, color: C.warn, marginLeft: 8 }}>⏳ Pending</span>}
+                                    {booking.status === 'confirmed' && <span style={{ fontSize: 11, color: C.success, marginLeft: 8 }}>✅ Confirmed</span>}
+                                    {booking.status === 'completed' && <span style={{ fontSize: 11, color: C.inkSoft, marginLeft: 8 }}>🎯 Completed</span>}
+                                </h4>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                                    <span style={{ fontSize: 11, color: C.sage }}>{booking.user?.username || booking.traveler_email || 'Anonymous'}</span>
+                                    <span style={{ fontSize: 11, color: C.sage }}>· {booking.district}</span>
+                                    <span style={{ fontSize: 11, color: C.sage }}>· {booking.date ? new Date(booking.date).toLocaleDateString() : '—'}</span>
+                                    {booking.people > 1 && <span style={{ fontSize: 11, color: C.sage }}>· 👥 {booking.people}</span>}
+                                </div>
+                                {/* ✅ Show cancellation reason if booking is cancelled/rejected */}
+                                {isCancelled && hasCancellationReason && (
+                                    <div style={{
+                                        marginTop: 6,
+                                        padding: '6px 12px',
+                                        background: C.dangerBg,
+                                        borderRadius: RADIUS.sm,
+                                        border: `1px solid ${C.danger}44`,
+                                    }}>
+                                        <p style={{ fontSize: 11, color: C.danger, margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <AlertCircle size={14} />
+                                            <strong>Cancellation Reason:</strong> {booking.cancellation_reason}
+                                        </p>
+                                        {booking.cancelled_by && (
+                                            <p style={{ fontSize: 10, color: C.sage, margin: '4px 0 0' }}>
+                                                Cancelled by: {booking.cancelled_by === 'traveler' ? 'Traveler' : booking.cancelled_by}
+                                                {booking.cancellation_requested_at && ` · ${new Date(booking.cancellation_requested_at).toLocaleDateString()}`}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            <StatusPill status={booking.status} />
+                        </div>
+                    </div>
+                </div>
+                
+                {/* ✅ DELETE button for rejected bookings */}
+                {isRejected && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBooking(booking.id || booking.booking_id);
+                        }}
+                        disabled={processingId === booking.id}
+                        style={{
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            border: `1px solid ${C.danger}44`,
+                            background: C.dangerBg,
+                            color: C.danger,
+                            fontSize: 11,
+                            cursor: processingId === booking.id ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            opacity: processingId === booking.id ? 0.5 : 1,
+                            flexShrink: 0,
+                            transition: 'all 0.2s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!processingId) {
+                                e.currentTarget.style.background = C.danger;
+                                e.currentTarget.style.color = '#fff';
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!processingId) {
+                                e.currentTarget.style.background = C.dangerBg;
+                                e.currentTarget.style.color = C.danger;
+                            }
+                        }}
+                    >
+                        {processingId === booking.id ? (
+                            <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                        ) : (
+                            <>
+                                <Trash2 size={12} />
+                                Delete
+                            </>
+                        )}
+                    </button>
+                )}
+            </div>
+        );
+    };
+
+    // ============================================
     // LOADING
     // ============================================
-
     if (loading) {
         return (
             <div style={{ minHeight: '100vh', background: C.cream, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1357,14 +1875,12 @@ const GuideDashboard = () => {
     // ============================================
     // RENDER
     // ============================================
-
     return (
         <div style={{ height: '100vh', background: C.cream, fontFamily: FONT.body, display: 'flex', overflow: 'hidden' }}>
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
                 @keyframes spin { to { transform: rotate(360deg); } }
                 .gd-nav-item:hover { background: ${C.goldSoft} !important; }
-                .gd-suggestion-card:hover { border-color: ${C.gold} !important; box-shadow: 0 4px 14px rgba(7,46,42,0.08); transform: translateY(-1px); }
                 .gd-sidebar-scroll::-webkit-scrollbar { width: 4px; }
                 .gd-sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(199,154,62,0.3); border-radius: 4px; }
                 .gd-content-scroll::-webkit-scrollbar { width: 6px; }
@@ -1400,7 +1916,19 @@ const GuideDashboard = () => {
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: 14, fontWeight: 700, color: C.ink, overflow: 'hidden', flexShrink: 0,
                         }}>
-                            {profilePicture ? <img src={profilePicture} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials(profile?.full_name || user?.first_name)}
+                            {profilePicture ? (
+                                <img 
+                                    src={profilePicture} 
+                                    alt="Profile" 
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    onError={(e) => {
+                                        e.target.style.display = 'none';
+                                        e.target.parentElement.textContent = initials(profile?.full_name || user?.first_name);
+                                    }}
+                                />
+                            ) : (
+                                initials(profile?.full_name || user?.first_name)
+                            )}
                         </div>
                         <div style={{ minWidth: 0 }}>
                             <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile?.full_name || user?.first_name}</p>
@@ -1419,9 +1947,7 @@ const GuideDashboard = () => {
                             const isActive = activeTab === item.key;
                             const count = item.key === 'bookings' ? stats.pendingBookings :
                                          item.key === 'availability' ? availabilityStats.available :
-                                         item.key === 'hidden-gems' ? hiddenGems.filter(s => s.status === 'pending' || s.status === 'pending_guide').length :
-                                         item.key === 'insights' ? localInsights.filter(s => s.status === 'pending' || s.status === 'pending_guide').length :
-                                         item.key === 'reviews' ? reviews.filter(s => s.status === 'pending' || s.status === 'pending_guide').length : 0;
+                                         item.key === 'reviews' ? reviewStats.pending : 0;
                             return (
                                 <button
                                     key={item.key}
@@ -1484,7 +2010,6 @@ const GuideDashboard = () => {
                                     {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
                                 </p>
                                 <h2 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 26, color: C.inkSoft, margin: 0 }}>{activeNavItem?.label}</h2>
-                                <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>{tabDescriptions[activeTab]}</p>
                             </div>
                             <Btn variant="ghost" icon={RefreshCw} onClick={handleRefresh} disabled={refreshing} style={{ opacity: refreshing ? 0.6 : 1 }}>
                                 {refreshing ? 'Updating…' : 'Update'}
@@ -1509,38 +2034,21 @@ const GuideDashboard = () => {
                                     {bookings.slice(0, 5).length === 0 ? (
                                         <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>No bookings yet.</p>
                                     ) : (
-                                        bookings.slice(0, 5).map((b) => (
-                                            <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
-                                                <div>
-                                                    <p style={{ margin: 0, fontSize: 13, color: C.inkSoft, fontWeight: 500 }}>{b.user?.username || b.traveler_email || 'Anonymous'}</p>
-                                                    <p style={{ margin: '2px 0 0', fontSize: 11, color: C.sage }}>{b.district?.name || b.district || 'N/A'} · {b.date ? new Date(b.date).toLocaleDateString() : '—'}</p>
-                                                </div>
-                                                <StatusPill status={b.status} />
-                                            </div>
-                                        ))
+                                        bookings.slice(0, 5).map((b) => renderBookingCard(b))
                                     )}
                                 </Card>
                                 <Card style={{ padding: 20 }}>
-                                    <SectionHead icon={AlertCircle} title="Pending Suggestions" />
-                                    {suggestions.filter(s => s.status === 'pending' || s.status === 'pending_guide').slice(0, 5).length === 0 ? (
-                                        <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>✨ No pending suggestions.</p>
+                                    <SectionHead icon={AlertCircle} title="Pending Reviews" />
+                                    {filteredReviews.filter(r => r.status === 'pending' || r.status === 'pending_guide' || r.status === 'pending_admin').slice(0, 5).length === 0 ? (
+                                        <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>✨ No pending reviews.</p>
                                     ) : (
-                                        suggestions.filter(s => s.status === 'pending' || s.status === 'pending_guide').slice(0, 5).map((s) => (
-                                            <div key={s.id} onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }}
-                                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.line}`, cursor: 'pointer' }}>
-                                                <div>
-                                                    <p style={{ margin: 0, fontSize: 13, color: C.inkSoft, fontWeight: 500 }}>{s.name}</p>
-                                                    <p style={{ margin: '2px 0 0', fontSize: 11, color: C.sage }}>{s.district} · {s.user_email}</p>
-                                                </div>
-                                                <StatusPill status="pending" />
-                                            </div>
-                                        ))
+                                        filteredReviews.filter(r => r.status === 'pending' || r.status === 'pending_guide' || r.status === 'pending_admin').slice(0, 5).map((r) => renderReviewCard(r))
                                     )}
                                 </Card>
                             </div>
                         )}
 
-                        {/* Availability Tab */}
+                        {/* Availability Tab with Pagination */}
                         {activeTab === 'availability' && (
                             <Card style={{ padding: 22 }}>
                                 <SectionHead
@@ -1637,7 +2145,7 @@ const GuideDashboard = () => {
                             </Card>
                         )}
 
-                        {/* Bookings Tab - UPDATED with Complete button */}
+                        {/* Bookings Tab with Pagination & Delete for Rejected */}
                         {activeTab === 'bookings' && (
                             <Card style={{ padding: 22 }}>
                                 <SectionHead
@@ -1670,118 +2178,95 @@ const GuideDashboard = () => {
                                 {filteredBookings.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No bookings found.</p>
                                 ) : (
-                                    <div style={{ overflowX: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                                            <thead>
-                                                <tr style={{ textAlign: 'left', color: C.sageLight, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
-                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Traveler</th>
-                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>District</th>
-                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Date</th>
-                                                    <th style={{ padding: '9px 8px', borderBottom: `1px solid ${C.line}` }}>Status</th>
-                                                    <th style={{ padding: '9px 8px', textAlign: 'right', borderBottom: `1px solid ${C.line}` }}>Actions</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {filteredBookings.map((b) => {
-                                                    return (
-                                                        <tr key={b.id} style={{ borderTop: `1px solid ${C.line}` }}>
-                                                            <td style={{ padding: '10px 8px', color: C.inkSoft }}>
-                                                                {b.user?.username || b.traveler_email || b.user?.email || 'Anonymous'}
-                                                            </td>
-                                                            <td style={{ padding: '10px 8px', color: C.sage }}>
-                                                                {b.district?.name || b.district || 'N/A'}
-                                                            </td>
-                                                            <td style={{ padding: '10px 8px', color: C.sage }}>
-                                                                {b.date ? new Date(b.date).toLocaleDateString() : '—'}
-                                                                <br />
-                                                                <span style={{ fontSize: 10, color: C.sageLight }}>
-                                                                    {b.time || ''}
-                                                                </span>
-                                                            </td>
-                                                            <td style={{ padding: '10px 8px' }}>
-                                                                <StatusPill status={b.status} />
-                                                            </td>
-                                                            <td style={{ padding: '10px 8px', textAlign: 'right' }}>
-                                                                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                                                    {b.status === 'pending' && (
-                                                                        <>
-                                                                            <Btn variant="success" size="sm" onClick={() => processBooking(b.id, 'confirm')} disabled={processingId === b.id} style={{ opacity: processingId === b.id ? 0.5 : 1 }}>
-                                                                                Confirm
-                                                                            </Btn>
-                                                                            <Btn variant="danger" size="sm" onClick={() => processBooking(b.id, 'reject')} disabled={processingId === b.id} style={{ opacity: processingId === b.id ? 0.5 : 1 }}>
-                                                                                Reject
-                                                                            </Btn>
-                                                                        </>
-                                                                    )}
-                                                                    {b.status === 'confirmed' && (
-                                                                        <>
-                                                                            <Btn variant="gold" size="sm" onClick={() => processBooking(b.id, 'complete')} disabled={processingId === b.id} style={{ opacity: processingId === b.id ? 0.5 : 1 }}>
-                                                                                ✅ Complete
-                                                                            </Btn>
-                                                                            <Btn variant="danger" size="sm" onClick={() => cancelBooking(b.id)} disabled={processingId === b.id} style={{ opacity: processingId === b.id ? 0.5 : 1 }}>
-                                                                                Cancel
-                                                                            </Btn>
-                                                                        </>
-                                                                    )}
-                                                                    {b.status === 'pending' && (
-                                                                        <Btn variant="danger" size="sm" onClick={() => cancelBooking(b.id)} disabled={processingId === b.id} style={{ opacity: processingId === b.id ? 0.5 : 1 }}>
-                                                                            Cancel
-                                                                        </Btn>
-                                                                    )}
-                                                                    {b.status === 'completed' && (
-                                                                        <span style={{ fontSize: 11, color: C.sageLight, fontStyle: 'italic' }}>
-                                                                            ✅ Completed
-                                                                        </span>
-                                                                    )}
-                                                                    {b.status === 'cancelled' && (
-                                                                        <span style={{ fontSize: 11, color: C.sageLight, fontStyle: 'italic' }}>
-                                                                            ❌ Cancelled
-                                                                        </span>
-                                                                    )}
-                                                                    {b.status === 'rejected' && (
-                                                                        <span style={{ fontSize: 11, color: C.sageLight, fontStyle: 'italic' }}>
-                                                                            🚫 Rejected
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                    <>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredBookings, bookingsPage).map((b) => renderBookingCard(b))}
+                                        </div>
+                                        <Pagination
+                                            currentPage={bookingsPage}
+                                            totalPages={getTotalPages(filteredBookings)}
+                                            onPageChange={setBookingsPage}
+                                            totalItems={filteredBookings.length}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                        />
+                                    </>
                                 )}
                             </Card>
                         )}
 
-                        {/* Hidden Gems Tab */}
-                        {activeTab === 'hidden-gems' && (
+                        {/* Reviews Tab with Pagination */}
+                        {activeTab === 'reviews' && (
                             <Card style={{ padding: 22 }}>
                                 <SectionHead
-                                    icon={Sparkles} title="Hidden Gems" count={hiddenGems.length}
+                                    icon={Star}
+                                    title="Reviews from Travelers"
+                                    count={reviews.length}
                                     right={
-                                        <select value={suggestionStatusFilter} onChange={(e) => setSuggestionStatusFilter(e.target.value)} style={selectStyle}>
-                                            <option value="all">All Status</option>
-                                            <option value="pending">⏳ Pending</option>
-                                            <option value="approved_by_guide">✅ Approved</option>
-                                            <option value="rejected_by_guide">❌ Rejected</option>
-                                            <option value="staff_approved">Staff Approved</option>
-                                            <option value="staff_rejected">Staff Rejected</option>
-                                            <option value="implemented">✨ Implemented</option>
-                                        </select>
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <select value={reviewsFilter} onChange={(e) => setReviewsFilter(e.target.value)} style={selectStyle}>
+                                                <option value="pending">⏳ Pending ({reviewStats.pending})</option>
+                                                <option value="all">All ({reviewStats.total})</option>
+                                                <option value="approved_by_guide">✅ Approved ({reviewStats.approved})</option>
+                                                <option value="rejected_by_guide">❌ Rejected ({reviewStats.rejected})</option>
+                                                <option value="implemented">✨ Implemented ({reviewStats.implemented})</option>
+                                            </select>
+                                        </div>
                                     }
                                 />
-                                {filteredHiddenGems.length === 0 ? (
-                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No hidden gems found.</p>
+                                {filteredReviews.length === 0 ? (
+                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No reviews found.</p>
                                 ) : (
                                     <>
                                         <div style={{ display: 'grid', gap: 12 }}>
-                                            {getPaginatedData(filteredHiddenGems, hiddenGemsPage).map((s) => (
-                                                <div key={s.id} className="gd-suggestion-card" style={{ transition: 'all 0.2s ease' }}>
-                                                    {renderSuggestionCard(s, 'Hidden Gem')}
-                                                </div>
-                                            ))}
+                                            {getPaginatedData(filteredReviews, reviewsPage).map((r) => renderReviewCard(r))}
+                                        </div>
+                                        <Pagination
+                                            currentPage={reviewsPage}
+                                            totalPages={getTotalPages(filteredReviews)}
+                                            onPageChange={setReviewsPage}
+                                            totalItems={filteredReviews.length}
+                                            itemsPerPage={ITEMS_PER_PAGE}
+                                        />
+                                    </>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Hidden Gems Tab with Pagination */}
+                        {activeTab === 'hidden-gems' && (
+                            <Card style={{ padding: 22 }}>
+                                <SectionHead
+                                    icon={Sparkles} 
+                                    title="Hidden Gems" 
+                                    count={hiddenGems.length}
+                                    right={
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <select value={suggestionStatusFilter} onChange={(e) => setSuggestionStatusFilter(e.target.value)} style={selectStyle}>
+                                                <option value="all">All Status</option>
+                                                <option value="pending">⏳ Pending</option>
+                                                <option value="approved_by_guide">✅ Approved</option>
+                                                <option value="rejected_by_guide">❌ Rejected</option>
+                                                <option value="staff_approved">Staff Approved</option>
+                                                <option value="staff_rejected">Staff Rejected</option>
+                                                <option value="implemented">✨ Implemented</option>
+                                            </select>
+                                            <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setAddSuggestionType('hidden_gem'); setShowAddSuggestion(true); }}>
+                                                Add Hidden Gem
+                                            </Btn>
+                                        </div>
+                                    }
+                                />
+                                {filteredHiddenGems.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: '30px 0' }}>
+                                        <p style={{ color: C.sage, fontSize: 13 }}>No hidden gems found.</p>
+                                        <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setAddSuggestionType('hidden_gem'); setShowAddSuggestion(true); }} style={{ marginTop: 12 }}>
+                                            Share a Hidden Gem
+                                        </Btn>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredHiddenGems, hiddenGemsPage).map((s) => renderSuggestionCard(s, 'Hidden Gem'))}
                                         </div>
                                         <Pagination
                                             currentPage={hiddenGemsPage}
@@ -1795,79 +2280,47 @@ const GuideDashboard = () => {
                             </Card>
                         )}
 
-                        {/* Local Insights Tab */}
+                        {/* Local Insights Tab with Pagination */}
                         {activeTab === 'insights' && (
                             <Card style={{ padding: 22 }}>
                                 <SectionHead
-                                    icon={Lightbulb} title="Local Insights" count={localInsights.length}
+                                    icon={Lightbulb} 
+                                    title="Local Insights" 
+                                    count={localInsights.length}
                                     right={
-                                        <select value={suggestionStatusFilter} onChange={(e) => setSuggestionStatusFilter(e.target.value)} style={selectStyle}>
-                                            <option value="all">All Status</option>
-                                            <option value="pending">⏳ Pending</option>
-                                            <option value="approved_by_guide">✅ Approved</option>
-                                            <option value="rejected_by_guide">❌ Rejected</option>
-                                            <option value="staff_approved">Staff Approved</option>
-                                            <option value="staff_rejected">Staff Rejected</option>
-                                            <option value="implemented">✨ Implemented</option>
-                                        </select>
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                                            <select value={suggestionStatusFilter} onChange={(e) => setSuggestionStatusFilter(e.target.value)} style={selectStyle}>
+                                                <option value="all">All Status</option>
+                                                <option value="pending">⏳ Pending</option>
+                                                <option value="approved_by_guide">✅ Approved</option>
+                                                <option value="rejected_by_guide">❌ Rejected</option>
+                                                <option value="staff_approved">Staff Approved</option>
+                                                <option value="staff_rejected">Staff Rejected</option>
+                                                <option value="implemented">✨ Implemented</option>
+                                            </select>
+                                            <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setAddSuggestionType('local_insight'); setShowAddSuggestion(true); }}>
+                                                Add Insight
+                                            </Btn>
+                                        </div>
                                     }
                                 />
                                 {filteredLocalInsights.length === 0 ? (
-                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No local insights found.</p>
+                                    <div style={{ textAlign: 'center', padding: '30px 0' }}>
+                                        <p style={{ color: C.sage, fontSize: 13 }}>No local insights found.</p>
+                                        <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setAddSuggestionType('local_insight'); setShowAddSuggestion(true); }} style={{ marginTop: 12 }}>
+                                            Share an Insight
+                                        </Btn>
+                                    </div>
                                 ) : (
                                     <>
                                         <div style={{ display: 'grid', gap: 12 }}>
-                                            {getPaginatedData(filteredLocalInsights, localInsightsPage).map((s) => (
-                                                <div key={s.id} className="gd-suggestion-card" style={{ transition: 'all 0.2s ease' }}>
-                                                    {renderSuggestionCard(s, 'Local Insight')}
-                                                </div>
-                                            ))}
+                                            {getPaginatedData(filteredLocalInsights, localInsightsPage).map((s) => renderSuggestionCard(s, 'Local Insight'))}
                                         </div>
                                         <Pagination
                                             currentPage={localInsightsPage}
                                             totalPages={getTotalPages(filteredLocalInsights)}
                                             onPageChange={setLocalInsightsPage}
                                             totalItems={filteredLocalInsights.length}
-                                            itemsPerPage={ITEMS_PER_PAGE}
-                                        />
-                                    </>
-                                )}
-                            </Card>
-                        )}
-
-                        {/* Reviews Tab */}
-                        {activeTab === 'reviews' && (
-                            <Card style={{ padding: 22 }}>
-                                <SectionHead
-                                    icon={Star} title="Reviews" count={reviews.length}
-                                    right={
-                                        <select value={suggestionStatusFilter} onChange={(e) => setSuggestionStatusFilter(e.target.value)} style={selectStyle}>
-                                            <option value="all">All Status</option>
-                                            <option value="pending">⏳ Pending</option>
-                                            <option value="approved_by_guide">✅ Approved</option>
-                                            <option value="rejected_by_guide">❌ Rejected</option>
-                                            <option value="staff_approved">Staff Approved</option>
-                                            <option value="staff_rejected">Staff Rejected</option>
-                                            <option value="implemented">✨ Implemented</option>
-                                        </select>
-                                    }
-                                />
-                                {filteredReviews.length === 0 ? (
-                                    <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No reviews found.</p>
-                                ) : (
-                                    <>
-                                        <div style={{ display: 'grid', gap: 12 }}>
-                                            {getPaginatedData(filteredReviews, reviewsPage).map((s) => (
-                                                <div key={s.id} className="gd-suggestion-card" style={{ transition: 'all 0.2s ease' }}>
-                                                    {renderSuggestionCard(s, 'Review')}
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <Pagination
-                                            currentPage={reviewsPage}
-                                            totalPages={getTotalPages(filteredReviews)}
-                                            onPageChange={setReviewsPage}
-                                            totalItems={filteredReviews.length}
                                             itemsPerPage={ITEMS_PER_PAGE}
                                         />
                                     </>
@@ -1896,10 +2349,22 @@ const GuideDashboard = () => {
                                             }}
                                             onClick={() => fileInputRef.current?.click()}
                                         >
-                                            {profilePicture ? <img src={profilePicture} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials(profile?.full_name || user?.first_name)}
+                                            {profilePicture ? (
+                                                <img 
+                                                    src={profilePicture} 
+                                                    alt="Profile" 
+                                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                    onError={(e) => {
+                                                        e.target.style.display = 'none';
+                                                        e.target.parentElement.textContent = initials(profile?.full_name || user?.first_name);
+                                                    }}
+                                                />
+                                            ) : (
+                                                initials(profile?.full_name || user?.first_name)
+                                            )}
                                         </div>
                                         <button onClick={() => fileInputRef.current?.click()} style={{ position: 'absolute', bottom: -2, right: -2, width: 26, height: 26, borderRadius: '50%', background: C.ink, color: C.goldLight, border: `2px solid ${C.cream}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <Camera size={12} />
+                                            {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />}
                                         </button>
                                         <input type="file" ref={fileInputRef} accept="image/*" style={{ display: 'none' }} onChange={handleProfilePictureUpload} disabled={uploading} />
                                     </div>
@@ -1914,7 +2379,6 @@ const GuideDashboard = () => {
                                             {profile?.is_verified ? '✅ Verified Guide' : '⏳ Not Verified'}
                                         </span>
                                     </div>
-                                    {uploading && <Loader2 size={18} color={C.sage} style={{ animation: 'spin 1s linear infinite', marginLeft: 'auto' }} />}
                                 </div>
 
                                 {isEditingProfile ? (
@@ -1956,20 +2420,6 @@ const GuideDashboard = () => {
                                                 <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Price/Hour ($)</label>
                                                 <input type="number" step="0.01" value={profileForm.price_per_hour} onChange={(e) => setProfileForm({ ...profileForm, price_per_hour: e.target.value })} style={inputStyle} />
                                             </div>
-                                        </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                            <div>
-                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Facebook</label>
-                                                <input type="text" value={profileForm.facebook} onChange={(e) => setProfileForm({ ...profileForm, facebook: e.target.value })} style={inputStyle} />
-                                            </div>
-                                            <div>
-                                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Instagram</label>
-                                                <input type="text" value={profileForm.instagram} onChange={(e) => setProfileForm({ ...profileForm, instagram: e.target.value })} style={inputStyle} />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Website</label>
-                                            <input type="text" value={profileForm.website} onChange={(e) => setProfileForm({ ...profileForm, website: e.target.value })} style={inputStyle} />
                                         </div>
                                         <div style={{ display: 'flex', gap: 10, marginTop: 6, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
                                             <Btn type="submit" variant="primary" icon={Save}>Save Profile</Btn>
@@ -2090,10 +2540,317 @@ const GuideDashboard = () => {
                                 required
                             />
                         </div>
+                    </form>
+                </ModalShell>
+            )}
+
+            {/* ADD SUGGESTION MODAL */}
+            {showAddSuggestion && (
+                <ModalShell
+                    onClose={() => {
+                        setShowAddSuggestion(false);
+                        setNewSuggestion({
+                            name: '',
+                            description: '',
+                            district: '',
+                            category: '',
+                            location_info: '',
+                            image_url: '',
+                        });
+                        setSuggestionImageFile(null);
+                        if (suggestionFileInputRef.current) {
+                            suggestionFileInputRef.current.value = '';
+                        }
+                    }}
+                    title={`Add ${addSuggestionType === 'hidden_gem' ? 'Hidden Gem' : 'Insight'}`}
+                    subtitle="Share your knowledge - Sent to admin for review"
+                    icon={addSuggestionType === 'hidden_gem' ? Sparkles : Lightbulb}
+                    footer={
+                        <>
+                            <Btn variant="ghost" onClick={() => {
+                                setShowAddSuggestion(false);
+                                setNewSuggestion({
+                                    name: '',
+                                    description: '',
+                                    district: '',
+                                    category: '',
+                                    location_info: '',
+                                    image_url: '',
+                                });
+                                setSuggestionImageFile(null);
+                                if (suggestionFileInputRef.current) {
+                                    suggestionFileInputRef.current.value = '';
+                                }
+                            }}>Cancel</Btn>
+                            <Btn variant="primary" icon={Send} onClick={handleAddSuggestion} disabled={submittingSuggestion}>
+                                {submittingSuggestion ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                                {submittingSuggestion ? 'Submitting...' : 'Submit'}
+                            </Btn>
+                        </>
+                    }
+                >
+                    <form onSubmit={handleAddSuggestion} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Name <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="e.g., Secret Beach in Varkala"
+                                value={newSuggestion.name}
+                                onChange={(e) => setNewSuggestion({ ...newSuggestion, name: e.target.value })}
+                                style={inputStyle}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Description <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <textarea
+                                placeholder="Describe this hidden gem or insight..."
+                                value={newSuggestion.description}
+                                onChange={(e) => setNewSuggestion({ ...newSuggestion, description: e.target.value })}
+                                rows={4}
+                                style={{ ...inputStyle, resize: 'vertical' }}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                District <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="e.g., Thiruvananthapuram"
+                                value={newSuggestion.district}
+                                onChange={(e) => setNewSuggestion({ ...newSuggestion, district: e.target.value })}
+                                style={inputStyle}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Category
+                            </label>
+                            <select
+                                value={newSuggestion.category}
+                                onChange={(e) => setNewSuggestion({ ...newSuggestion, category: e.target.value })}
+                                style={selectStyle}
+                            >
+                                <option value="general">General</option>
+                                <option value="beach">Beach</option>
+                                <option value="waterfall">Waterfall</option>
+                                <option value="hill_station">Hill Station</option>
+                                <option value="backwater">Backwater</option>
+                                <option value="temple">Temple</option>
+                                <option value="fort">Fort</option>
+                                <option value="wildlife">Wildlife</option>
+                                <option value="adventure">Adventure</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Image (optional)
+                            </label>
+                            <input
+                                type="file"
+                                ref={suggestionFileInputRef}
+                                accept="image/*"
+                                onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) setSuggestionImageFile(file);
+                                }}
+                                style={{ ...inputStyle, padding: '8px 13px' }}
+                            />
+                            {suggestionImageFile && (
+                                <div style={{ fontSize: 11, color: C.success, marginTop: 4 }}>
+                                    📷 {suggestionImageFile.name} selected
+                                </div>
+                            )}
+                        </div>
                         <div style={{ fontSize: 11, color: C.sage, padding: 8, background: '#F8FAFC', borderRadius: RADIUS.sm }}>
-                            💡 Availability slots help travelers know when you're available for bookings.
+                            💡 Your suggestion will be reviewed by admin/staff. Once approved and implemented, it will be visible to travelers.
                         </div>
                     </form>
+                </ModalShell>
+            )}
+
+            {/* REVIEW DETAIL MODAL */}
+            {showReviewModal && selectedReview && (
+                <ModalShell
+                    onClose={() => setShowReviewModal(false)}
+                    title={selectedReview.name || 'Review Details'}
+                    subtitle={selectedReview.district}
+                    icon={Star}
+                    footer={
+                        <>
+                            {selectedReview.status === 'pending' && (
+                                <>
+                                    <Btn variant="success" icon={Check} onClick={() => processReview(selectedReview.id, 'approve')} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Approve
+                                    </Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => processReview(selectedReview.id, 'reject')} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Reject
+                                    </Btn>
+                                </>
+                            )}
+                            {selectedReview.status === 'implemented' && (
+                                <span style={{ fontSize: 13, color: C.success, fontWeight: 600, padding: '8px 16px' }}>🎉 Implemented!</span>
+                            )}
+                            <Btn variant="ghost" onClick={() => setShowReviewModal(false)}>Close</Btn>
+                        </>
+                    }
+                >
+                    {getImageUrl(selectedReview) && (
+                        <img 
+                            src={getImageUrl(selectedReview)} 
+                            alt={selectedReview.name} 
+                            style={{ width: '100%', maxHeight: 300, objectFit: 'cover', borderRadius: RADIUS.md, marginBottom: 16, border: `1px solid ${C.line}` }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                    )}
+                    
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedReview.district}</span>
+                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedReview.user_email}</span>
+                        {selectedReview.rating > 0 && (
+                            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>
+                                {'★'.repeat(Math.round(selectedReview.rating))} {selectedReview.rating}/5
+                            </span>
+                        )}
+                        <StatusPill status={selectedReview.status} />
+                        {selectedReview.implemented_at && (
+                            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.successBg, color: C.success }}>
+                                Implemented: {new Date(selectedReview.implemented_at).toLocaleDateString()}
+                            </span>
+                        )}
+                    </div>
+                    
+                    <p style={{ fontSize: 14, color: C.sage, lineHeight: 1.6, marginBottom: 12 }}>
+                        {selectedReview.review_text || selectedReview.description || 'No review content'}
+                    </p>
+                    
+                    {selectedReview.admin_notes && (
+                        <div style={{ background: C.infoBg, padding: 12, borderRadius: RADIUS.sm }}>
+                            <p style={{ fontSize: 11, color: C.info, margin: 0, fontWeight: 600 }}>📋 Admin Notes</p>
+                            <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedReview.admin_notes}</p>
+                        </div>
+                    )}
+                </ModalShell>
+            )}
+
+            {/* BOOKING DETAIL MODAL - Shows cancellation reason */}
+            {showBookingDetailModal && selectedBooking && (
+                <ModalShell
+                    onClose={() => setShowBookingDetailModal(false)}
+                    title={`Booking Details`}
+                    subtitle={`#${selectedBooking.booking_id || selectedBooking.id}`}
+                    icon={CalendarDays}
+                    footer={
+                        <>
+                            {selectedBooking.status === 'pending' && (
+                                <>
+                                    <Btn variant="success" icon={Check} onClick={() => { processBooking(selectedBooking.id, 'confirm'); setShowBookingDetailModal(false); }} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Confirm
+                                    </Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => { processBooking(selectedBooking.id, 'reject'); setShowBookingDetailModal(false); }} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Reject
+                                    </Btn>
+                                    <Btn variant="danger" icon={Trash2} onClick={() => { cancelBooking(selectedBooking.id); setShowBookingDetailModal(false); }} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Cancel
+                                    </Btn>
+                                </>
+                            )}
+                            {selectedBooking.status === 'confirmed' && (
+                                <>
+                                    <Btn variant="gold" icon={CheckCircle} onClick={() => { processBooking(selectedBooking.id, 'complete'); setShowBookingDetailModal(false); }} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Complete
+                                    </Btn>
+                                    <Btn variant="danger" icon={Trash2} onClick={() => { cancelBooking(selectedBooking.id); setShowBookingDetailModal(false); }} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Cancel
+                                    </Btn>
+                                </>
+                            )}
+                            {selectedBooking.status === 'completed' && (
+                                <span style={{ fontSize: 13, color: C.success, padding: '8px 16px' }}>✅ Completed</span>
+                            )}
+                            {selectedBooking.status === 'cancelled' && (
+                                <span style={{ fontSize: 13, color: C.danger, padding: '8px 16px' }}>❌ Cancelled</span>
+                            )}
+                            {selectedBooking.status === 'rejected' && (
+                                <span style={{ fontSize: 13, color: C.danger, padding: '8px 16px' }}>🚫 Rejected</span>
+                            )}
+                            <Btn variant="ghost" onClick={() => setShowBookingDetailModal(false)}>Close</Btn>
+                        </>
+                    }
+                >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Traveler</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.user?.username || selectedBooking.traveler_email || 'Anonymous'}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Place</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.place || selectedBooking.district || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Date</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.date ? new Date(selectedBooking.date).toLocaleDateString() : '—'}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Time</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.time || '—'}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>People</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.number_of_people || 1}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Duration</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.duration_hours || 4} hours</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Price</p>
+                            <p style={{ fontSize: 14, color: C.gold, margin: '4px 0 0', fontWeight: 600 }}>₹{selectedBooking.total_price || 0}</p>
+                        </div>
+                        <div>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Status</p>
+                            <StatusPill status={selectedBooking.status} />
+                        </div>
+                    </div>
+
+                    {selectedBooking.special_requests && (
+                        <div style={{ marginBottom: 12, padding: 12, background: C.cream, borderRadius: RADIUS.sm, border: `1px solid ${C.line}` }}>
+                            <p style={{ fontSize: 10, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Special Requests</p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '4px 0 0' }}>{selectedBooking.special_requests}</p>
+                        </div>
+                    )}
+
+                    {/* ✅ CANCELLATION REASON - Show prominently if cancelled/rejected */}
+                    {selectedBooking.status === 'cancelled' && selectedBooking.cancellation_reason && (
+                        <div style={{ 
+                            marginTop: 12, 
+                            padding: 14, 
+                            background: C.dangerBg, 
+                            borderRadius: RADIUS.sm, 
+                            border: `2px solid ${C.danger}44`,
+                        }}>
+                            <p style={{ fontSize: 11, color: C.danger, margin: 0, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <AlertCircle size={16} />
+                                Cancellation Reason
+                            </p>
+                            <p style={{ fontSize: 14, color: C.inkSoft, margin: '6px 0 0', lineHeight: 1.5 }}>
+                                "{selectedBooking.cancellation_reason}"
+                            </p>
+                            {selectedBooking.cancelled_by && (
+                                <p style={{ fontSize: 11, color: C.sage, margin: '4px 0 0' }}>
+                                    Cancelled by: {selectedBooking.cancelled_by === 'traveler' ? 'Traveler' : selectedBooking.cancelled_by}
+                                    {selectedBooking.cancellation_requested_at && ` · ${new Date(selectedBooking.cancellation_requested_at).toLocaleDateString()}`}
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </ModalShell>
             )}
 
@@ -2103,60 +2860,67 @@ const GuideDashboard = () => {
                     onClose={() => setShowSuggestionModal(false)}
                     title={selectedSuggestion.name}
                     subtitle={selectedSuggestion.district}
-                    icon={Sparkles}
+                    icon={getSuggestionTypeIcon(selectedSuggestion.suggestion_type)}
                     footer={
                         <>
-                            {(selectedSuggestion.status === 'pending' || selectedSuggestion.status === 'pending_guide') && (
+                            {(selectedSuggestion.status === 'pending' || selectedSuggestion.status === 'pending_guide') && 
+                             !selectedSuggestion.is_guide_submitted && (
                                 <>
-                                    <Btn variant="success" icon={Check} onClick={() => processSuggestion(selectedSuggestion.id, 'approve')} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Approve</Btn>
-                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject')} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Reject</Btn>
+                                    <Btn variant="success" icon={Check} onClick={() => processSuggestion(selectedSuggestion.id, 'approve')} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Approve
+                                    </Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject')} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Reject
+                                    </Btn>
                                 </>
                             )}
+                            
+                            {selectedSuggestion.is_guide_submitted && selectedSuggestion.status !== 'implemented' && (
+                                <Btn variant="danger" icon={Trash2} onClick={() => deleteSuggestion(selectedSuggestion.id)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                    Delete
+                                </Btn>
+                            )}
+                            
                             <Btn variant="ghost" onClick={() => setShowSuggestionModal(false)}>Close</Btn>
                         </>
                     }
                 >
-                    {selectedSuggestion.image_url && typeof selectedSuggestion.image_url === 'string' && 
-                     selectedSuggestion.image_url.startsWith('http') && 
-                     !selectedSuggestion.image_url.includes('null') && 
-                     !selectedSuggestion.image_url.includes('undefined') && (
+                    {getImageUrl(selectedSuggestion) && (
                         <img 
-                            src={selectedSuggestion.image_url} 
+                            src={getImageUrl(selectedSuggestion)} 
                             alt={selectedSuggestion.name} 
-                            style={{ 
-                                width: '100%', maxHeight: 300, objectFit: 'cover', 
-                                borderRadius: RADIUS.md, marginBottom: 16, 
-                                border: `1px solid ${C.line}` 
-                            }}
-                            onError={(e) => {
-                                e.target.style.display = 'none';
-                            }}
+                            style={{ width: '100%', maxHeight: 300, objectFit: 'cover', borderRadius: RADIUS.md, marginBottom: 16, border: `1px solid ${C.line}` }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
                         />
                     )}
+                    
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                         <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedSuggestion.district}</span>
                         <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>{getSuggestionTypeLabel(selectedSuggestion.suggestion_type)}</span>
                         <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedSuggestion.user_email}</span>
-                        {selectedSuggestion.rating && (
+                        {selectedSuggestion.rating > 0 && (
                             <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>
                                 {'★'.repeat(Math.round(selectedSuggestion.rating))} {selectedSuggestion.rating}/5
                             </span>
                         )}
                         <StatusPill status={selectedSuggestion.status} />
                     </div>
-                    <p style={{ fontSize: 14, color: C.sage, lineHeight: 1.6, marginBottom: 12 }}>{selectedSuggestion.description || 'No description'}</p>
-                    {selectedSuggestion.guide_notes && (
-                        <div style={{ background: C.cream, padding: 12, borderRadius: RADIUS.sm }}>
-                            <p style={{ fontSize: 11, color: C.gold, margin: 0, fontWeight: 600 }}>📝 Guide Notes</p>
-                            <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedSuggestion.guide_notes}</p>
+                    
+                    <p style={{ fontSize: 14, color: C.sage, lineHeight: 1.6, marginBottom: 12 }}>
+                        {selectedSuggestion.description || 'No description'}
+                    </p>
+                    
+                    {selectedSuggestion.location_info && (
+                        <div style={{ background: C.cream, padding: 12, borderRadius: RADIUS.sm, marginBottom: 8 }}>
+                            <p style={{ fontSize: 11, color: C.info, margin: 0, fontWeight: 600 }}>📍 Location Info</p>
+                            <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedSuggestion.location_info}</p>
                         </div>
                     )}
-                    {selectedSuggestion.category && (
-                        <div style={{ marginTop: 8, padding: 8, background: '#F0F7FF', borderRadius: RADIUS.sm }}>
-                            <p style={{ fontSize: 11, color: '#1E3A5F', margin: 0 }}>📂 Category: {selectedSuggestion.category}</p>
-                            {selectedSuggestion.location_info && (
-                                <p style={{ fontSize: 11, color: '#475569', margin: '4px 0 0' }}>📍 Location: {selectedSuggestion.location_info}</p>
-                            )}
+                    
+                    {selectedSuggestion.admin_notes && (
+                        <div style={{ background: C.infoBg, padding: 12, borderRadius: RADIUS.sm }}>
+                            <p style={{ fontSize: 11, color: C.info, margin: 0, fontWeight: 600 }}>📋 Admin Notes</p>
+                            <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedSuggestion.admin_notes}</p>
                         </div>
                     )}
                 </ModalShell>

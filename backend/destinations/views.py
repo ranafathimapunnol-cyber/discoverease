@@ -437,59 +437,6 @@ class DestinationViewSet(viewsets.ModelViewSet):
             })
         return Response(categories)
 
-    @action(detail=False, methods=['post'], url_path='add-category')
-    def add_category(self, request):
-        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
-            return Response(
-                {'error': 'Permission denied. Admin or Staff only.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        category_key = request.data.get('key', '').lower().strip()
-        label = request.data.get('label', '')
-        description = request.data.get('description', '')
-        image = request.data.get('image', '')
-        
-        if not category_key:
-            return Response(
-                {'error': 'Category key is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        valid_categories = [c[0] for c in Destination.CategoryChoice.choices]
-        if category_key in valid_categories:
-            return Response(
-                {'error': f'Category "{category_key}" already exists in default categories'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            category, created = Category.objects.get_or_create(
-                key=category_key,
-                defaults={
-                    'label': label or category_key.title(),
-                    'description': description or f'Explore {label} in Kerala',
-                    'image': image or 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80'
-                }
-            )
-            if created:
-                return Response({
-                    'success': True,
-                    'message': f'Category "{category_key}" added successfully',
-                    'category': CategorySerializer(category).data
-                }, status=status.HTTP_201_CREATED)
-            else:
-                return Response({
-                    'success': False,
-                    'error': f'Category "{category_key}" already exists'
-                }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error(f"Error adding category: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
     @action(detail=False, methods=['get'], url_path='category/(?P<category_key>[^/.]+)')
     def get_category_detail(self, request, category_key=None):
         """Get a specific category with its places"""
@@ -511,11 +458,11 @@ class DestinationViewSet(viewsets.ModelViewSet):
             
             places_data = []
             for place in places:
-                dest = Destination.objects.filter(name____in=place.name).first()
+                dest = Destination.objects.filter(name=place.name).first()
                 
                 places_data.append({
                     'id': place.id,
-                    'destination_id': dest.id if dest else None,  # ✅ ADD THIS!
+                    'destination_id': dest.id if dest else None,
                     'name': place.name,
                     'location': place.location,
                     'description': place.description,
@@ -547,6 +494,106 @@ class DestinationViewSet(viewsets.ModelViewSet):
                 'success': False,
                 'error': str(e)
             }, status=200)
+            
+            
+    @action(detail=False, methods=['get'], url_path='admin/categories/(?P<category_key>[^/.]+)')
+    def admin_get_category(self, request, category_key=None):
+        """Get a single category by key - Admin only"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            category = get_object_or_404(CategoryData, key=category_key)
+            places = CategoryPlace.objects.filter(category=category_key, is_active=True)
+            
+            return Response({
+                'success': True,
+                'category': {
+                    'key': category.key,
+                    'title': category.title,
+                    'description': category.description,
+                    'image': category.image,
+                    'type': category.type,
+                    'is_active': category.is_active,
+                    'count': places.count(),
+                    'places': [
+                        {
+                            'id': p.id,
+                            'name': p.name,
+                            'location': p.location,
+                            'description': p.description,
+                            'image': p.image,
+                            'type': p.type,
+                            'hidden_gem': p.hidden_gem,
+                        } for p in places
+                    ]
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching category: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+            
+            # ============================================
+# ✅ CATEGORY EDIT ENDPOINT - ADD TO DestinationViewSet
+# ============================================
+
+    @action(detail=False, methods=['put', 'patch'], url_path='admin/categories/(?P<category_key>[^/.]+)/edit')
+    def admin_edit_category(self, request, category_key=None):
+        """Edit a category - Admin only"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            category = get_object_or_404(CategoryData, key=category_key)
+            data = request.data
+            
+            # Update fields
+            if 'title' in data and data['title']:
+                category.title = data['title']
+            if 'description' in data and data['description'] is not None:
+                category.description = data['description']
+            if 'image' in data and data['image'] is not None:
+                category.image = data['image']
+            if 'type' in data and data['type'] is not None:
+                category.type = data['type']
+            if 'is_active' in data and data['is_active'] is not None:
+                category.is_active = data['is_active']
+            
+            category.save()
+            
+            return Response({
+                'success': True,
+                'message': f'Category "{category.title}" updated successfully',
+                'category': {
+                    'key': category.key,
+                    'title': category.title,
+                    'description': category.description,
+                    'image': category.image,
+                    'type': category.type,
+                    'is_active': category.is_active,
+                    'count': CategoryPlace.objects.filter(category=category.key, is_active=True).count()
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error editing category: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+            
 
     @action(detail=False, methods=['get'], url_path='categories/all')
     def get_all_categories_with_destinations(self, request):
@@ -578,12 +625,12 @@ class DestinationViewSet(viewsets.ModelViewSet):
         return Response(default_categories)
 
     # ============================================
-    # ✅ CATEGORY DATA ENDPOINTS - FIXED (NO LIMIT!)
+    # ✅ CATEGORY DATA ENDPOINTS - FIXED (NO district FIELD)
     # ============================================
     
     @action(detail=False, methods=['get'], url_path='category-data')
     def get_category_data(self, request):
-        """Get all category data from database - FIXED: NO 50 PLACE LIMIT!"""
+        """Get all category data from database - FIXED: No district field"""
         try:
             categories = CategoryData.objects.filter(is_active=True)
             result = []
@@ -592,11 +639,67 @@ class DestinationViewSet(viewsets.ModelViewSet):
                 places = CategoryPlace.objects.filter(
                     category=cat.key,
                     is_active=True
-                )
+                ).order_by('name')
                 
-                places_data = [{
+                places_data = []
+                for p in places:
+                    place_dict = {
+                        'id': p.id,
+                        'destination_id': p.destination.id if p.destination else None,
+                        'name': p.name,
+                        'location': p.location,
+                        'description': p.description,
+                        'difficulty': p.difficulty,
+                        'duration': p.duration,
+                        'best_time': p.best_time,
+                        'image': p.image,
+                        'type': p.type,
+                        'hidden_gem': p.hidden_gem,
+                    }
+                    # Use location as district if district doesn't exist
+                    if hasattr(p, 'district'):
+                        place_dict['district'] = p.district
+                    else:
+                        place_dict['district'] = p.location or ''
+                    
+                    places_data.append(place_dict)
+                
+                result.append({
+                    'key': cat.key,
+                    'title': cat.title,
+                    'description': cat.description,
+                    'type': cat.type,
+                    'icon': cat.icon,
+                    'image': cat.image,
+                    'count': len(places_data),
+                    'places': places_data
+                })
+            
+            return Response({
+                'success': True,
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching category data: {e}")
+            return Response({
+                'success': False,
+                'error': str(e),
+                'data': []
+            }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='category-data/(?P<category_key>[^/.]+)')
+    def get_category_data_detail(self, request, category_key=None):
+        """Get specific category with ALL places - FIXED: No district field"""
+        try:
+            category = get_object_or_404(CategoryData, key=category_key, is_active=True)
+            places = CategoryPlace.objects.filter(category=category_key, is_active=True)
+            
+            places_data = []
+            for p in places:
+                place_dict = {
                     'id': p.id,
-                    'destination_id': p.destination.id if p.destination else None,  # ✅ CRITICAL!
+                    'destination_id': p.destination.id if p.destination else None,
                     'name': p.name,
                     'location': p.location,
                     'description': p.description,
@@ -606,31 +709,12 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'image': p.image,
                     'type': p.type,
                     'hidden_gem': p.hidden_gem,
-                } for p in places]
-                
-                result.append({
-                    'key': cat.key,
-                    'title': cat.title,
-                    'description': cat.description,
-                    'type': cat.type,
-                    'icon': cat.icon,
-                    'image': cat.image,
-                    'count': CategoryPlace.objects.filter(category=cat.key, is_active=True).count(),
-                    'places': places_data
-                })
-            
-            return Response({'success': True, 'data': result})
-            
-        except Exception as e:
-            logger.error(f"Error fetching category data: {e}")
-            return Response({'success': False, 'error': str(e)}, status=200)
-
-    @action(detail=False, methods=['get'], url_path='category-data/(?P<category_key>[^/.]+)')
-    def get_category_data_detail(self, request, category_key=None):
-        """Get specific category with ALL places - NO LIMIT!"""
-        try:
-            category = get_object_or_404(CategoryData, key=category_key, is_active=True)
-            places = CategoryPlace.objects.filter(category=category_key, is_active=True)
+                }
+                if hasattr(p, 'district'):
+                    place_dict['district'] = p.district
+                else:
+                    place_dict['district'] = p.location or ''
+                places_data.append(place_dict)
             
             return Response({
                 'success': True,
@@ -641,45 +725,93 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'type': category.type,
                     'image': category.image,
                     'count': places.count(),
-                    'places': [
-                        {
-                            'id': p.id,
-                            'destination_id': p.destination.id if p.destination else None,  # ✅ CRITICAL!
-                            'name': p.name,
-                            'location': p.location,
-                            'description': p.description,
-                            'difficulty': p.difficulty,
-                            'duration': p.duration,
-                            'best_time': p.best_time,
-                            'image': p.image,
-                            'type': p.type,
-                            'hidden_gem': p.hidden_gem,
-                        } for p in places
-                    ]
+                    'places': places_data
                 }
             })
         except Exception as e:
             logger.error(f"Error fetching category detail: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
 
-    # ============================================
-    # ADD PLACE ENDPOINT
-    # ============================================
-    
+    @action(detail=False, methods=['post'], url_path='add-category')
+    def add_category(self, request):
+        """Add a new category - Admin only"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            data = request.data
+            key = data.get('key', '').lower().strip()
+            label = data.get('label', '')
+            description = data.get('description', '')
+            image = data.get('image', '')
+            type_val = data.get('type', 'Nature & Outdoor')
+            
+            if not key:
+                return Response({
+                    'success': False,
+                    'error': 'Category key is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not label:
+                return Response({
+                    'success': False,
+                    'error': 'Category label is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if category exists
+            if CategoryData.objects.filter(key=key).exists():
+                return Response({
+                    'success': False,
+                    'error': f'Category "{key}" already exists'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            category = CategoryData.objects.create(
+                key=key,
+                title=label,
+                description=description or f'Explore {label} in Kerala',
+                image=image or 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+                type=type_val,
+                is_active=True
+            )
+            
+            return Response({
+                'success': True,
+                'message': f'Category "{label}" added successfully',
+                'category': {
+                    'key': category.key,
+                    'title': category.title,
+                    'description': category.description,
+                    'image': category.image,
+                    'type': category.type,
+                    'count': 0,
+                    'places': []
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"Error adding category: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=False, methods=['post'], url_path='add-place')
     def add_place(self, request):
+        """Add a place to a category - Admin only - FIXED: No district field"""
         if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
-            return Response(
-                {'error': 'Permission denied. Admin or Staff only.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
         
         try:
             data = request.data
             category_key = data.get('category')
-            name = data.get('name')
-            location = data.get('location', '')
-            district = data.get('district', '')
+            name = data.get('name', '').strip()
+            location = data.get('location', '').strip()
             description = data.get('description', '')
             difficulty = data.get('difficulty', '')
             duration = data.get('duration', '')
@@ -687,19 +819,20 @@ class DestinationViewSet(viewsets.ModelViewSet):
             image = data.get('image', '')
             place_type = data.get('type', 'well-known')
             hidden_gem = data.get('hidden_gem', '')
-
+            
             if not category_key:
                 return Response({
                     'success': False,
                     'error': 'Category key is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
-
+            
             if not name:
                 return Response({
                     'success': False,
                     'error': 'Place name is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
-
+            
+            # Check if category exists, create if not
             category, created = CategoryData.objects.get_or_create(
                 key=category_key,
                 defaults={
@@ -708,45 +841,57 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'is_active': True
                 }
             )
-
-            existing_place = CategoryPlace.objects.filter(
+            
+            # Check if place already exists
+            existing = CategoryPlace.objects.filter(
                 category=category_key,
-                name____in=name
+                name=name
             ).first()
             
-            if existing_place:
+            if existing:
                 return Response({
                     'success': False,
                     'error': f'Place "{name}" already exists in this category'
                 }, status=status.HTTP_400_BAD_REQUEST)
-
+            
+            # Find matching destination if exists
+            destination = None
+            try:
+                dest = Destination.objects.filter(name__icontains=name).first()
+                if dest:
+                    destination = dest
+            except Exception as e:
+                logger.warning(f"Could not find destination for {name}: {e}")
+            
+            # Create place data without district
             place = CategoryPlace.objects.create(
                 category=category_key,
                 name=name,
-                location=location,
-                district=district,
-                description=description or f'Beautiful place in {location}',
+                location=location or name,
+                description=description or f'Beautiful place in {location or name}',
                 difficulty=difficulty or 'Easy',
                 duration=duration or '2-3 hours',
                 best_time=best_time or 'All year round',
-                image=image or self._get_category_image(category_key),
+                image=image or 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
                 type=place_type,
                 hidden_gem=hidden_gem or '',
+                destination=destination,
                 is_active=True,
                 created_by=request.user
             )
-
+            
+            # Update category count
             category.count = CategoryPlace.objects.filter(category=category_key, is_active=True).count()
             category.save()
-
+            
             return Response({
                 'success': True,
                 'message': f'Place "{name}" added successfully to {category_key}',
-                'data': {
+                'place': {
                     'id': place.id,
+                    'destination_id': place.destination.id if place.destination else None,
                     'name': place.name,
                     'location': place.location,
-                    'district': place.district,
                     'description': place.description,
                     'difficulty': place.difficulty,
                     'duration': place.duration,
@@ -754,16 +899,166 @@ class DestinationViewSet(viewsets.ModelViewSet):
                     'image': place.image,
                     'type': place.type,
                     'hidden_gem': place.hidden_gem,
-                    'created_at': place.created_at.isoformat() if hasattr(place, 'created_at') else None
                 }
             }, status=status.HTTP_201_CREATED)
-
+            
         except Exception as e:
             logger.error(f"Error adding place: {e}")
             return Response({
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['delete'], url_path='admin/categories/(?P<category_key>[^/.]+)')
+    def admin_delete_category(self, request, category_key=None):
+        """Delete a category - Admin only"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            category = get_object_or_404(CategoryData, key=category_key)
+            # Delete all places in this category first
+            CategoryPlace.objects.filter(category=category_key).delete()
+            category.delete()
+            
+            return Response({
+                'success': True,
+                'message': f'Category "{category_key}" deleted successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error deleting category: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['delete'], url_path='admin/places/(?P<place_id>[^/.]+)')
+    def admin_delete_place(self, request, place_id=None):
+        """Delete a place - Admin only"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            place = get_object_or_404(CategoryPlace, id=place_id)
+            place_name = place.name
+            category_key = place.category
+            
+            place.delete()
+            
+            # Update category count
+            category = CategoryData.objects.filter(key=category_key).first()
+            if category:
+                category.count = CategoryPlace.objects.filter(category=category_key, is_active=True).count()
+                category.save()
+            
+            return Response({
+                'success': True,
+                'message': f'Place "{place_name}" deleted successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error deleting place: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='admin/places/(?P<place_id>[^/.]+)/update')
+    def admin_update_place(self, request, place_id=None):
+        """Update a place - Admin only - FIXED: No district field"""
+        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
+            return Response({
+                'success': False,
+                'error': 'Permission denied. Admin or Staff only.'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            place = get_object_or_404(CategoryPlace, id=place_id)
+            data = request.data
+            
+            # Update fields (skip district if it doesn't exist)
+            for field in ['name', 'location', 'description', 'difficulty', 
+                         'duration', 'best_time', 'image', 'type', 'hidden_gem']:
+                if field in data and data[field] is not None:
+                    setattr(place, field, data[field])
+            
+            # Only update district if it exists on the model
+            if 'district' in data and hasattr(place, 'district'):
+                place.district = data['district']
+            
+            place.save()
+            
+            return Response({
+                'success': True,
+                'message': f'Place "{place.name}" updated successfully',
+                'place': {
+                    'id': place.id,
+                    'destination_id': place.destination.id if place.destination else None,
+                    'name': place.name,
+                    'location': place.location,
+                    'description': place.description,
+                    'difficulty': place.difficulty,
+                    'duration': place.duration,
+                    'best_time': place.best_time,
+                    'image': place.image,
+                    'type': place.type,
+                    'hidden_gem': place.hidden_gem,
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error updating place: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # SEARCH / SUGGEST ENDPOINTS
+    # ============================================
+    
+    @action(detail=False, methods=['get'])
+    def search(self, request):
+        query = request.query_params.get('q', '')
+        if not query:
+            return Response([], status=status.HTTP_200_OK)
+        
+        results = self.get_queryset().filter(
+            Q(name__icontains=query) |
+            Q(short_description__icontains=query) |
+            Q(long_description__icontains=query) |
+            Q(district__icontains=query) |
+            Q(address__icontains=query)
+        )
+        
+        page = self.paginate_queryset(results)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(results, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def autocomplete(self, request):
+        query = request.query_params.get('q', '')
+        limit = int(request.query_params.get('limit', 10))
+        
+        if not query:
+            return Response([], status=status.HTTP_200_OK)
+        
+        results = self.get_queryset().filter(
+            Q(name__icontains=query) |
+            Q(district__icontains=query)
+        ).values('id', 'name', 'district')[:limit]
+        
+        return Response(results)
 
     @action(detail=False, methods=['post'], url_path='import-category-data')
     def import_category_data(self, request):
@@ -816,46 +1111,6 @@ class DestinationViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error importing category data: {e}")
             return Response({'success': False, 'error': str(e)}, status=400)
-
-    # ============================================
-    # SEARCH / SUGGEST ENDPOINTS
-    # ============================================
-    
-    @action(detail=False, methods=['get'])
-    def search(self, request):
-        query = request.query_params.get('q', '')
-        if not query:
-            return Response([], status=status.HTTP_200_OK)
-        
-        results = self.get_queryset().filter(
-            Q(name__icontains=query) |
-            Q(short_description__icontains=query) |
-            Q(long_description__icontains=query) |
-            Q(district__icontains=query) |
-            Q(address__icontains=query)
-        )
-        
-        page = self.paginate_queryset(results)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        serializer = self.get_serializer(results, many=True)
-        return Response(serializer.data)
-
-    @action(detail=False, methods=['get'])
-    def autocomplete(self, request):
-        query = request.query_params.get('q', '')
-        limit = int(request.query_params.get('limit', 10))
-        
-        if not query:
-            return Response([], status=status.HTTP_200_OK)
-        
-        results = self.get_queryset().filter(
-            Q(name__icontains=query) |
-            Q(district__icontains=query)
-        ).values('id', 'name', 'district')[:limit]
-        
-        return Response(results)
 
     # ============================================
     # HELPER METHODS
@@ -925,8 +1180,6 @@ class WishlistViewSet(viewsets.ModelViewSet):
         
         try:
             destination = Destination.objects.get(id=destination_id)
-            print(f"🔍 Toggling destination: {destination.id} - {destination.name}")
-            
         except Destination.DoesNotExist:
             return Response({
                 'success': False,
@@ -941,7 +1194,6 @@ class WishlistViewSet(viewsets.ModelViewSet):
         
         if wishlist_item:
             wishlist_item.delete()
-            print(f"🗑️ Removed {destination.name} from wishlist")
             return Response({
                 'success': True,
                 'action': 'removed',
@@ -954,7 +1206,6 @@ class WishlistViewSet(viewsets.ModelViewSet):
                 user=request.user,
                 destination=destination
             )
-            print(f"❤️ Added {destination.name} to wishlist")
             return Response({
                 'success': True,
                 'action': 'added',
@@ -1001,10 +1252,6 @@ class WishlistViewSet(viewsets.ModelViewSet):
         """Get all wishlist items for current user"""
         try:
             queryset = self.get_queryset()
-            
-            for item in queryset:
-                print(f"📌 Wishlist: {item.id} -> Destination: {item.destination.id} - {item.destination.name} (Category: {item.destination.category})")
-            
             serializer = self.get_serializer(queryset, many=True)
             
             return Response({
@@ -1013,7 +1260,6 @@ class WishlistViewSet(viewsets.ModelViewSet):
                 'results': serializer.data
             }, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"❌ Wishlist list error: {e}")
             return Response({
                 'success': False,
                 'error': str(e),
@@ -1026,10 +1272,7 @@ class WishlistViewSet(viewsets.ModelViewSet):
         try:
             instance = self.get_object()
             destination_id = instance.destination.id
-            destination_name = instance.destination.name
             instance.delete()
-            
-            print(f"🗑️ Removed {destination_name} from wishlist")
             
             return Response({
                 'success': True,
@@ -1038,7 +1281,6 @@ class WishlistViewSet(viewsets.ModelViewSet):
                 'destination_id': destination_id
             }, status=status.HTTP_200_OK)
         except Exception as e:
-            print(f"❌ Wishlist delete error: {e}")
             return Response({
                 'success': False,
                 'error': str(e)

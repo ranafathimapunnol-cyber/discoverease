@@ -48,6 +48,7 @@ const Login = () => {
     }
   }, [isLoggedIn, navigate]);
 
+  // ✅ FIXED: Login handler - Session Based (NO TOKEN)
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -74,6 +75,7 @@ const Login = () => {
       if (response.data && response.data.success) {
         const { user, role: userRole, session_key } = response.data;
 
+        // ✅ NO TOKEN - Just store user data
         const userToStore = {
           id: user.id,
           email: user.email,
@@ -85,6 +87,7 @@ const Login = () => {
           email_verified: user.email_verified || false,
         };
 
+        // ✅ Call login from AuthContext (NO TOKEN)
         const result = login(userToStore, session_key);
 
         if (result && result.success !== false) {
@@ -142,15 +145,15 @@ const Login = () => {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * { box-sizing: border-box; }
 
         .gl-page {
-          height: 100vh;
-          width: 100vw;
+          min-height: 100vh;
           position: relative;
           display: flex;
           align-items: center;
           justify-content: center;
+          padding: 32px 18px;
           overflow: hidden;
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
           background: linear-gradient(135deg, #FDF9EF 0%, #F3ECD8 45%, #EAF3EE 100%);
@@ -181,148 +184,108 @@ const Login = () => {
           z-index: 1;
           width: 100%;
           max-width: 400px;
-          max-height: 95vh;
-          overflow-y: auto;
           background: rgba(255,255,255,0.55);
           backdrop-filter: blur(22px) saturate(160%);
           -webkit-backdrop-filter: blur(22px) saturate(160%);
           border: 1px solid rgba(255,255,255,0.6);
           border-radius: 24px;
           box-shadow: 0 24px 70px rgba(11,36,34,0.16), inset 0 1px 0 rgba(255,255,255,0.7);
-          padding: 32px 34px 28px;
-        }
-
-        /* Hide scrollbar but keep functionality */
-        .gl-card::-webkit-scrollbar {
-          width: 0px;
-          background: transparent;
-        }
-        .gl-card {
-          scrollbar-width: none;
+          padding: 40px 34px 32px;
         }
 
         .gl-brandmark {
           display: flex;
           align-items: center;
           gap: 10px;
-          margin-bottom: 20px;
+          margin-bottom: 26px;
         }
         .gl-brandmark-icon {
-          width: 34px;
-          height: 34px;
-          border-radius: 10px;
+          width: 38px; height: 38px; border-radius: 11px;
           background: rgba(199,154,62,0.18);
           border: 1px solid rgba(199,154,62,0.4);
           backdrop-filter: blur(4px);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
-        .gl-brandmark-text {
-          font-size: 15px;
-          font-weight: 600;
-          color: #0B2422;
-          letter-spacing: 0.2px;
-        }
-        .gl-brandmark-text em {
-          font-style: normal;
-          color: #A9781E;
-        }
+        .gl-brandmark-text { font-size: 16px; font-weight: 600; color: #0B2422; letter-spacing: 0.2px; }
+        .gl-brandmark-text em { font-style: normal; color: #A9781E; }
 
-        .gl-heading {
-          margin: 0 0 18px;
-        }
+        .gl-heading { margin: 0 0 24px; }
         .gl-heading-eyebrow {
           font-family: 'IBM Plex Mono', monospace;
-          font-size: 9px;
+          font-size: 10px;
           letter-spacing: 2.5px;
           text-transform: uppercase;
           color: #A9781E;
-          margin: 0 0 4px;
+          margin: 0 0 6px;
         }
         .gl-heading-title {
           font-family: 'Fraunces', serif;
           font-style: italic;
           font-weight: 500;
-          font-size: 24px;
+          font-size: 27px;
           color: #0B2422;
-          margin: 0 0 2px;
+          margin: 0 0 4px;
         }
         .gl-heading-sub {
-          font-size: 12px;
+          font-size: 13px;
           color: #5A5548;
           margin: 0;
         }
 
         .gl-banner {
-          padding: 8px 12px;
-          border-radius: 10px;
-          font-size: 11.5px;
-          margin-bottom: 14px;
+          padding: 11px 14px;
+          border-radius: 12px;
+          font-size: 12.5px;
+          margin-bottom: 16px;
           display: flex;
           align-items: flex-start;
-          gap: 6px;
+          gap: 8px;
           line-height: 1.4;
           backdrop-filter: blur(6px);
         }
-        .gl-banner.success {
-          background: rgba(240,251,245,0.75);
-          color: #166534;
-          border: 1px solid rgba(191,231,205,0.8);
-        }
-        .gl-banner.error {
-          background: rgba(253,243,239,0.8);
-          color: #9A3412;
-          border: 1px solid rgba(243,210,190,0.8);
-        }
+        .gl-banner.success { background: rgba(240,251,245,0.75); color: #166534; border: 1px solid rgba(191,231,205,0.8); }
+        .gl-banner.error { background: rgba(253,243,239,0.8); color: #9A3412; border: 1px solid rgba(243,210,190,0.8); }
 
-        .gl-field {
-          margin-bottom: 12px;
-        }
+        .gl-field { margin-bottom: 15px; }
         .gl-field-label {
           display: block;
           font-family: 'IBM Plex Mono', monospace;
-          font-size: 9px;
+          font-size: 10px;
           letter-spacing: 1.5px;
           text-transform: uppercase;
           color: #6B5B36;
-          margin-bottom: 5px;
+          margin-bottom: 7px;
         }
-        .gl-field-wrap {
-          position: relative;
-        }
+        .gl-field-wrap { position: relative; }
         .gl-field-input {
           width: 100%;
-          padding: 9px 12px;
-          border-radius: 10px;
+          padding: 11px 14px;
+          border-radius: 12px;
           border: 1px solid rgba(199,154,62,0.28);
           background: rgba(255,255,255,0.45);
           backdrop-filter: blur(8px);
-          font-size: 13px;
+          font-size: 14px;
           font-family: 'Inter', sans-serif;
           color: #0B2422;
           outline: none;
           transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
         }
-        .gl-field-input::placeholder {
-          color: #9C8A6E;
-        }
+        .gl-field-input::placeholder { color: #9C8A6E; }
         .gl-field-input:focus {
           border-color: #C79A3E;
           background: rgba(255,255,255,0.75);
-          box-shadow: 0 0 0 3px rgba(199,154,62,0.14);
+          box-shadow: 0 0 0 3.5px rgba(199,154,62,0.14);
         }
         .gl-pw-toggle {
           position: absolute;
-          right: 10px;
+          right: 12px;
           top: 50%;
           transform: translateY(-50%);
           background: none;
           border: none;
           cursor: pointer;
           color: #8A7B54;
-          font-size: 14px;
+          font-size: 16px;
           padding: 2px;
           line-height: 1;
         }
@@ -331,74 +294,46 @@ const Login = () => {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin: 2px 0 12px;
+          margin: 4px 0 16px;
         }
-        .gl-remember {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 11.5px;
-          color: #4B5563;
-          cursor: pointer;
-        }
-        .gl-remember input {
-          accent-color: #C79A3E;
-          width: 13px;
-          height: 13px;
-          cursor: pointer;
-        }
-        .gl-forgot {
-          color: #A9781E;
-          font-size: 11.5px;
-          text-decoration: none;
-          font-weight: 500;
-        }
-        .gl-forgot:hover {
-          text-decoration: underline;
-        }
+        .gl-remember { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #4B5563; cursor: pointer; }
+        .gl-remember input { accent-color: #C79A3E; width: 14px; height: 14px; cursor: pointer; }
+        .gl-forgot { color: #A9781E; font-size: 12.5px; text-decoration: none; font-weight: 500; }
+        .gl-forgot:hover { text-decoration: underline; }
 
         /* CAPTCHA — glass checkpoint, right above submit */
-        .gl-checkpoint {
-          margin-bottom: 12px;
-        }
+        .gl-checkpoint { margin-bottom: 16px; }
         .gl-checkpoint-label {
           display: flex;
           align-items: center;
-          gap: 5px;
+          gap: 6px;
           font-family: 'IBM Plex Mono', monospace;
-          font-size: 9px;
+          font-size: 10px;
           letter-spacing: 1.5px;
           text-transform: uppercase;
           color: #6B5B36;
-          margin-bottom: 7px;
+          margin-bottom: 9px;
         }
         .gl-checkpoint-inner {
           display: flex;
           justify-content: center;
-          padding: 8px;
+          padding: 12px;
           background: rgba(255,255,255,0.35);
           backdrop-filter: blur(10px);
           border: 1px dashed rgba(199,154,62,0.5);
-          border-radius: 12px;
-          transform: scale(0.85);
-          transform-origin: center;
+          border-radius: 14px;
         }
-        .gl-captcha-err {
-          color: #B4472A;
-          font-size: 10.5px;
-          margin: 4px 0 0;
-          text-align: center;
-        }
+        .gl-captcha-err { color: #B4472A; font-size: 11.5px; margin: 7px 0 0; text-align: center; }
 
         .gl-submit {
           width: 100%;
-          padding: 11px;
-          border-radius: 11px;
+          padding: 13.5px;
+          border-radius: 13px;
           border: 1px solid rgba(7,46,42,0.15);
           background: linear-gradient(135deg, rgba(11,77,66,0.92), rgba(7,46,42,0.95));
           backdrop-filter: blur(10px);
           color: #FBF6EA;
-          font-size: 13.5px;
+          font-size: 14.5px;
           font-weight: 600;
           letter-spacing: 0.3px;
           cursor: pointer;
@@ -409,11 +344,7 @@ const Login = () => {
           box-shadow: 0 10px 26px rgba(7,46,42,0.28);
           filter: brightness(1.06);
         }
-        .gl-submit:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-          transform: none;
-        }
+        .gl-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
         .gl-submit:focus-visible,
         .gl-google-btn:focus-visible,
         .gl-field-input:focus-visible {
@@ -421,41 +352,31 @@ const Login = () => {
           outline-offset: 2px;
         }
 
-        .gl-divider {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin: 16px 0 12px;
-        }
-        .gl-divider-line {
-          flex: 1;
-          height: 1px;
-          background: rgba(199,154,62,0.25);
-        }
+        .gl-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 15px; }
+        .gl-divider-line { flex: 1; height: 1px; background: rgba(199,154,62,0.25); }
         .gl-divider-text {
           font-family: 'IBM Plex Mono', monospace;
-          font-size: 8.5px;
+          font-size: 9.5px;
           letter-spacing: 2px;
           text-transform: uppercase;
           color: #9C8A5C;
-          white-space: nowrap;
         }
 
         .gl-google-btn {
           width: 100%;
-          padding: 9.5px 14px;
-          border-radius: 10px;
+          padding: 11.5px 16px;
+          border-radius: 12px;
           border: 1px solid rgba(199,154,62,0.28);
           background: rgba(255,255,255,0.45);
           backdrop-filter: blur(8px);
           color: #0B2422;
-          font-size: 12.5px;
+          font-size: 13.5px;
           font-weight: 500;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 8px;
+          gap: 10px;
           transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
         }
         .gl-google-btn:hover:not(:disabled) {
@@ -464,96 +385,31 @@ const Login = () => {
           box-shadow: 0 6px 16px rgba(199,154,62,0.16);
           transform: translateY(-1px);
         }
-        .gl-google-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
+        .gl-google-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .gl-register {
           text-align: center;
-          margin-top: 16px;
-          font-size: 11.5px;
+          margin-top: 20px;
+          font-size: 12.5px;
           color: #6B6553;
         }
-        .gl-register a {
-          color: #A9781E;
-          font-weight: 600;
-          text-decoration: none;
-        }
-        .gl-register a:hover {
-          text-decoration: underline;
-        }
+        .gl-register a { color: #A9781E; font-weight: 600; text-decoration: none; }
+        .gl-register a:hover { text-decoration: underline; }
 
-        @keyframes gl-spin {
-          to {
-            transform: rotate(360deg);
-          }
-        }
+        @keyframes gl-spin { to { transform: rotate(360deg); } }
         @keyframes gl-drift {
-          0%, 100% {
-            transform: translate(0, 0);
-          }
-          50% {
-            transform: translate(14px, -10px);
-          }
+          0%, 100% { transform: translate(0, 0); }
+          50% { transform: translate(14px, -10px); }
         }
-        .gl-blob {
-          animation: gl-drift 12s ease-in-out infinite;
-        }
-        .gl-blob.b2 {
-          animation-duration: 15s;
-          animation-delay: -3s;
-        }
-        .gl-blob.b3 {
-          animation-duration: 10s;
-          animation-delay: -6s;
-        }
+        .gl-blob { animation: gl-drift 12s ease-in-out infinite; }
+        .gl-blob.b2 { animation-duration: 15s; animation-delay: -3s; }
+        .gl-blob.b3 { animation-duration: 10s; animation-delay: -6s; }
         @media (prefers-reduced-motion: reduce) {
-          .gl-blob {
-            animation: none;
-          }
+          .gl-blob { animation: none; }
         }
 
-        /* Responsive adjustments */
-        @media (max-width: 440px) {
-          .gl-card {
-            padding: 24px 20px 20px;
-            border-radius: 18px;
-            max-height: 98vh;
-          }
-          .gl-heading-title {
-            font-size: 21px;
-          }
-          .gl-checkpoint-inner {
-            transform: scale(0.75);
-          }
-        }
-
-        @media (max-height: 700px) {
-          .gl-card {
-            padding: 20px 28px 18px;
-          }
-          .gl-brandmark {
-            margin-bottom: 14px;
-          }
-          .gl-heading {
-            margin-bottom: 12px;
-          }
-          .gl-field {
-            margin-bottom: 8px;
-          }
-          .gl-row {
-            margin: 0 0 8px;
-          }
-          .gl-checkpoint {
-            margin-bottom: 8px;
-          }
-          .gl-divider {
-            margin: 10px 0 8px;
-          }
-          .gl-register {
-            margin-top: 10px;
-          }
+        @media (max-width: 420px) {
+          .gl-card { padding: 32px 24px 26px; border-radius: 20px; }
         }
       `}</style>
 
@@ -565,7 +421,7 @@ const Login = () => {
       <div className="gl-card">
         <div className="gl-brandmark">
           <div className="gl-brandmark-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M12 2C12 2 6 8 6 14a6 6 0 0012 0c0-6-6-12-6-12z" stroke="#A9781E" strokeWidth="1.5" />
               <path d="M12 8v10" stroke="#A9781E" strokeWidth="1.5" />
               <circle cx="12" cy="12" r="2" fill="#A9781E" />
@@ -620,7 +476,7 @@ const Login = () => {
                 placeholder="Enter your password"
                 required
                 autoComplete="current-password"
-                style={{ paddingRight: 34 }}
+                style={{ paddingRight: 38 }}
               />
               <button
                 type="button"
@@ -648,7 +504,7 @@ const Login = () => {
           {/* CAPTCHA sits right above the submit button */}
           <div className="gl-checkpoint">
             <p className="gl-checkpoint-label">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
                 <rect x="4" y="10" width="16" height="10" rx="2" stroke="#6B5B36" strokeWidth="1.5" />
                 <path d="M8 10V7a4 4 0 018 0v3" stroke="#6B5B36" strokeWidth="1.5" />
               </svg>
@@ -673,8 +529,8 @@ const Login = () => {
 
           <button type="submit" className="gl-submit" disabled={loading}>
             {loading ? (
-              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ animation: 'gl-spin 0.8s linear infinite' }}>
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ animation: 'gl-spin 0.8s linear infinite' }}>
                   <circle cx="12" cy="12" r="10" stroke="rgba(251,246,234,0.3)" strokeWidth="4" />
                   <path d="M4 12a8 8 0 018-8" stroke="#FBF6EA" strokeWidth="4" strokeLinecap="round" />
                 </svg>
@@ -696,7 +552,7 @@ const Login = () => {
           onClick={handleGoogleLogin}
           disabled={isGoogleLoading}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24">
+          <svg width="18" height="18" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
             <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>

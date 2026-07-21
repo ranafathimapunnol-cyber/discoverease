@@ -1,4 +1,4 @@
-// App.jsx - COMPLETE FIXED VERSION
+// App.jsx - FIXED VERSION
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -157,7 +157,7 @@ function App() {
                     {/* ========================================== */}
                     {/* PUBLIC ROUTES - No login required          */}
                     {/* ========================================== */}
-                    <Route path="/" element={<Home />} />
+                    {/* ✅ Login and Register remain public */}
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/verify-email" element={<VerifyEmail />} />
@@ -168,7 +168,17 @@ function App() {
                     {/* PROTECTED ROUTES - Login required          */}
                     {/* ========================================== */}
                     
-                    {/* ✅ Tourister Routes - Fixed */}
+                    {/* ✅ HOME - Now restricted to tourister only */}
+                    <Route
+                        path="/"
+                        element={
+                            <ProtectedRoute allowedRoles={['tourister']}>
+                                <Home />
+                            </ProtectedRoute>
+                        }
+                    />
+                    
+                    {/* ✅ Tourister Routes */}
                     <Route
                         path="/categories"
                         element={
@@ -178,7 +188,6 @@ function App() {
                         }
                     />
                     
-                    {/* ✅ CategoryDetail - Fixed with correct route */}
                     <Route
                         path="/category/:categoryId"
                         element={

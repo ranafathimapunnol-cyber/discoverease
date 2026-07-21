@@ -492,6 +492,148 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
+    # ✅ UPDATE GUIDE - /api/staff/guides/{id}/update/ (NEW URL)
+    # ============================================
+    @action(detail=True, methods=['put', 'patch'], url_path='update')
+    def update_guide(self, request, pk=None):
+        """Update a guide - URL: /api/staff/guides/{id}/update/"""
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            guide = get_object_or_404(Guide, id=pk)
+            data = request.data
+            
+            # Update basic fields
+            if 'full_name' in data:
+                guide.full_name = data['full_name'].strip()
+                if guide.user:
+                    name_parts = guide.full_name.split()
+                    guide.user.first_name = name_parts[0] if name_parts else ''
+                    guide.user.last_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ''
+                    guide.user.save()
+            
+            if 'phone' in data:
+                guide.phone_number = data['phone'].strip()
+            
+            if 'bio' in data:
+                guide.bio = data['bio'].strip()
+            
+            if 'experience_years' in data:
+                guide.years_of_experience = int(data['experience_years'])
+            
+            if 'languages' in data:
+                guide.languages = data['languages'].strip()
+            
+            if 'price_per_day' in data:
+                guide.price_per_day = float(data['price_per_day'])
+            
+            if 'price_per_hour' in data:
+                guide.price_per_hour = float(data['price_per_hour'])
+            
+            if 'is_verified' in data:
+                guide.is_verified = bool(data['is_verified'])
+            
+            # Update districts
+            if 'primary_district' in data and data['primary_district']:
+                try:
+                    district = District.objects.get(name=data['primary_district'])
+                    guide.districts.clear()
+                    guide.districts.add(district)
+                except District.DoesNotExist:
+                    return Response({
+                        'success': False,
+                        'error': f"District '{data['primary_district']}' not found"
+                    }, status=400)
+            
+            guide.save()
+            
+            self._log_activity(request, 'update', 'Guide', guide.id, {
+                'guide_name': guide.full_name,
+                'fields_updated': list(data.keys())
+            })
+            
+            return Response({
+                'success': True,
+                'message': 'Guide updated successfully',
+                'guide': {
+                    'id': guide.id,
+                    'full_name': guide.full_name,
+                    'email': guide.email,
+                    'phone_number': guide.phone_number,
+                    'bio': guide.bio,
+                    'profile_image': guide.profile_image.url if guide.profile_image else None,
+                    'is_verified': guide.is_verified,
+                    'experience_years': guide.years_of_experience,
+                    'languages': guide.languages,
+                    'price_per_day': float(guide.price_per_day),
+                    'price_per_hour': float(guide.price_per_hour),
+                    'primary_district': guide.districts.first().name if guide.districts.exists() else None,
+                }
+            })
+            
+        except Http404:
+            return Response({'success': False, 'error': 'Guide not found'}, status=404)
+        except Exception as e:
+            logger.error(f"Error updating guide: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
+    # ✅ UPLOAD GUIDE PROFILE PICTURE - /api/staff/guides/{id}/upload-profile-pic/
+    # ============================================
+    @action(detail=True, methods=['post'], url_path='upload-profile-pic')
+    def upload_guide_profile_pic(self, request, pk=None):
+        """Upload profile picture for a guide"""
+        if not self._check_staff_access(request):
+            return Response({'error': 'Staff access required'}, status=403)
+
+        try:
+            guide = get_object_or_404(Guide, id=pk)
+            
+            if 'profile_image' not in request.FILES:
+                return Response({
+                    'success': False,
+                    'error': 'No image file provided'
+                }, status=400)
+            
+            file = request.FILES['profile_image']
+            
+            # Validate file size (5MB max)
+            if file.size > 5 * 1024 * 1024:
+                return Response({
+                    'success': False,
+                    'error': 'File size must be less than 5MB'
+                }, status=400)
+            
+            # Validate file type
+            if not file.content_type.startswith('image/'):
+                return Response({
+                    'success': False,
+                    'error': 'File must be an image'
+                }, status=400)
+            
+            guide.profile_image = file
+            guide.save()
+            
+            self._log_activity(request, 'upload_profile_pic', 'Guide', guide.id, {
+                'guide_name': guide.full_name,
+                'file_size': file.size,
+                'content_type': file.content_type
+            })
+            
+            return Response({
+                'success': True,
+                'message': 'Profile picture updated successfully',
+                'profile_image': guide.profile_image.url if guide.profile_image else None
+            })
+            
+        except Http404:
+            return Response({'success': False, 'error': 'Guide not found'}, status=404)
+        except Exception as e:
+            logger.error(f"Error uploading profile picture: {e}")
+            return Response({'success': False, 'error': str(e)}, status=400)
+
+    # ============================================
     # ✅ VERIFY GUIDE - /api/staff/{pk}/verify/
     # ============================================
     @action(detail=True, methods=['post'], url_path='verify')

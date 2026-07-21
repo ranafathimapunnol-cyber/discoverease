@@ -1,4 +1,4 @@
-// pages/Wishlist.jsx - COMPLETE FIXED VERSION
+// pages/Wishlist.jsx - FIXED VERSION with proper detail navigation
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -315,26 +315,33 @@ export default function Wishlist() {
         [navigate],
     );
 
-    // ✅ FIXED: View details with category
+    // ✅ FIXED: View details - Navigate to destination detail page
     const handleViewDetails = useCallback(
         (place) => {
+            console.log('🔍 Viewing details for:', place);
+            
+            // Try to navigate using slug first
             if (place.slug) {
-                const params = new URLSearchParams();
-                if (place.category) {
-                    params.set('category', place.category);
-                }
-                const queryString = params.toString();
-                navigate(`/destination/${place.slug}${queryString ? `?${queryString}` : ''}`);
-            } else if (place.id) {
-                const params = new URLSearchParams();
-                if (place.category) {
-                    params.set('category', place.category);
-                }
-                const queryString = params.toString();
-                navigate(`/destination/${place.id}${queryString ? `?${queryString}` : ''}`);
-            } else {
-                navigate('/categories');
+                navigate(`/destination/${place.slug}`);
+                return;
             }
+            
+            // If we have an ID, try to find the destination by ID
+            if (place.id) {
+                // Try to navigate using ID
+                navigate(`/destination/${place.id}`);
+                return;
+            }
+            
+            // If we have a name, try to search for it
+            if (place.name) {
+                // Navigate to destinations page with search
+                navigate(`/destinations?search=${encodeURIComponent(place.name)}`);
+                return;
+            }
+            
+            // Fallback: go to categories
+            navigate('/categories');
         },
         [navigate],
     );
@@ -858,8 +865,7 @@ export default function Wishlist() {
                                         overflow: 'hidden',
                                         border: '1px solid rgba(199,154,62,0.15)',
                                         position: 'relative',
-                                    }}
-                                    onClick={() => handleViewDetails(place)}>
+                                    }}>
                                     <img
                                         src={
                                             place.image ||

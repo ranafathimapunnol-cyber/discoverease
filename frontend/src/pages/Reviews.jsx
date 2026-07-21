@@ -1,6 +1,6 @@
-// pages/Reviews.jsx - COMPLETE FIXED VERSION (NO MINIMUM VALIDATION)
+// pages/Reviews.jsx - FIXED VERSION (Image upload as File)
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -11,13 +11,14 @@ const Reviews = () => {
     const [scrolled, setScrolled] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [imagePreview, setImagePreview] = useState(null);
+    const [imageFile, setImageFile] = useState(null);
+    const fileInputRef = useRef(null);
     const [formData, setFormData] = useState({
         destination: '',
         district: '',
         rating: 5,
         title: '',
         review_text: '',
-        image: null,
         tips: '',
         best_time: '',
         category: 'general'
@@ -36,7 +37,7 @@ const Reviews = () => {
     }, []);
 
     const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
             reader.onload = (event) => {
@@ -63,9 +64,14 @@ const Reviews = () => {
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
-                    resolve(canvas.toDataURL('image/jpeg', quality));
+                    
+                    // Convert to blob for file upload
+                    canvas.toBlob((blob) => {
+                        resolve(blob);
+                    }, 'image/jpeg', quality);
                 };
             };
+            reader.onerror = reject;
         });
     };
 
@@ -81,22 +87,30 @@ const Reviews = () => {
                 return;
             }
             try {
-                const compressedImage = await compressImage(file, 600, 600, 0.6);
-                setFormData({ ...formData, image: compressedImage });
-                setImagePreview(compressedImage);
+                // Store the original file for upload
+                setImageFile(file);
+                
+                // Create preview
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setImagePreview(reader.result);
+                };
+                reader.readAsDataURL(file);
             } catch (error) {
-                console.error('Error compressing image:', error);
+                console.error('Error processing image:', error);
                 alert('Failed to process image. Please try again.');
             }
         }
     };
 
     const removeImage = () => {
-        setFormData({ ...formData, image: null });
+        setImageFile(null);
         setImagePreview(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
-    // ✅ Submit review - NO MINIMUM VALIDATION
     const handleSubmitReview = async (e) => {
         e.preventDefault();
 
@@ -116,7 +130,6 @@ const Reviews = () => {
             return;
         }
 
-        // ✅ ONLY CHECK IF NOT EMPTY (NO MINIMUM LENGTH)
         if (!formData.review_text || formData.review_text.trim() === '') {
             alert('⚠️ Please write your review.');
             return;
@@ -124,26 +137,35 @@ const Reviews = () => {
 
         setSubmitting(true);
         try {
-            const reviewData = {
-                name: formData.destination,
-                description: formData.review_text,
-                category: formData.category,
-                location_info: formData.district,
-                district: formData.district,
-                suggestion_type: 'review',
-                rating: formData.rating,
-                title: formData.title || formData.destination,
-                tips: formData.tips || '',
-                best_time: formData.best_time || '',
-            };
+            // ✅ Use FormData for file upload
+            const formDataToSend = new FormData();
+            formDataToSend.append('name', formData.destination);
+            formDataToSend.append('title', formData.title || formData.destination);
+            formDataToSend.append('description', formData.review_text);
+            formDataToSend.append('suggestion_type', 'review');
+            formDataToSend.append('district', formData.district);
+            formDataToSend.append('category', formData.category || 'general');
+            formDataToSend.append('location_info', formData.district);
+            formDataToSend.append('rating', formData.rating);
+            formDataToSend.append('tips', formData.tips || '');
+            formDataToSend.append('best_time', formData.best_time || '');
             
-            console.log('📤 Sending review data:', reviewData);
+            // ✅ Append image file if exists
+            if (imageFile) {
+                formDataToSend.append('image', imageFile);
+            }
+
+            console.log('📤 Sending review with image:', imageFile ? imageFile.name : 'No image');
             
-            const response = await api.post('/suggestions/', reviewData);
+            const response = await api.post('/suggestions/', formDataToSend, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
             
             console.log('📥 Response:', response.data);
             
-            if (response.data?.success) {
+            if (response.data?.success || response.status === 201 || response.status === 200) {
                 alert('✅ Your review has been submitted for approval!');
                 resetForm();
                 setSubmitting(false);
@@ -160,6 +182,7 @@ const Reviews = () => {
             }
         } catch (error) {
             console.error('❌ API submission failed:', error);
+            console.error('❌ Error response:', error.response?.data);
             
             if (error.response?.data?.errors) {
                 const errors = Object.values(error.response.data.errors).flat().join('\n');
@@ -169,50 +192,10 @@ const Reviews = () => {
             } else if (error.response?.data?.message) {
                 alert(`⚠️ ${error.response.data.message}`);
             } else {
-                saveToLocalStorage();
+                alert('❌ Failed to submit review. Please try again.');
             }
         } finally {
             setSubmitting(false);
-        }
-    };
-
-    // ✅ Save to localStorage as fallback
-    const saveToLocalStorage = () => {
-        try {
-            const existingReviews = JSON.parse(localStorage.getItem('user_reviews') || '[]');
-            
-            const MAX_STORAGE_ITEMS = 100;
-            if (existingReviews.length > MAX_STORAGE_ITEMS) {
-                existingReviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-                const trimmedReviews = existingReviews.slice(0, MAX_STORAGE_ITEMS);
-                existingReviews.length = 0;
-                existingReviews.push(...trimmedReviews);
-            }
-            
-            const newReview = {
-                id: Date.now(),
-                destination: formData.destination,
-                district: formData.district,
-                rating: formData.rating,
-                title: formData.title || formData.destination,
-                review_text: formData.review_text,
-                tips: formData.tips || '',
-                best_time: formData.best_time || '',
-                category: formData.category || 'general',
-                status: 'pending',
-                user_email: user?.email || 'anonymous',
-                user_id: user?.id,
-                created_at: new Date().toISOString(),
-                image: formData.image || null,
-            };
-            
-            existingReviews.push(newReview);
-            localStorage.setItem('user_reviews', JSON.stringify(existingReviews));
-            alert('✅ Your review has been saved locally!');
-            resetForm();
-        } catch (error) {
-            console.error('Error saving to localStorage:', error);
-            alert('Failed to save review. Please try again.');
         }
     };
 
@@ -223,12 +206,15 @@ const Reviews = () => {
             rating: 5,
             title: '',
             review_text: '',
-            image: null,
             tips: '',
             best_time: '',
             category: 'general'
         });
+        setImageFile(null);
         setImagePreview(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
 
     const handleProtectedClick = (path) => {
@@ -493,23 +479,22 @@ const Reviews = () => {
                                 value={formData.category}
                                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                             >
-                              
-                               <option value="beach">Beach</option>
-                                    <option value="hill">Hill Station</option>
-                                    <option value="backwater">Backwater</option>
-                                    <option value="heritage">Heritage</option>
-                                    <option value="wildlife">Wildlife</option>
-                                    <option value="temple">Temple</option>
-                                    <option value="waterfalls">Waterfalls</option>
-                                    <option value="nature">Nature</option>
-                                    <option value="fort">Fort/Palace</option>
-                                    <option value="museum">Museum</option>
-                                    <option value="camping">Camping</option>
-                                    <option value="islands">Islands</option>
-                                    <option value="sacred">Sacred Site</option>
-                                    <option value="off-road">Off Road</option>
-                                    <option value="parks">Parks</option>
-                                    <option value="other">Other</option>
+                                <option value="beach">Beach</option>
+                                <option value="hill">Hill Station</option>
+                                <option value="backwater">Backwater</option>
+                                <option value="heritage">Heritage</option>
+                                <option value="wildlife">Wildlife</option>
+                                <option value="temple">Temple</option>
+                                <option value="waterfalls">Waterfalls</option>
+                                <option value="nature">Nature</option>
+                                <option value="fort">Fort/Palace</option>
+                                <option value="museum">Museum</option>
+                                <option value="camping">Camping</option>
+                                <option value="islands">Islands</option>
+                                <option value="sacred">Sacred Site</option>
+                                <option value="off-road">Off Road</option>
+                                <option value="parks">Parks</option>
+                                <option value="other">Other</option>
                             </select>
                         </div>
 
@@ -531,6 +516,7 @@ const Reviews = () => {
                                     <span>📷 Choose Image</span>
                                     <input
                                         type="file"
+                                        ref={fileInputRef}
                                         accept="image/*"
                                         onChange={handleImageChange}
                                         style={{ display: "none" }}

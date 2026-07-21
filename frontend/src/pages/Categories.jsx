@@ -12,19 +12,18 @@ export default function Categories() {
   const [selectedDistrict, setSelectedDistrict] = useState("All Districts");
   const [categories, setCategories] = useState([]);
   const [filteredCategories, setFilteredCategories] = useState([]);
-  const [loading, setLoading] = useState(true); // ✅ Start with true
+  const [loading, setLoading] = useState(true);
   const [activeNav, setActiveNav] = useState('location');
   const [scrolled, setScrolled] = useState(false);
   const [showDistrictDropdown, setShowDistrictDropdown] = useState(false);
   const [showCategoryFilter, setShowCategoryFilter] = useState(false);
   const [categoryTypeFilter, setCategoryTypeFilter] = useState("all");
   const [stats, setStats] = useState({ total: 0, places: 0, districts: 14 });
-  const [error, setError] = useState(null); // ✅ Add error state
+  const [error, setError] = useState(null);
   
   const districtRef = useRef(null);
   const categoryRef = useRef(null);
   const dataLoadedRef = useRef(false);
-  const abortControllerRef = useRef(null);
 
   // ✅ Redirect if not logged in
   useEffect(() => {
@@ -62,7 +61,6 @@ export default function Categories() {
         return;
       }
 
-      // ✅ Reset loading state
       setLoading(true);
       setError(null);
 
@@ -78,17 +76,20 @@ export default function Categories() {
           const formattedCategories = response.data.map(cat => ({
             key: cat.key,
             label: cat.title || cat.key.charAt(0).toUpperCase() + cat.key.slice(1),
-            count: `${cat.count || 0} places`,
+            count: cat.count || 0,
+            countLabel: `${cat.count || 0} places`,
             url: cat.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
             description: cat.description || `Explore ${cat.title || cat.key} in Kerala`,
             type: cat.type || 'Nature & Outdoor',
             icon: cat.icon,
-            places: cat.places || []
+            places: cat.places || [],
+            districts: (cat.places || [])
+              .map(p => p.location || p.district || '')
+              .filter(d => d && d.length > 0)
           }));
           
           console.log('✅ Formatted', formattedCategories.length, 'categories');
           
-          // ✅ SET STATE - This should trigger re-render
           setCategories(formattedCategories);
           setFilteredCategories(formattedCategories);
           
@@ -101,15 +102,11 @@ export default function Categories() {
           
           dataLoadedRef.current = true;
           
-          // Cache in localStorage
           try {
             localStorage.setItem('categories_data', JSON.stringify(formattedCategories));
-          } catch (e) {
-            // Ignore storage errors
-          }
+          } catch (e) {}
         } else {
           console.warn('⚠️ No categories data received');
-          // Try localStorage fallback
           try {
             const cached = localStorage.getItem('categories_data');
             if (cached) {
@@ -119,12 +116,10 @@ export default function Categories() {
               setFilteredCategories(parsed);
               dataLoadedRef.current = true;
             } else {
-              console.warn('⚠️ No cached data available');
               setCategories(fallbackCategories);
               setFilteredCategories(fallbackCategories);
             }
           } catch (e) {
-            console.error('❌ Error parsing cached data:', e);
             setCategories(fallbackCategories);
             setFilteredCategories(fallbackCategories);
           }
@@ -133,7 +128,6 @@ export default function Categories() {
         console.error('❌ Error fetching categories:', error);
         setError(error.message || 'Failed to load categories');
         
-        // Try localStorage fallback
         try {
           const cached = localStorage.getItem('categories_data');
           if (cached) {
@@ -152,7 +146,6 @@ export default function Categories() {
         }
       } finally {
         setLoading(false);
-        console.log('✅ Loading set to false, categories:', categories.length, 'filtered:', filteredCategories.length);
       }
     };
 
@@ -160,16 +153,16 @@ export default function Categories() {
   }, [isLoggedIn]);
 
   const fallbackCategories = [
-    { key: "beaches", label: "Beaches", count: "0 places", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80", description: "Kerala's stunning coastline", type: "Nature & Outdoor" },
-    { key: "backwaters", label: "Backwaters", count: "0 places", url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80", description: "Serene canals and lagoons", type: "Nature & Outdoor" },
-    { key: "waterfall", label: "Waterfalls", count: "0 places", url: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80", description: "Spectacular cascades", type: "Nature & Outdoor" },
-    { key: "hillstations", label: "Hill Stations", count: "0 places", url: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80", description: "Misty mountains and tea gardens", type: "Nature & Outdoor" },
-    { key: "wildlife", label: "Wildlife Sanctuaries", count: "0 places", url: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80", description: "National parks and reserves", type: "Nature & Outdoor" },
+    { key: "beaches", label: "Beaches", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80", description: "Kerala's stunning coastline", type: "Nature & Outdoor", districts: [] },
+    { key: "backwaters", label: "Backwaters", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80", description: "Serene canals and lagoons", type: "Nature & Outdoor", districts: [] },
+    { key: "waterfall", label: "Waterfalls", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80", description: "Spectacular cascades", type: "Nature & Outdoor", districts: [] },
+    { key: "hillstations", label: "Hill Stations", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80", description: "Misty mountains and tea gardens", type: "Nature & Outdoor", districts: [] },
+    { key: "wildlife", label: "Wildlife Sanctuaries", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80", description: "National parks and reserves", type: "Nature & Outdoor", districts: [] },
   ];
 
-  // ✅ Filter categories when search or filters change
+  // ✅ Filter categories
   useEffect(() => {
-    console.log('🔄 Filtering categories. Total:', categories.length, 'Search:', searchTerm);
+    console.log('🔄 Filtering categories. Total:', categories.length);
     
     let filtered = [...categories];
     
@@ -180,17 +173,22 @@ export default function Categories() {
         cat.key.toLowerCase().includes(term) ||
         (cat.description && cat.description.toLowerCase().includes(term))
       );
-      console.log('🔍 After search filter:', filtered.length);
+    }
+    
+    if (selectedDistrict !== "All Districts") {
+      filtered = filtered.filter(cat => 
+        cat.districts && cat.districts.some(d => 
+          d.toLowerCase().includes(selectedDistrict.toLowerCase())
+        )
+      );
     }
     
     if (categoryTypeFilter !== "all") {
       filtered = filtered.filter(cat => cat.type === categoryTypeFilter);
-      console.log('📂 After type filter:', filtered.length);
     }
     
     setFilteredCategories(filtered);
-    console.log('✅ Filtered categories set to:', filtered.length);
-  }, [searchTerm, categories, categoryTypeFilter]);
+  }, [searchTerm, categories, categoryTypeFilter, selectedDistrict]);
 
   const handleSearch = (e) => setSearchTerm(e.target.value.toLowerCase());
   
@@ -246,6 +244,7 @@ export default function Categories() {
     "Wellness & Relaxation"
   ];
 
+  // ✅ BOTTOM NAVIGATION COMPONENT (FIXED)
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -312,17 +311,8 @@ export default function Categories() {
     </div>
   );
 
-  // ✅ DEBUG: Log state changes
-  console.log('🔄 RENDER STATE:', { 
-    loading, 
-    categoriesLength: categories.length, 
-    filteredLength: filteredCategories.length,
-    isLoggedIn 
-  });
-
   // ✅ SHOW LOADING
   if (loading) {
-    console.log('⏳ Showing loading spinner...');
     return (
       <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ textAlign: "center" }}>
@@ -359,7 +349,6 @@ export default function Categories() {
 
   // ✅ SHOW EMPTY STATE
   if (!loading && (!categories || categories.length === 0)) {
-    console.log('📭 No categories found, showing empty state...');
     return (
       <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
         <div style={{ textAlign: "center" }}>
@@ -378,8 +367,6 @@ export default function Categories() {
   }
 
   // ✅ RENDER CATEGORIES
-  console.log('🎨 Rendering categories grid with', filteredCategories.length, 'categories');
-  
   return (
     <div style={{ background: "#FBF6EA", minHeight: "100vh", paddingBottom: 100, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#0B2422" }}>
       <style>{`
@@ -557,8 +544,8 @@ export default function Categories() {
 
           <div style={{ display: "flex", gap: "clamp(18px, 3vw, 32px)", marginTop: 22 }}>
             {[
-              [stats.total || filteredCategories.length, "categories"],
-              [stats.places || "0", "places"],
+              [filteredCategories.length, "categories"],
+              [filteredCategories.reduce((sum, cat) => sum + (cat.count || 0), 0), "places"],
               [stats.districts || "14", "districts"]
             ].map(([n, l], i) => (
               <div key={i}>
@@ -579,6 +566,7 @@ export default function Categories() {
           {filteredCategories.length} {filteredCategories.length === 1 ? "category" : "categories"}
           {selectedDistrict !== "All Districts" && ` in ${selectedDistrict}`}
           {categoryTypeFilter !== "all" && ` • ${categoryTypeFilter}`}
+          {searchTerm && ` matching "${searchTerm}"`}
         </p>
         <div className="cat-grid">
           {filteredCategories.map((cat) => (
@@ -595,7 +583,7 @@ export default function Categories() {
                   {cat.label}
                 </div>
                 <div className="cat-font-mono" style={{ fontSize: 9, letterSpacing: 0.5, color: "rgba(237,226,196,0.7)" }}>
-                  {cat.count}
+                  {cat.countLabel || `${cat.count || 0} places`}
                 </div>
                 {cat.type && (
                   <div style={{ fontSize: 8, letterSpacing: 0.5, color: "rgba(237,226,196,0.5)", marginTop: 2, textTransform: "uppercase" }}>
@@ -613,6 +601,16 @@ export default function Categories() {
           {filteredCategories.length === 0 && (
             <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "32px 0", color: "#8A9A95" }}>
               <p className="cat-font-mono" style={{ fontSize: 12 }}>No categories match your filters</p>
+              <button 
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedDistrict("All Districts");
+                  setCategoryTypeFilter("all");
+                }}
+                style={{ marginTop: 12, padding: "8px 20px", background: "#C79A3E", color: "#fff", border: "none", borderRadius: 999, cursor: "pointer", fontSize: 12 }}
+              >
+                Reset Filters
+              </button>
             </div>
           )}
         </div>
