@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     District, GuideCategory, Guide, GuideAvailability, 
-    GuideBooking, GuideReview
+    GuideBooking
 )
 
 @admin.register(District)
@@ -43,13 +43,3 @@ class GuideBookingAdmin(admin.ModelAdmin):
     list_filter = ['status', 'date']
     search_fields = ['booking_id', 'user__username', 'guide__full_name']
     readonly_fields = ['booking_id', 'total_price', 'created_at', 'updated_at']
-
-@admin.register(GuideReview)
-class GuideReviewAdmin(admin.ModelAdmin):
-    list_display = ['user', 'guide', 'rating', 'comment_preview', 'created_at']
-    list_filter = ['rating']
-    search_fields = ['user__username', 'guide__full_name', 'comment']
-    
-    def comment_preview(self, obj):
-        return obj.comment[:50] + '...' if len(obj.comment) > 50 else obj.comment
-    comment_preview.short_description = 'Comment'

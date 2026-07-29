@@ -14,7 +14,6 @@ from django.utils import timezone
 from django.conf import settings
 from django.middleware.csrf import get_token
 from django.core.mail import send_mail
-from django.db import models
 from .models import User
 from .serializers import (
     UserSerializer,
@@ -40,7 +39,7 @@ class AuthViewSet(viewsets.ModelViewSet):
         """
         if self.action in ['me', 'update_profile', 'upload_profile_picture',
                           'delete_profile_picture', 'trip_stats', 'delete_account',
-                          'logout', 'admin_users', 'profile_data']:
+                          'logout', 'admin_users', 'profile_data', 'ping', 'change_password']:
             return [IsAuthenticated()]
         return [AllowAny()]
 
@@ -75,6 +74,33 @@ class AuthViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"CSRF token error: {e}")
             return Response({'csrf_token': 'error'}, status=200)
+
+    # ============================================
+    # ✅ PING - KEEP SESSION ALIVE
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='ping', permission_classes=[IsAuthenticated])
+    def ping(self, request):
+        """Ping endpoint to keep session alive."""
+        try:
+            if request.user and request.user.is_authenticated:
+                return Response({
+                    'success': True,
+                    'message': 'Session is active',
+                    'user_id': request.user.id,
+                    'email': request.user.email,
+                    'timestamp': timezone.now().isoformat()
+                })
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'Not authenticated'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+        except Exception as e:
+            logger.error(f"Ping error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     # ============================================
     # ✅ REGISTER
@@ -438,14 +464,11 @@ class AuthViewSet(viewsets.ModelViewSet):
             })
 
     # ============================================
-    # ✅ PROFILE DATA - COMPLETE FIXED
+    # ✅ PROFILE DATA
     # ============================================
     @action(detail=False, methods=['get'], url_path='profile-data', permission_classes=[IsAuthenticated])
     def profile_data(self, request):
-        """
-        Get ALL profile data in a SINGLE API call
-        Includes: user, stats, suggestions (with images), reviews
-        """
+        """Get ALL profile data in a SINGLE API call"""
         try:
             user = request.user
 
@@ -455,10 +478,9 @@ class AuthViewSet(viewsets.ModelViewSet):
                     'error': 'Account has been deleted'
                 }, status=status.HTTP_403_FORBIDDEN)
 
-            # 1. User data
             user_data = UserSerializer(user).data
 
-            # 2. Trip stats
+            # Trip stats
             total_bookings = 0
             completed_bookings = 0
             pending_bookings = 0
@@ -489,7 +511,7 @@ class AuthViewSet(viewsets.ModelViewSet):
                 'confirmed_trips': confirmed_bookings,
             }
 
-            # 3. User suggestions (with images)
+            # User suggestions
             suggestions_data = []
             suggestion_stats = {
                 'total': 0,
@@ -502,9 +524,8 @@ class AuthViewSet(viewsets.ModelViewSet):
             try:
                 from suggestions.models import Suggestion
                 suggestions = Suggestion.objects.filter(user=user).order_by('-created_at')
-
+                
                 for s in suggestions:
-                    # Get image URL safely
                     image_url = None
                     if s.image:
                         try:
@@ -519,7 +540,17 @@ class AuthViewSet(viewsets.ModelViewSet):
                             logger.warning(f"Error getting image for suggestion {s.id}: {e}")
                             image_url = None
 
-                    # Fallback image
+                    if not image_url and hasattr(s, 'images'):
+                        try:
+                            first_image = s.images.first()
+                            if first_image and first_image.image:
+                                if hasattr(first_image.image, 'url'):
+                                    image_url = first_image.image.url
+                                else:
+                                    image_url = str(first_image.image)
+                        except Exception:
+                            pass
+
                     if not image_url:
                         category = getattr(s, 'category', '').lower()
                         category_images = {
@@ -528,6 +559,8 @@ class AuthViewSet(viewsets.ModelViewSet):
                             'waterfall': 'https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80',
                             'hill': 'https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80',
                             'wildlife': 'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80',
+                            'heritage': 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&q=80',
+                            'temple': 'https://images.unsplash.com/photo-1584555469976-a6bf90e21034?w=600&q=80',
                         }
                         image_url = category_images.get(category, 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80')
 
@@ -555,10 +588,12 @@ class AuthViewSet(viewsets.ModelViewSet):
                     'implemented': Suggestion.objects.filter(user=user, status='implemented').count(),
                     'rejected': Suggestion.objects.filter(user=user, status='rejected').count(),
                 }
+            except ImportError:
+                logger.warning("Suggestions app not installed")
             except Exception as e:
                 logger.warning(f"Error fetching suggestions: {e}")
 
-            # 4. User reviews
+            # User reviews
             reviews_data = []
             try:
                 from guides.models import GuideReview
@@ -593,6 +628,8 @@ class AuthViewSet(viewsets.ModelViewSet):
                         'type': 'review',
                         'created_at': r.created_at.isoformat() if r.created_at else None,
                     })
+            except ImportError:
+                logger.warning("Guides app not installed")
             except Exception as e:
                 logger.warning(f"Error fetching reviews: {e}")
 
@@ -684,6 +721,130 @@ class AuthViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     # ============================================
+    # ✅ UPLOAD PROFILE PICTURE - FIXED
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='upload-profile-picture', permission_classes=[IsAuthenticated])
+    def upload_profile_picture(self, request):
+        """
+        Upload profile picture for the authenticated user.
+        Supports multiple field names: profile_image, profile_picture, image
+        """
+        try:
+            user = request.user
+
+            if user.is_deleted:
+                return Response({
+                    'success': False,
+                    'error': 'Account has been deleted'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            # Check for file in multiple possible field names
+            file = None
+            field_name = None
+            
+            if 'profile_image' in request.FILES:
+                file = request.FILES['profile_image']
+                field_name = 'profile_image'
+            elif 'profile_picture' in request.FILES:
+                file = request.FILES['profile_picture']
+                field_name = 'profile_picture'
+            elif 'image' in request.FILES:
+                file = request.FILES['image']
+                field_name = 'image'
+            
+            if not file:
+                return Response({
+                    'success': False,
+                    'error': 'No image provided. Please upload with field name "profile_image", "profile_picture", or "image".'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            print(f"📤 Uploading profile picture: {file.name} ({field_name})")
+            print(f"📤 Content type: {file.content_type}")
+            print(f"📤 Size: {file.size} bytes")
+
+            # Validate file type
+            if not file.content_type.startswith('image/'):
+                return Response({
+                    'success': False,
+                    'error': 'File must be an image. Got: {file.content_type}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate file size (5MB max)
+            if file.size > 5 * 1024 * 1024:
+                return Response({
+                    'success': False,
+                    'error': 'File size must be less than 5MB'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Delete old profile picture if exists
+            if user.profile_picture_upload:
+                try:
+                    user.profile_picture_upload.delete(save=False)
+                except Exception as e:
+                    print(f"⚠️ Could not delete old profile picture: {e}")
+
+            # Save new profile picture
+            user.profile_picture_upload = file
+            user.save()
+
+            # Get full URL
+            image_url = request.build_absolute_uri(user.profile_picture_upload.url)
+
+            print(f"✅ Profile picture uploaded for user {user.email}")
+            print(f"📸 Image URL: {image_url}")
+
+            return Response({
+                'success': True,
+                'message': 'Profile picture uploaded successfully',
+                'profile_image': image_url,
+                'profile_picture': image_url,
+                'image_url': image_url,
+                'url': image_url
+            })
+
+        except Exception as e:
+            logger.error(f"Upload profile picture error: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ DELETE PROFILE PICTURE
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='delete-profile-picture', permission_classes=[IsAuthenticated])
+    def delete_profile_picture(self, request):
+        try:
+            user = request.user
+
+            if user.is_deleted:
+                return Response({
+                    'success': False,
+                    'error': 'Account has been deleted'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            if user.profile_picture_upload:
+                try:
+                    user.profile_picture_upload.delete(save=False)
+                except Exception:
+                    pass
+                user.profile_picture_upload = None
+                user.save()
+
+            return Response({
+                'success': True,
+                'message': 'Profile picture deleted successfully'
+            })
+        except Exception as e:
+            logger.error(f"Delete profile picture error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
     # ✅ LOGOUT
     # ============================================
     @action(detail=False, methods=['post'], url_path='logout', permission_classes=[IsAuthenticated])
@@ -696,6 +857,173 @@ class AuthViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Logout error: {e}")
             return Response({'success': True, 'message': 'Logged out'})
+
+    # ============================================
+    # ✅ CHANGE PASSWORD
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='change-password', permission_classes=[IsAuthenticated])
+    def change_password(self, request):
+        try:
+            user = request.user
+
+            if user.is_deleted:
+                return Response({
+                    'success': False,
+                    'error': 'Account has been deleted'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            current_password = request.data.get('current_password')
+            new_password = request.data.get('new_password')
+            confirm_new_password = request.data.get('confirm_new_password')
+
+            if not current_password:
+                return Response({
+                    'success': False,
+                    'error': 'Current password is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not new_password:
+                return Response({
+                    'success': False,
+                    'error': 'New password is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if new_password != confirm_new_password:
+                return Response({
+                    'success': False,
+                    'error': 'New passwords do not match'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if len(new_password) < 8:
+                return Response({
+                    'success': False,
+                    'error': 'Password must be at least 8 characters'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not user.check_password(current_password):
+                return Response({
+                    'success': False,
+                    'error': 'Current password is incorrect'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            user.set_password(new_password)
+            user.save()
+
+            return Response({
+                'success': True,
+                'message': 'Password changed successfully'
+            })
+
+        except Exception as e:
+            logger.error(f"Change password error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    # ============================================
+    # ✅ TRIP STATS
+    # ============================================
+    @action(detail=False, methods=['get'], url_path='trip-stats', permission_classes=[IsAuthenticated])
+    def trip_stats(self, request):
+        try:
+            user = request.user
+
+            if user.is_deleted:
+                return Response({
+                    'success': False,
+                    'error': 'Account has been deleted'
+                }, status=status.HTTP_403_FORBIDDEN)
+
+            total_bookings = 0
+            completed_bookings = 0
+            pending_bookings = 0
+            confirmed_bookings = 0
+
+            try:
+                from guides.models import GuideBooking
+                total_bookings = GuideBooking.objects.filter(user=user).count()
+                completed_bookings = GuideBooking.objects.filter(
+                    user=user,
+                    status='completed'
+                ).count()
+                pending_bookings = GuideBooking.objects.filter(
+                    user=user,
+                    status='pending'
+                ).count()
+                confirmed_bookings = GuideBooking.objects.filter(
+                    user=user,
+                    status='confirmed'
+                ).count()
+            except ImportError:
+                logger.warning("Guides app not installed, returning 0 stats")
+            except Exception as e:
+                logger.error(f"Error fetching bookings: {e}")
+
+            return Response({
+                'success': True,
+                'total_trips': total_bookings,
+                'completed_trips': completed_bookings,
+                'pending_trips': pending_bookings,
+                'confirmed_trips': confirmed_bookings,
+            })
+
+        except Exception as e:
+            logger.error(f"Trip stats error: {e}")
+            return Response({
+                'success': True,
+                'total_trips': 0,
+                'completed_trips': 0,
+                'pending_trips': 0,
+                'confirmed_trips': 0,
+            })
+
+    # ============================================
+    # ✅ DELETE ACCOUNT
+    # ============================================
+    @action(detail=False, methods=['post'], url_path='delete-account', permission_classes=[IsAuthenticated])
+    def delete_account(self, request):
+        try:
+            user = request.user
+            password = request.data.get('password')
+
+            if user.is_deleted:
+                return Response({
+                    'success': False,
+                    'error': 'Account already deleted'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not password:
+                return Response({
+                    'success': False,
+                    'error': 'Password required for account deletion'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not user.check_password(password):
+                return Response({
+                    'success': False,
+                    'error': 'Invalid password'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            user.is_active = False
+            user.is_deleted = True
+            user.deleted_at = timezone.now()
+            user.email = f"deleted_{user.id}_{user.email}"
+            user.username = f"deleted_user_{user.id}"
+            user.save()
+
+            logout(request)
+
+            return Response({
+                'success': True,
+                'message': 'Account deleted successfully'
+            })
+        except Exception as e:
+            logger.error(f"Delete account error: {e}")
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
     # ============================================
     # ✅ GOOGLE LOGIN
@@ -1007,69 +1335,6 @@ class AuthViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
 
     # ============================================
-    # ✅ CHANGE PASSWORD
-    # ============================================
-    @action(detail=False, methods=['post'], url_path='change-password', permission_classes=[IsAuthenticated])
-    def change_password(self, request):
-        try:
-            user = request.user
-
-            if user.is_deleted:
-                return Response({
-                    'success': False,
-                    'error': 'Account has been deleted'
-                }, status=status.HTTP_403_FORBIDDEN)
-
-            current_password = request.data.get('current_password')
-            new_password = request.data.get('new_password')
-            confirm_new_password = request.data.get('confirm_new_password')
-
-            if not current_password:
-                return Response({
-                    'success': False,
-                    'error': 'Current password is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if not new_password:
-                return Response({
-                    'success': False,
-                    'error': 'New password is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if new_password != confirm_new_password:
-                return Response({
-                    'success': False,
-                    'error': 'New passwords do not match'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if len(new_password) < 8:
-                return Response({
-                    'success': False,
-                    'error': 'Password must be at least 8 characters'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if not user.check_password(current_password):
-                return Response({
-                    'success': False,
-                    'error': 'Current password is incorrect'
-                }, status=status.HTTP_401_UNAUTHORIZED)
-
-            user.set_password(new_password)
-            user.save()
-
-            return Response({
-                'success': True,
-                'message': 'Password changed successfully'
-            })
-
-        except Exception as e:
-            logger.error(f"Change password error: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
     # ✅ RESEND VERIFICATION
     # ============================================
     @action(detail=False, methods=['post'], url_path='resend-verification')
@@ -1143,200 +1408,6 @@ class AuthViewSet(viewsets.ModelViewSet):
             })
         except Exception as e:
             logger.error(f"Resend verification error: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
-    # ✅ UPLOAD PROFILE PICTURE
-    # ============================================
-    @action(detail=False, methods=['post'], url_path='upload-profile-picture', permission_classes=[IsAuthenticated])
-    def upload_profile_picture(self, request):
-        try:
-            user = request.user
-
-            if user.is_deleted:
-                return Response({
-                    'success': False,
-                    'error': 'Account has been deleted'
-                }, status=status.HTTP_403_FORBIDDEN)
-
-            if 'profile_picture' not in request.FILES:
-                return Response({
-                    'success': False,
-                    'error': 'No image provided'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            image = request.FILES['profile_picture']
-
-            if not image.content_type.startswith('image/'):
-                return Response({
-                    'success': False,
-                    'error': 'File must be an image'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if image.size > 5 * 1024 * 1024:
-                return Response({
-                    'success': False,
-                    'error': 'File size must be less than 5MB'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if user.profile_picture_upload:
-                try:
-                    user.profile_picture_upload.delete(save=False)
-                except Exception:
-                    pass
-
-            user.profile_picture_upload = image
-            user.save()
-
-            image_url = request.build_absolute_uri(user.profile_picture_upload.url)
-
-            return Response({
-                'success': True,
-                'message': 'Profile picture uploaded successfully',
-                'profile_picture': image_url
-            })
-        except Exception as e:
-            logger.error(f"Upload profile picture error: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
-    # ✅ DELETE PROFILE PICTURE
-    # ============================================
-    @action(detail=False, methods=['post'], url_path='delete-profile-picture', permission_classes=[IsAuthenticated])
-    def delete_profile_picture(self, request):
-        try:
-            user = request.user
-
-            if user.is_deleted:
-                return Response({
-                    'success': False,
-                    'error': 'Account has been deleted'
-                }, status=status.HTTP_403_FORBIDDEN)
-
-            if user.profile_picture_upload:
-                try:
-                    user.profile_picture_upload.delete(save=False)
-                except Exception:
-                    pass
-                user.profile_picture_upload = None
-                user.save()
-
-            return Response({
-                'success': True,
-                'message': 'Profile picture deleted successfully'
-            })
-        except Exception as e:
-            logger.error(f"Delete profile picture error: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
-    # ✅ TRIP STATS (KEPT FOR BACKWARD COMPATIBILITY)
-    # ============================================
-    @action(detail=False, methods=['get'], url_path='trip-stats', permission_classes=[IsAuthenticated])
-    def trip_stats(self, request):
-        try:
-            user = request.user
-
-            if user.is_deleted:
-                return Response({
-                    'success': False,
-                    'error': 'Account has been deleted'
-                }, status=status.HTTP_403_FORBIDDEN)
-
-            total_bookings = 0
-            completed_bookings = 0
-            pending_bookings = 0
-            confirmed_bookings = 0
-
-            try:
-                from guides.models import GuideBooking
-                total_bookings = GuideBooking.objects.filter(user=user).count()
-                completed_bookings = GuideBooking.objects.filter(
-                    user=user,
-                    status='completed'
-                ).count()
-                pending_bookings = GuideBooking.objects.filter(
-                    user=user,
-                    status='pending'
-                ).count()
-                confirmed_bookings = GuideBooking.objects.filter(
-                    user=user,
-                    status='confirmed'
-                ).count()
-            except ImportError:
-                logger.warning("Guides app not installed, returning 0 stats")
-            except Exception as e:
-                logger.error(f"Error fetching bookings: {e}")
-
-            return Response({
-                'success': True,
-                'total_trips': total_bookings,
-                'completed_trips': completed_bookings,
-                'pending_trips': pending_bookings,
-                'confirmed_trips': confirmed_bookings,
-            })
-
-        except Exception as e:
-            logger.error(f"Trip stats error: {e}")
-            return Response({
-                'success': True,
-                'total_trips': 0,
-                'completed_trips': 0,
-                'pending_trips': 0,
-                'confirmed_trips': 0,
-            })
-
-    # ============================================
-    # ✅ DELETE ACCOUNT
-    # ============================================
-    @action(detail=False, methods=['post'], url_path='delete-account', permission_classes=[IsAuthenticated])
-    def delete_account(self, request):
-        try:
-            user = request.user
-            password = request.data.get('password')
-
-            if user.is_deleted:
-                return Response({
-                    'success': False,
-                    'error': 'Account already deleted'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if not password:
-                return Response({
-                    'success': False,
-                    'error': 'Password required for account deletion'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            if not user.check_password(password):
-                return Response({
-                    'success': False,
-                    'error': 'Invalid password'
-                }, status=status.HTTP_401_UNAUTHORIZED)
-
-            user.is_active = False
-            user.is_deleted = True
-            user.deleted_at = timezone.now()
-            user.email = f"deleted_{user.id}_{user.email}"
-            user.username = f"deleted_user_{user.id}"
-            user.save()
-
-            logout(request)
-
-            return Response({
-                'success': True,
-                'message': 'Account deleted successfully'
-            })
-        except Exception as e:
-            logger.error(f"Delete account error: {e}")
             return Response({
                 'success': False,
                 'error': str(e)

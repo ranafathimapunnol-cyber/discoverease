@@ -133,24 +133,6 @@ with connection.cursor() as cursor:
     """)
     print("✅ Created guides_guide_categories")
 
-    # Create GuideReview table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS guides_guidereview (
-            id SERIAL PRIMARY KEY,
-            booking_id INTEGER NOT NULL UNIQUE REFERENCES guides_guidebooking(id) ON DELETE CASCADE,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            guide_id INTEGER NOT NULL REFERENCES guides_guide(id) ON DELETE CASCADE,
-            rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
-            comment TEXT NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-            UNIQUE(booking_id, user_id)
-        )
-    """)
-    print("✅ Created guides_guidereview")
-
-print("\n🎉 All guide tables created!")
-
 # Verify
 tables = connection.introspection.table_names()
 guide_tables = [t for t in tables if 'guide' in t.lower()]

@@ -1,4 +1,4 @@
-# destinations/models.py - COMPLETE FIXED VERSION
+# destinations/models.py - COMPLETE WITH AI FIELDS AND METHODS
 
 from django.db import models
 from django.conf import settings
@@ -62,7 +62,7 @@ class CategoryPlace(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # ✅ ADD THIS - Link to Destination model
+    # Link to Destination model
     destination = models.ForeignKey(
         'Destination',
         on_delete=models.SET_NULL,
@@ -84,7 +84,7 @@ class CategoryPlace(models.Model):
 
 
 class Destination(models.Model):
-    """Main Destination Table with Status"""
+    """Main Destination Table with Status and AI Support"""
     
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending Verification'
@@ -103,7 +103,9 @@ class Destination(models.Model):
         FORT = 'fort', 'Fort/Palace'
         OTHER = 'other', 'Other'
     
+    # ============================================================
     # Basic Info
+    # ============================================================
     name = models.CharField(max_length=200, db_index=True)
     slug = models.SlugField(unique=True, blank=True)
     short_description = models.CharField(max_length=300)
@@ -111,27 +113,43 @@ class Destination(models.Model):
     category = models.CharField(max_length=20, choices=CategoryChoice.choices, db_index=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True)
     
+    # ============================================================
     # Location
+    # ============================================================
     latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
     longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
     address = models.TextField(blank=True, null=True)
     district = models.CharField(max_length=100, blank=True, null=True, db_index=True)
     
+    # ============================================================
     # Media
+    # ============================================================
     featured_image = models.URLField(max_length=500)
     gallery_images = models.JSONField(default=list, blank=True)
     
+    # ============================================================
     # Stats
+    # ============================================================
     average_rating = models.DecimalField(max_digits=3, decimal_places=2, default=0.00)
     total_reviews = models.IntegerField(default=0)
     visit_count = models.IntegerField(default=0)
     
+    # ============================================================
+    # AI Vector Sync Fields
+    # ============================================================
+    vector_synced = models.BooleanField(default=False, help_text="Whether this destination is indexed in Qdrant")
+    last_synced_at = models.DateTimeField(null=True, blank=True, help_text="Last time this destination was synced to Qdrant")
+    
+    # ============================================================
     # Metadata
+    # ============================================================
     added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='added_destinations')
     verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_destinations')
     verified_at = models.DateTimeField(blank=True, null=True)
     
+    # ============================================================
     # Timestamps
+    # ============================================================
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -139,13 +157,33 @@ class Destination(models.Model):
         db_table = 'destinations'
         indexes = [
             models.Index(fields=['name', 'category', 'status', 'district']),
+            models.Index(fields=['vector_synced']),  # For faster sync queries
         ]
         ordering = ['-created_at']
+    
+    # ============================================================
+    # Methods
+    # ============================================================
     
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
+    
+    def get_full_text(self):
+        """
+        Generate text for embedding - used for AI search.
+        This combines all relevant fields into one text string.
+        """
+        parts = [
+            f"Name: {self.name}",
+            f"Location: {self.address or self.district or ''}",
+            f"District: {self.district or ''}",
+            f"Category: {self.get_category_display()}",
+            f"Description: {self.long_description or self.short_description or ''}",
+        ]
+        # Filter out empty parts and join
+        return " | ".join([p for p in parts if p.split(':')[1].strip()])
     
     def __str__(self):
         return self.name
@@ -177,7 +215,6 @@ class Review(models.Model):
         return f"{self.user.email} - {self.destination.name} ({self.rating}★)"
 
 
-# ✅ WISHLIST MODEL - FIXED
 class Wishlist(models.Model):
     """User wishlist for destinations"""
     user = models.ForeignKey(

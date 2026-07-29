@@ -1,17 +1,59 @@
+# ============================================
+# Django & Web Framework
+# ============================================
 Django==4.2.16
 djangorestframework==3.14.0
 django-cors-headers==4.3.1
 django-filter==23.5
+
+# ============================================
+# Database & Cache
+# ============================================
 python-dotenv==1.0.0
 psycopg2-binary==2.9.9
-celery==5.3.4
 redis==5.0.1
+
+# ============================================
+# Celery & Async
+# ============================================
+celery==5.3.4
 django-celery-beat==2.5.0
 django-celery-results==2.5.1
 channels==4.0.0
 channels-redis==4.1.0
+
+# ============================================
+# Authentication
+# ============================================
 django-allauth==64.0.0
 google-auth==2.55.1
 google-auth-oauthlib==1.4.0
 pyjwt==2.8.0
 django-recaptcha==3.0.0
+
+# ============================================
+# AI & Machine Learning (WORKING VERSIONS)
+# ============================================
+transformers==4.40.0
+sentence-transformers==2.7.0
+torch==2.2.2
+accelerate==0.30.0
+bitsandbytes==0.41.3
+huggingface-hub==0.23.0
+
+# LangChain - Using versions that exist
+langchain==0.2.0
+langchain-community==0.2.0
+langchain-huggingface==0.1.0
+langchain-core==0.2.0
+
+# LangGraph - Works with langchain-core 0.2.0
+langgraph==0.1.0
+
+# Vector Database
+qdrant-client==1.9.0
+
+# Utilities
+django-redis==5.4.0
+safetensors==0.4.2
+tokenizers==0.19.1

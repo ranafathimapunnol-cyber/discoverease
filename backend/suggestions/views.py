@@ -1,38 +1,50 @@
-# suggestions/views.py - COMPLETE FIXED VERSION
+# suggestions/views.py - COMPLETE FIXED VERSION WITH MY_SUGGESTIONS
 
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, pagination
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
-from django.http import Http404
 from django.conf import settings
+from django.contrib.auth import get_user_model
 import logging
 import os
 
-from .models import Suggestion
+from .models import Suggestion, SuggestionImage, SuggestionNotification
 from .serializers import (
     SuggestionSerializer,
     SuggestionCreateSerializer,
-    SuggestionListSerializer
+    SuggestionListSerializer,
+    SuggestionImageSerializer,
+    SuggestionNotificationSerializer,
+    SuggestionAdminListSerializer
 )
 from guides.models import Guide
 
+User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+class StandardResultsSetPagination(pagination.LimitOffsetPagination):
+    default_limit = 20
+    max_limit = 100
 
 
 class SuggestionViewSet(viewsets.ModelViewSet):
     """
-    Unified viewset for Hidden Gems, Local Insights, and Reviews
+    Unified viewset for suggestions
     """
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardResultsSetPagination
     
     def get_serializer_class(self):
         if self.action == 'create':
             return SuggestionCreateSerializer
-        elif self.action in ['list', 'my_suggestions', 'guide_suggestions', 'implemented']:
+        elif self.action in ['list', 'my_suggestions', 'implemented', 'by_category']:
             return SuggestionListSerializer
+        elif self.action in ['admin_suggestions', 'admin_approve', 'admin_implement', 'admin_reject', 'guide_dashboard', 'staff_approve', 'staff_implement', 'staff_reject']:
+            return SuggestionAdminListSerializer
         return SuggestionSerializer
     
     def get_serializer_context(self):
@@ -44,14 +56,19 @@ class SuggestionViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = Suggestion.objects.select_related('user', 'guide', 'processed_by')
         
+        # If admin, staff, or superuser, return ALL suggestions
+        if user.is_authenticated and (user.role in ['admin', 'staff'] or user.is_superuser):
+            return queryset.order_by('-created_at')
+        
+        # If not authenticated, only show implemented
         if not user.is_authenticated:
             return queryset.filter(status=Suggestion.Status.IMPLEMENTED)
         
-        if user.role == 'guide':
+        # For guides, show suggestions in their district
+        if hasattr(user, 'role') and user.role == 'guide':
             try:
                 guide = Guide.objects.get(user=user)
                 guide_districts = list(guide.districts.values_list('name', flat=True))
-                
                 if guide_districts:
                     district_filter = Q()
                     for d in guide_districts:
@@ -59,28 +76,70 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                     queryset = queryset.filter(district_filter)
                 else:
                     return queryset.none()
-                    
             except Guide.DoesNotExist:
                 return queryset.none()
-        else:
-            queryset = queryset.filter(status=Suggestion.Status.IMPLEMENTED)
         
-        suggestion_type = self.request.query_params.get('type')
-        if suggestion_type:
-            queryset = queryset.filter(suggestion_type=suggestion_type)
-        
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        
-        district = self.request.query_params.get('district')
-        if district:
-            queryset = queryset.filter(district__iexact=district)
+        # For regular users, show their own suggestions + implemented
+        if user.is_authenticated:
+            return queryset.filter(
+                Q(user=user) | Q(status=Suggestion.Status.IMPLEMENTED)
+            ).order_by('-created_at')
         
         return queryset.order_by('-created_at')
     
     # ============================================
-    # CREATE
+    # ✅ LIST
+    # ============================================
+    
+    def list(self, request, *args, **kwargs):
+        """List suggestions with proper filtering"""
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+            
+            # Filter by status if provided
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                queryset = queryset.filter(status=status_filter)
+            
+            # Filter by category if provided
+            category_filter = request.query_params.get('category')
+            if category_filter:
+                queryset = queryset.filter(category__iexact=category_filter)
+            
+            # Filter by type if provided
+            type_filter = request.query_params.get('type')
+            if type_filter:
+                queryset = queryset.filter(suggestion_type=type_filter)
+            
+            # Apply pagination
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response({
+                    'success': True,
+                    'data': serializer.data,
+                    'count': queryset.count()
+                })
+            
+            serializer = self.get_serializer(queryset, many=True)
+            return Response({
+                'success': True,
+                'data': serializer.data,
+                'count': queryset.count()
+            })
+        except Exception as e:
+            logger.error(f"Error in list: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'data': [],
+                'count': 0,
+                'error': str(e)
+            }, status=status.HTTP_200_OK)
+    
+    # ============================================
+    # ✅ CREATE
     # ============================================
     
     def create(self, request, *args, **kwargs):
@@ -93,14 +152,12 @@ class SuggestionViewSet(viewsets.ModelViewSet):
         try:
             data = request.data.copy()
             
+            # Set suggestion type if not provided
             if not data.get('suggestion_type'):
                 if data.get('type'):
                     data['suggestion_type'] = data.get('type')
                 else:
                     data['suggestion_type'] = 'hidden_gem'
-            
-            if 'image' in request.FILES:
-                data['image'] = request.FILES['image']
             
             serializer = SuggestionCreateSerializer(data=data)
             
@@ -120,11 +177,37 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                 except Exception:
                     pass
             
+            # If admin/staff is creating, allow setting status
+            status_value = 'pending'
+            if request.user.role in ['admin', 'staff'] or request.user.is_superuser:
+                if data.get('status') in ['pending', 'implemented', 'approved', 'rejected']:
+                    status_value = data.get('status')
+            
             suggestion = serializer.save(
                 user=request.user,
                 guide=guide,
-                status='pending'
+                status=status_value
             )
+            
+            # Handle single image upload
+            if 'image' in request.FILES:
+                SuggestionImage.objects.create(
+                    suggestion=suggestion,
+                    image=request.FILES['image'],
+                    order=0,
+                    is_primary=True
+                )
+            
+            # Handle multiple images
+            images = request.FILES.getlist('images')
+            if images:
+                for idx, img in enumerate(images):
+                    SuggestionImage.objects.create(
+                        suggestion=suggestion,
+                        image=img,
+                        order=idx,
+                        is_primary=(idx == 0)
+                    )
             
             return Response({
                 'success': True,
@@ -134,6 +217,7 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                     'name': suggestion.name,
                     'status': suggestion.status,
                     'created_at': suggestion.created_at,
+                    'images_count': suggestion.images.count()
                 }
             }, status=status.HTTP_201_CREATED)
             
@@ -145,41 +229,11 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
     
     # ============================================
-    # LIST
-    # ============================================
-    
-    def list(self, request, *args, **kwargs):
-        try:
-            queryset = self.filter_queryset(self.get_queryset())
-            
-            page = self.paginate_queryset(queryset)
-            if page is not None:
-                serializer = self.get_serializer(page, many=True)
-                return self.get_paginated_response({
-                    'success': True,
-                    'data': serializer.data,
-                    'count': queryset.count()
-                })
-            
-            serializer = self.get_serializer(queryset, many=True)
-            return Response({
-                'success': True,
-                'data': serializer.data,
-                'count': queryset.count()
-            })
-        except Exception as e:
-            logger.error(f"Error in list: {e}")
-            return Response({
-                'success': False,
-                'data': [],
-                'count': 0
-            })
-    
-    # ============================================
-    # RETRIEVE
+    # ✅ RETRIEVE
     # ============================================
     
     def retrieve(self, request, *args, **kwargs):
+        """Get a single suggestion"""
         try:
             instance = self.get_object()
             serializer = self.get_serializer(instance)
@@ -187,287 +241,304 @@ class SuggestionViewSet(viewsets.ModelViewSet):
                 'success': True,
                 'data': serializer.data
             })
+        except Suggestion.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Error retrieving suggestion: {e}")
             return Response({
                 'success': False,
-                'error': 'Suggestion not found',
-                'message': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     # ============================================
-    # GUIDE SUGGESTIONS
+    # ✅ DESTROY (DELETE) - UPDATED
     # ============================================
     
-    @action(detail=False, methods=['get'], url_path='guide-suggestions')
-    def guide_suggestions(self, request):
-        if not request.user.is_authenticated:
-            return Response({
-                'success': False,
-                'data': [],
-                'count': 0
-            })
-        
+    def destroy(self, request, *args, **kwargs):
+        """Delete a suggestion"""
         try:
-            try:
-                guide = Guide.objects.get(user=request.user)
-            except Guide.DoesNotExist:
+            suggestion = self.get_object()
+            
+            if not request.user.is_authenticated:
                 return Response({
                     'success': False,
-                    'message': 'User is not a guide',
-                    'data': [],
-                    'count': 0
-                })
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
             
-            districts = list(guide.districts.values_list('name', flat=True))
-            
-            if not districts:
+            # Allow admin/staff to delete any suggestion
+            if request.user.role in ['admin', 'staff'] or request.user.is_superuser:
+                suggestion.delete()
                 return Response({
                     'success': True,
-                    'data': [],
-                    'count': 0,
-                    'districts': []
-                })
+                    'message': 'Suggestion deleted successfully'
+                }, status=status.HTTP_200_OK)
             
-            district_filter = Q()
-            for d in districts:
-                district_filter |= Q(district__iexact=d)
+            # ✅ ALLOW USER TO DELETE THEIR OWN SUGGESTIONS IN ANY PENDING STATE
+            # This includes: pending, pending_guide, pending_admin, approved_by_guide, etc.
+            if suggestion.user == request.user:
+                # ✅ Check if suggestion is in a deletable state (not implemented or rejected)
+                deletable_statuses = [
+                    'pending', 
+                    'pending_guide', 
+                    'pending_admin', 
+                    'approved_by_guide',
+                    'approved',
+                    'staff_approved'
+                ]
+                
+                if suggestion.status in deletable_statuses:
+                    suggestion.delete()
+                    return Response({
+                        'success': True,
+                        'message': 'Suggestion deleted successfully'
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({
+                        'success': False,
+                        'error': f'Cannot delete suggestion with status: {suggestion.status}. Only pending or approved suggestions can be deleted.'
+                    }, status=status.HTTP_403_FORBIDDEN)
             
+            return Response({
+                'success': False,
+                'error': 'You do not have permission to delete this suggestion'
+            }, status=status.HTTP_403_FORBIDDEN)
+            
+        except Suggestion.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error deleting suggestion: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ MY SUGGESTIONS - NEW ENDPOINT
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='my-suggestions', permission_classes=[permissions.IsAuthenticated])
+    def my_suggestions(self, request):
+        """
+        Get suggestions submitted by the current user.
+        Returns all suggestions with pagination.
+        """
+        try:
+            user = request.user
+            
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # ✅ Get suggestions by the current user
             suggestions = Suggestion.objects.filter(
-                district_filter
-            ).select_related('user', 'guide').order_by('-created_at')
+                user=user
+            ).order_by('-created_at')
             
-            suggestion_type = request.query_params.get('type')
-            if suggestion_type:
-                suggestions = suggestions.filter(suggestion_type=suggestion_type)
+            print(f"🔍 User {user.email} has {suggestions.count()} suggestions")
             
+            # ✅ Apply filters if provided
             status_filter = request.query_params.get('status')
             if status_filter:
                 suggestions = suggestions.filter(status=status_filter)
             
+            type_filter = request.query_params.get('type')
+            if type_filter:
+                suggestions = suggestions.filter(suggestion_type=type_filter)
+            
+            # ✅ Pagination
             page = self.paginate_queryset(suggestions)
             if page is not None:
-                serializer = SuggestionListSerializer(
-                    page, 
-                    many=True,
-                    context={'request': request}
-                )
-                return self.get_paginated_response({
-                    'success': True,
-                    'data': serializer.data,
-                    'count': suggestions.count(),
-                    'districts': districts
-                })
-            
-            serializer = SuggestionListSerializer(
-                suggestions,
-                many=True,
-                context={'request': request}
-            )
-            return Response({
-                'success': True,
-                'data': serializer.data,
-                'count': suggestions.count(),
-                'districts': districts
-            })
-        except Exception as e:
-            logger.error(f"Error in guide_suggestions: {e}")
-            return Response({
-                'success': False,
-                'data': [],
-                'count': 0,
-                'error': str(e)
-            })
-    
-    # ============================================
-    # IMPLEMENTED SUGGESTIONS
-    # ============================================
-    
-    @action(detail=False, methods=['get'], url_path='implemented')
-    def implemented(self, request):
-        try:
-            suggestions = Suggestion.objects.filter(
-                status='implemented'
-            ).select_related('user').order_by('-created_at')
-            
-            page = self.paginate_queryset(suggestions)
-            if page is not None:
-                serializer = SuggestionListSerializer(
-                    page, 
-                    many=True,
-                    context={'request': request}
-                )
+                serializer = self.get_serializer(page, many=True)
                 return self.get_paginated_response({
                     'success': True,
                     'data': serializer.data,
                     'count': suggestions.count()
                 })
             
-            serializer = SuggestionListSerializer(
-                suggestions,
-                many=True,
-                context={'request': request}
-            )
+            serializer = self.get_serializer(suggestions, many=True)
+            return Response({
+                'success': True,
+                'data': serializer.data,
+                'count': suggestions.count()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in my_suggestions: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e),
+                'data': [],
+                'count': 0
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ IMPLEMENTED SUGGESTIONS
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='implemented')
+    def implemented(self, request):
+        """Get all implemented suggestions"""
+        try:
+            suggestions = Suggestion.objects.filter(
+                status='implemented'
+            ).order_by('-created_at')
+            
+            # Filter by category if provided
+            category = request.query_params.get('category')
+            if category:
+                suggestions = suggestions.filter(category__iexact=category)
+            
+            # Filter by district if provided
+            district = request.query_params.get('district')
+            if district:
+                suggestions = suggestions.filter(district__iexact=district)
+            
+            # Pagination
+            page = self.paginate_queryset(suggestions)
+            if page is not None:
+                serializer = SuggestionListSerializer(page, many=True, context={'request': request})
+                return self.get_paginated_response({
+                    'success': True,
+                    'data': serializer.data,
+                    'count': suggestions.count()
+                })
+            
+            serializer = SuggestionListSerializer(suggestions, many=True, context={'request': request})
             return Response({
                 'success': True,
                 'data': serializer.data,
                 'count': suggestions.count()
             })
         except Exception as e:
-            logger.error(f"Error in implemented: {e}")
+            logger.error(f"Error fetching implemented: {e}")
             return Response({
                 'success': False,
                 'data': [],
-                'count': 0
-            })
+                'count': 0,
+                'error': str(e)
+            }, status=status.HTTP_200_OK)
     
     # ============================================
-    # ✅ GUIDE APPROVE
+    # ✅ ADMIN SUGGESTIONS
     # ============================================
     
-    @action(detail=True, methods=['post'], url_path='guide-approve')
-    def guide_approve(self, request, pk=None):
-        try:
-            suggestion = self.get_object()
-            user = request.user
-            
-            if user.role != 'guide':
-                return Response({
-                    'success': False,
-                    'error': 'Only guides can perform this action'
-                }, status=status.HTTP_403_FORBIDDEN)
-            
-            try:
-                guide = Guide.objects.get(user=user)
-                guide_districts = list(guide.districts.values_list('name', flat=True))
-                if guide_districts and suggestion.district.lower() not in [d.lower() for d in guide_districts]:
-                    return Response({
-                        'success': False,
-                        'error': 'This suggestion is not in your district'
-                    }, status=status.HTTP_403_FORBIDDEN)
-            except Guide.DoesNotExist:
-                return Response({
-                    'success': False,
-                    'error': 'Guide profile not found'
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            if suggestion.status != 'pending':
-                return Response({
-                    'success': False,
-                    'error': f'Cannot approve. Current status: {suggestion.status}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            suggestion.status = 'approved_by_guide'
-            suggestion.guide_approved_by = user
-            suggestion.guide_approved_at = timezone.now()
-            suggestion.guide_processed_at = timezone.now()
-            
-            notes = request.data.get('notes', '')
-            if notes:
-                suggestion.guide_notes = notes
-            
-            suggestion.save()
-            
-            serializer = self.get_serializer(suggestion)
-            return Response({
-                'success': True,
-                'message': 'Suggestion approved by guide',
-                'data': serializer.data
-            })
-        except Exception as e:
-            logger.error(f"Error in guide_approve: {e}")
+    @action(detail=False, methods=['get'], url_path='admin-suggestions')
+    def admin_suggestions(self, request):
+        """Get all suggestions for admin dashboard"""
+        if not request.user.is_authenticated:
             return Response({
                 'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # ============================================
-    # ✅ GUIDE REJECT
-    # ============================================
-    
-    @action(detail=True, methods=['post'], url_path='guide-reject')
-    def guide_reject(self, request, pk=None):
-        try:
-            suggestion = self.get_object()
-            user = request.user
-            
-            if user.role != 'guide':
-                return Response({
-                    'success': False,
-                    'error': 'Only guides can perform this action'
-                }, status=status.HTTP_403_FORBIDDEN)
-            
+                'error': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        # ✅ IMPROVED PERMISSION CHECK
+        user = request.user
+        role = None
+        
+        # Get role from user
+        if hasattr(user, 'role'):
+            role = user.role
+        elif hasattr(user, 'get_role'):
             try:
-                guide = Guide.objects.get(user=user)
-                guide_districts = list(guide.districts.values_list('name', flat=True))
-                if guide_districts and suggestion.district.lower() not in [d.lower() for d in guide_districts]:
-                    return Response({
-                        'success': False,
-                        'error': 'This suggestion is not in your district'
-                    }, status=status.HTTP_403_FORBIDDEN)
-            except Guide.DoesNotExist:
-                return Response({
-                    'success': False,
-                    'error': 'Guide profile not found'
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            if suggestion.status != 'pending':
-                return Response({
-                    'success': False,
-                    'error': f'Cannot reject. Current status: {suggestion.status}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            suggestion.status = 'rejected_by_guide'
-            suggestion.guide_rejected_by = user
-            suggestion.guide_rejected_at = timezone.now()
-            suggestion.guide_processed_at = timezone.now()
-            
-            reason = request.data.get('reason', 'No reason provided')
-            suggestion.rejection_reason = reason
-            notes = request.data.get('notes', '')
-            if notes:
-                suggestion.guide_notes = notes
-            
-            suggestion.save()
-            
-            serializer = self.get_serializer(suggestion)
-            return Response({
-                'success': True,
-                'message': 'Suggestion rejected by guide',
-                'data': serializer.data
-            })
-        except Exception as e:
-            logger.error(f"Error in guide_reject: {e}")
+                role = user.get_role()
+            except:
+                pass
+        
+        # Check if user is admin/staff or superuser
+        is_admin = (
+            user.is_superuser or 
+            user.is_staff or 
+            role in ['admin', 'staff']
+        )
+        
+        if not is_admin:
+            print(f"❌ User {user.email} (role: {role}) tried to access admin suggestions - Access Denied")
             return Response({
                 'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'error': 'Only admin/staff can access this'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        print(f"✅ User {user.email} (role: {role}) accessing admin suggestions")
+        
+        suggestions = Suggestion.objects.all().order_by('-created_at')
+        print(f"📊 Total suggestions in DB: {suggestions.count()}")
+        
+        # Filter by type
+        type_filter = request.query_params.get('type')
+        if type_filter:
+            suggestions = suggestions.filter(suggestion_type=type_filter)
+        
+        # Filter by status
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            suggestions = suggestions.filter(status=status_filter)
+        
+        # Filter by district
+        district = request.query_params.get('district')
+        if district:
+            suggestions = suggestions.filter(district__iexact=district)
+        
+        # Pagination
+        page = self.paginate_queryset(suggestions)
+        if page is not None:
+            serializer = SuggestionAdminListSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response({
+                'success': True,
+                'data': serializer.data,
+                'count': suggestions.count()
+            })
+        
+        serializer = SuggestionAdminListSerializer(suggestions, many=True, context={'request': request})
+        return Response({
+            'success': True,
+            'data': serializer.data,
+            'count': suggestions.count()
+        })
     
     # ============================================
-    # STAFF APPROVE
+    # ✅ ADMIN APPROVE
     # ============================================
     
-    @action(detail=True, methods=['post'], url_path='staff-approve')
-    def staff_approve(self, request, pk=None):
+    @action(detail=True, methods=['post'], url_path='admin-approve')
+    def admin_approve(self, request, pk=None):
+        """Admin approve a suggestion"""
         try:
             suggestion = self.get_object()
             user = request.user
             
-            if user.role not in ['staff', 'admin']:
+            if not user.is_authenticated:
                 return Response({
                     'success': False,
-                    'error': 'Only staff or admin can perform this action'
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Allow admin, staff, or superuser
+            if user.role not in ['admin', 'staff'] and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'error': 'Only admin/staff can perform this action'
                 }, status=status.HTTP_403_FORBIDDEN)
             
-            if suggestion.status not in ['approved_by_guide', 'pending']:
+            if suggestion.status == 'implemented':
                 return Response({
                     'success': False,
-                    'error': f'Cannot approve. Current status: {suggestion.status}'
+                    'error': 'Suggestion is already implemented'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
+            # Set status to staff_approved
             suggestion.status = 'staff_approved'
-            suggestion.staff_approved_by = user
-            suggestion.staff_approved_at = timezone.now()
             suggestion.processed_by = user
             suggestion.processed_at = timezone.now()
             
@@ -477,63 +548,28 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             
             suggestion.save()
             
-            serializer = self.get_serializer(suggestion)
             return Response({
                 'success': True,
-                'message': 'Suggestion approved by staff',
-                'data': serializer.data
+                'message': 'Suggestion approved successfully',
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Staff Approved',
+                    'processed_by_email': user.email,
+                    'processed_at': suggestion.processed_at
+                }
             })
-        except Exception as e:
-            logger.error(f"Error in staff_approve: {e}")
+            
+        except Suggestion.DoesNotExist:
             return Response({
                 'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # ============================================
-    # STAFF REJECT
-    # ============================================
-    
-    @action(detail=True, methods=['post'], url_path='staff-reject')
-    def staff_reject(self, request, pk=None):
-        try:
-            suggestion = self.get_object()
-            user = request.user
-            
-            if user.role not in ['staff', 'admin']:
-                return Response({
-                    'success': False,
-                    'error': 'Only staff or admin can perform this action'
-                }, status=status.HTTP_403_FORBIDDEN)
-            
-            if suggestion.status not in ['approved_by_guide', 'pending']:
-                return Response({
-                    'success': False,
-                    'error': f'Cannot reject. Current status: {suggestion.status}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            suggestion.status = 'staff_rejected'
-            suggestion.staff_rejected_by = user
-            suggestion.staff_rejected_at = timezone.now()
-            suggestion.processed_by = user
-            suggestion.processed_at = timezone.now()
-            
-            reason = request.data.get('reason', 'No reason provided')
-            suggestion.rejection_reason = reason
-            notes = request.data.get('notes', '')
-            if notes:
-                suggestion.admin_notes = notes
-            
-            suggestion.save()
-            
-            serializer = self.get_serializer(suggestion)
-            return Response({
-                'success': True,
-                'message': 'Suggestion rejected by staff',
-                'data': serializer.data
-            })
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            logger.error(f"Error in staff_reject: {e}")
+            logger.error(f"Error in admin_approve: {e}")
+            import traceback
+            traceback.print_exc()
             return Response({
                 'success': False,
                 'error': str(e)
@@ -545,25 +581,79 @@ class SuggestionViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='admin-implement')
     def admin_implement(self, request, pk=None):
+        """Admin implement a suggestion with category mapping"""
         try:
             suggestion = self.get_object()
             user = request.user
             
-            if user.role != 'admin':
+            if not user.is_authenticated:
                 return Response({
                     'success': False,
-                    'error': 'Only admin can perform this action'
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Allow admin, staff, or superuser
+            if user.role not in ['admin', 'staff'] and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'error': 'Only admin/staff can perform this action'
                 }, status=status.HTTP_403_FORBIDDEN)
             
-            if suggestion.status not in ['staff_approved', 'approved']:
+            if suggestion.status == 'implemented':
                 return Response({
                     'success': False,
-                    'error': f'Cannot implement. Current status: {suggestion.status}'
+                    'error': 'Suggestion is already implemented'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
+            # ✅ MAP CATEGORY TO DESTINATIONS CATEGORY
+            try:
+                from destinations.models import CategoryData, CategoryPlace
+                category_key = suggestion.category or 'general'
+                
+                # Try to find matching category in destinations
+                existing_category = CategoryData.objects.filter(
+                    Q(key__iexact=category_key) | Q(title__iexact=category_key)
+                ).first()
+                
+                if not existing_category:
+                    # Create a new category if it doesn't exist
+                    existing_category = CategoryData.objects.create(
+                        key=category_key.lower().replace(' ', '_'),
+                        title=category_key.title(),
+                        description=f'Places in {category_key}',
+                        is_active=True
+                    )
+                    logger.info(f"Created new category: {existing_category.key}")
+                
+                # Create or update place in category
+                place_name = suggestion.name or 'Unknown Place'
+                existing_place = CategoryPlace.objects.filter(
+                    category=existing_category.key,
+                    name__iexact=place_name
+                ).first()
+                
+                if not existing_place:
+                    CategoryPlace.objects.create(
+                        category=existing_category.key,
+                        name=place_name,
+                        location=suggestion.district or suggestion.location_info or '',
+                        description=suggestion.description or '',
+                        image=suggestion.image_url or '',
+                        type='hidden' if suggestion.suggestion_type == 'hidden_gem' else 'well-known',
+                        hidden_gem=suggestion.description if suggestion.suggestion_type == 'hidden_gem' else '',
+                        is_active=True,
+                        created_by=user
+                    )
+                    logger.info(f"Added suggestion to category: {existing_category.key} - {place_name}")
+                else:
+                    logger.info(f"Place already exists in category: {existing_category.key} - {place_name}")
+                    
+            except Exception as e:
+                logger.error(f"Error mapping suggestion to category: {e}")
+                # Continue with implementation even if category mapping fails
+            
+            # Set status to implemented
             suggestion.status = 'implemented'
-            suggestion.admin_implemented_by = user
-            suggestion.admin_implemented_at = timezone.now()
             suggestion.processed_by = user
             suggestion.processed_at = timezone.now()
             
@@ -573,404 +663,735 @@ class SuggestionViewSet(viewsets.ModelViewSet):
             
             suggestion.save()
             
-            serializer = self.get_serializer(suggestion)
             return Response({
                 'success': True,
                 'message': 'Suggestion implemented successfully',
-                'data': serializer.data
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Implemented',
+                    'processed_by_email': user.email,
+                    'processed_at': suggestion.processed_at,
+                    'category_mapped': True
+                }
             })
+            
+        except Suggestion.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': f'Suggestion with ID {pk} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Error in admin_implement: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    # ============================================
-    # ✅ MY SUGGESTIONS
-    # ============================================
-    
-    @action(detail=False, methods=['get'], url_path='my')
-    def my_suggestions(self, request):
-        if not request.user.is_authenticated:
-            return Response({
-                'success': False,
-                'data': [],
-                'count': 0
-            })
-        
-        try:
-            suggestions = Suggestion.objects.filter(
-                user=request.user
-            ).order_by('-created_at')
-            
-            stats = {
-                'total': suggestions.count(),
-                'pending': suggestions.filter(status='pending').count(),
-                'approved_by_guide': suggestions.filter(status='approved_by_guide').count(),
-                'rejected_by_guide': suggestions.filter(status='rejected_by_guide').count(),
-                'staff_approved': suggestions.filter(status='staff_approved').count(),
-                'staff_rejected': suggestions.filter(status='staff_rejected').count(),
-                'implemented': suggestions.filter(status='implemented').count(),
-            }
-            
-            page = self.paginate_queryset(suggestions)
-            if page is not None:
-                serializer = SuggestionListSerializer(
-                    page, 
-                    many=True,
-                    context={'request': request}
-                )
-                return self.get_paginated_response({
-                    'success': True,
-                    'stats': stats,
-                    'data': serializer.data,
-                    'count': suggestions.count()
-                })
-            
-            serializer = SuggestionListSerializer(
-                suggestions, 
-                many=True,
-                context={'request': request}
-            )
-            
-            return Response({
-                'success': True,
-                'stats': stats,
-                'data': serializer.data,
-                'count': len(serializer.data)
-            })
-        except Exception as e:
-            return Response({
-                'success': False,
-                'data': [],
-                'count': 0
-            })
-
-    # ============================================
-    # ✅ ADMIN SUGGESTIONS - GET ALL (FIXED IMAGES)
-    # ============================================
-    
-    # suggestions/views.py - FIXED admin_suggestions method
-
-    # ============================================
-    # ✅ ADMIN SUGGESTIONS - GET ALL (FIXED - HANDLES None VALUES)
-    # ============================================
-    
-    @action(detail=False, methods=['get'], url_path='admin-suggestions')
-    def admin_suggestions(self, request):
-        """Admin endpoint to get all suggestions (hidden gems, insights, reviews) - FIXED"""
-        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
-            return Response({
-                'error': 'Permission denied. Admin or Staff only.'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        try:
-            # Get all suggestions
-            suggestions = Suggestion.objects.all().order_by('-created_at')
-            
-            data = []
-            for s in suggestions.select_related('user', 'processed_by'):
-                try:
-                    user_email = 'Anonymous'
-                    user_username = ''
-                    if s.user:
-                        user_email = s.user.email or 'Anonymous'
-                        user_username = s.user.username or ''
-                    
-                    processed_by_email = None
-                    if s.processed_by:
-                        processed_by_email = s.processed_by.email or None
-                    
-                    # ✅ FIXED: Safely get image URL
-                    image_url = None
-                    if s.image:
-                        try:
-                            if hasattr(s.image, 'url'):
-                                image_url = s.image.url
-                            elif isinstance(s.image, str):
-                                image_url = s.image
-                            else:
-                                image_url = str(s.image)
-                        except Exception as e:
-                            logger.warning(f"Error getting image URL for suggestion {s.id}: {e}")
-                            image_url = None
-                    
-                    # ✅ FIXED: Safely get suggestion type - handle None
-                    suggestion_type = getattr(s, 'suggestion_type', 'general')
-                    if suggestion_type is None:
-                        suggestion_type = 'general'
-                    suggestion_type = str(suggestion_type).lower()
-                    
-                    if suggestion_type in ['hidden_gem', 'hidden']:
-                        suggestion_type = 'hidden_gem'
-                    elif suggestion_type in ['local_insight', 'insight', 'local']:
-                        suggestion_type = 'local_insight'
-                    elif suggestion_type in ['review', 'rating']:
-                        suggestion_type = 'review'
-                    else:
-                        suggestion_type = 'general'
-                    
-                    # ✅ FIXED: Safely get status - handle None
-                    status_val = getattr(s, 'status', 'pending')
-                    if status_val is None:
-                        status_val = 'pending'
-                    status_val = str(status_val)
-                    
-                    # ✅ FIXED: Safely get district - handle None
-                    district = getattr(s, 'district', '')
-                    if district is None:
-                        district = ''
-                    district = str(district)
-                    
-                    # ✅ FIXED: Safely get category - handle None
-                    category = getattr(s, 'category', 'General')
-                    if category is None:
-                        category = 'General'
-                    category = str(category)
-                    
-                    # ✅ FIXED: Safely get rating - handle None
-                    rating = getattr(s, 'rating', None)
-                    if rating is not None:
-                        try:
-                            rating = float(rating)
-                        except (ValueError, TypeError):
-                            rating = None
-                    
-                    # ✅ FIXED: Safely get name - handle None
-                    name = getattr(s, 'name', 'Untitled')
-                    if name is None:
-                        name = 'Untitled'
-                    name = str(name)
-                    
-                    # ✅ FIXED: Safely get description - handle None
-                    description = getattr(s, 'description', '')
-                    if description is None:
-                        description = ''
-                    description = str(description)
-                    
-                    # ✅ FIXED: Safely get admin_notes - handle None
-                    admin_notes = getattr(s, 'admin_notes', '')
-                    if admin_notes is None:
-                        admin_notes = ''
-                    admin_notes = str(admin_notes)
-                    
-                    # ✅ FIXED: Safely get guide_notes - handle None
-                    guide_notes = getattr(s, 'guide_notes', '')
-                    if guide_notes is None:
-                        guide_notes = ''
-                    guide_notes = str(guide_notes)
-                    
-                    # ✅ FIXED: Safely get location_info - handle None
-                    location_info = getattr(s, 'location_info', '')
-                    if location_info is None:
-                        location_info = ''
-                    location_info = str(location_info)
-                    
-                    # ✅ FIXED: Safely get images - handle None
-                    images_list = []
-                    if hasattr(s, 'images') and s.images:
-                        try:
-                            if isinstance(s.images, list):
-                                images_list = s.images
-                            elif hasattr(s.images, 'url'):
-                                images_list = [s.images.url]
-                            elif isinstance(s.images, str):
-                                images_list = [s.images]
-                        except Exception as e:
-                            logger.warning(f"Error getting images for suggestion {s.id}: {e}")
-                    
-                    # Get fallback image if no image
-                    if not image_url and not images_list:
-                        # Use category-based fallback images
-                        category_images = {
-                            'beach': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80',
-                            'backwater': 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
-                            'waterfall': 'https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80',
-                            'hill': 'https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80',
-                            'wildlife': 'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80',
-                        }
-                        cat_lower = category.lower()
-                        image_url = category_images.get(cat_lower, 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80')
-                    
-                    # ✅ FIXED: Safely get created_at - handle None
-                    created_at = None
-                    if hasattr(s, 'created_at') and s.created_at:
-                        created_at = s.created_at.isoformat()
-                    else:
-                        created_at = timezone.now().isoformat()
-                    
-                    # ✅ FIXED: Safely get processed_at - handle None
-                    processed_at = None
-                    if hasattr(s, 'processed_at') and s.processed_at:
-                        processed_at = s.processed_at.isoformat()
-                    
-                    data.append({
-                        'id': s.id,
-                        'name': name,
-                        'title': name,
-                        'description': description,
-                        'category': category,
-                        'suggestion_type': suggestion_type,
-                        'type': suggestion_type,
-                        'status': status_val,
-                        'location_info': location_info,
-                        'district': district,
-                        'image': image_url,
-                        'images': images_list,
-                        'rating': rating,
-                        'user': {
-                            'email': user_email,
-                            'username': user_username,
-                        },
-                        'user_email': user_email,
-                        'admin_notes': admin_notes,
-                        'guide_notes': guide_notes,
-                        'processed_by': processed_by_email,
-                        'processed_at': processed_at,
-                        'created_at': created_at,
-                    })
-                except Exception as e:
-                    logger.error(f"Error processing suggestion {s.id}: {e}")
-                    # Still add the suggestion with basic data
-                    data.append({
-                        'id': s.id,
-                        'name': getattr(s, 'name', 'Untitled') or 'Untitled',
-                        'title': getattr(s, 'name', 'Untitled') or 'Untitled',
-                        'description': getattr(s, 'description', '') or '',
-                        'category': getattr(s, 'category', 'General') or 'General',
-                        'suggestion_type': 'general',
-                        'type': 'general',
-                        'status': getattr(s, 'status', 'pending') or 'pending',
-                        'district': getattr(s, 'district', '') or '',
-                        'image': None,
-                        'images': [],
-                        'rating': None,
-                        'user_email': 'Anonymous',
-                        'admin_notes': '',
-                        'guide_notes': '',
-                        'processed_by': None,
-                        'processed_at': None,
-                        'created_at': timezone.now().isoformat(),
-                    })
-            
-            return Response({
-                'success': True,
-                'suggestions': data
-            })
-            
-        except Exception as e:
-            logger.error(f"Error fetching admin suggestions: {e}")
             import traceback
             traceback.print_exc()
             return Response({
                 'success': False,
-                'suggestions': [],
                 'error': str(e)
-            }, status=status.HTTP_200_OK)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
     # ============================================
-    # ✅ ADMIN IMPLEMENT SUGGESTION
+    # ✅ ADMIN REJECT
     # ============================================
     
-    @action(detail=False, methods=['post'], url_path='admin-suggestions/(?P<suggestion_id>[^/.]+)/implement')
-    def admin_implement_suggestion(self, request, suggestion_id=None):
-        """Admin endpoint to implement a suggestion"""
-        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
-            return Response({
-                'error': 'Permission denied. Admin or Staff only.'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+    @action(detail=True, methods=['post'], url_path='admin-reject')
+    def admin_reject(self, request, pk=None):
+        """Admin reject a suggestion"""
         try:
-            suggestion = get_object_or_404(Suggestion, id=suggestion_id)
-            notes = request.data.get('notes', f'Implemented by {request.user.email}')
+            suggestion = self.get_object()
+            user = request.user
             
-            suggestion.status = 'implemented'
-            suggestion.admin_notes = notes
-            suggestion.processed_by = request.user
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Allow admin, staff, or superuser
+            if user.role not in ['admin', 'staff'] and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'error': 'Only admin/staff can perform this action'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            if suggestion.status == 'implemented':
+                return Response({
+                    'success': False,
+                    'error': 'Cannot reject an implemented suggestion'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            notes = request.data.get('notes', '')
+            
+            suggestion.status = 'rejected'
+            suggestion.processed_by = user
             suggestion.processed_at = timezone.now()
+            
+            if notes:
+                suggestion.admin_notes = notes
+                suggestion.rejection_reason = notes
+            
             suggestion.save()
             
             return Response({
                 'success': True,
-                'message': 'Suggestion implemented successfully',
-                'suggestion': {
+                'message': 'Suggestion rejected successfully',
+                'data': {
                     'id': suggestion.id,
+                    'name': suggestion.name,
                     'status': suggestion.status,
-                    'admin_notes': suggestion.admin_notes,
-                    'processed_by': request.user.email,
-                    'processed_at': suggestion.processed_at.isoformat()
+                    'status_display': 'Rejected',
+                    'processed_by_email': user.email,
+                    'processed_at': suggestion.processed_at
                 }
             })
             
-        except Http404:
+        except Suggestion.DoesNotExist:
             return Response({
                 'success': False,
                 'error': 'Suggestion not found'
             }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            logger.error(f"Error implementing suggestion: {e}")
+            logger.error(f"Error in admin_reject: {e}")
+            import traceback
+            traceback.print_exc()
             return Response({
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-
+    
     # ============================================
-    # ✅ ADMIN DELETE SUGGESTION
+    # ✅ STAFF APPROVE
     # ============================================
     
-    @action(detail=False, methods=['delete'], url_path='admin-suggestions/(?P<suggestion_id>[^/.]+)/delete')
-    def admin_delete_suggestion(self, request, suggestion_id=None):
-        """Admin endpoint to delete a suggestion"""
-        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
-            return Response({
-                'error': 'Permission denied. Admin or Staff only.'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        try:
-            suggestion = get_object_or_404(Suggestion, id=suggestion_id)
-            suggestion.delete()
-            
-            return Response({
-                'success': True,
-                'message': 'Suggestion deleted successfully'
-            })
-            
-        except Http404:
-            return Response({
-                'success': False,
-                'error': 'Suggestion not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error(f"Error deleting suggestion: {e}")
-            return Response({
-                'success': False,
-                'error': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    # ============================================
-    # ✅ ADMIN DELETE SUGGESTION (Alternative - by pk)
-    # ============================================
-    
-    @action(detail=True, methods=['delete'], url_path='admin-delete')
-    def admin_delete(self, request, pk=None):
-        """Admin endpoint to delete a suggestion by pk"""
-        if not request.user.is_staff and not request.user.is_superuser and request.user.role != 'admin':
-            return Response({
-                'error': 'Permission denied. Admin or Staff only.'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+    @action(detail=True, methods=['post'], url_path='staff-approve')
+    def staff_approve(self, request, pk=None):
+        """Staff approve a suggestion"""
         try:
             suggestion = self.get_object()
-            suggestion.delete()
+            user = request.user
+            
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Allow staff, admin, or superuser
+            if user.role not in ['staff', 'admin'] and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'error': 'Only staff/admins can perform this action'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            if suggestion.status == 'implemented':
+                return Response({
+                    'success': False,
+                    'error': 'Suggestion is already implemented'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Set status to approved
+            suggestion.status = 'approved'
+            suggestion.processed_by = user
+            suggestion.processed_at = timezone.now()
+            
+            notes = request.data.get('notes', '')
+            if notes:
+                suggestion.admin_notes = notes
+            
+            suggestion.save()
             
             return Response({
                 'success': True,
-                'message': 'Suggestion deleted successfully'
+                'message': 'Suggestion approved successfully by staff',
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Approved',
+                    'processed_by_email': user.email,
+                    'processed_at': suggestion.processed_at
+                }
             })
             
+        except Suggestion.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            logger.error(f"Error deleting suggestion: {e}")
+            logger.error(f"Error in staff_approve: {e}")
+            import traceback
+            traceback.print_exc()
             return Response({
                 'success': False,
                 'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ STAFF IMPLEMENT
+    # ============================================
+    
+    @action(detail=True, methods=['post'], url_path='staff-implement')
+    def staff_implement(self, request, pk=None):
+        """Staff implement a suggestion with category mapping"""
+        try:
+            suggestion = self.get_object()
+            user = request.user
+            
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Allow staff, admin, or superuser
+            if user.role not in ['staff', 'admin'] and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'error': 'Only staff/admins can perform this action'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            if suggestion.status == 'implemented':
+                return Response({
+                    'success': False,
+                    'error': 'Suggestion is already implemented'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ✅ MAP CATEGORY TO DESTINATIONS CATEGORY
+            try:
+                from destinations.models import CategoryData, CategoryPlace
+                category_key = suggestion.category or 'general'
+                
+                # Try to find matching category in destinations
+                existing_category = CategoryData.objects.filter(
+                    Q(key__iexact=category_key) | Q(title__iexact=category_key)
+                ).first()
+                
+                if not existing_category:
+                    # Create a new category if it doesn't exist
+                    existing_category = CategoryData.objects.create(
+                        key=category_key.lower().replace(' ', '_'),
+                        title=category_key.title(),
+                        description=f'Places in {category_key}',
+                        is_active=True
+                    )
+                    logger.info(f"Created new category: {existing_category.key}")
+                
+                # Create or update place in category
+                place_name = suggestion.name or 'Unknown Place'
+                existing_place = CategoryPlace.objects.filter(
+                    category=existing_category.key,
+                    name__iexact=place_name
+                ).first()
+                
+                if not existing_place:
+                    CategoryPlace.objects.create(
+                        category=existing_category.key,
+                        name=place_name,
+                        location=suggestion.district or suggestion.location_info or '',
+                        description=suggestion.description or '',
+                        image=suggestion.image_url or '',
+                        type='hidden' if suggestion.suggestion_type == 'hidden_gem' else 'well-known',
+                        hidden_gem=suggestion.description if suggestion.suggestion_type == 'hidden_gem' else '',
+                        is_active=True,
+                        created_by=user
+                    )
+                    logger.info(f"Added suggestion to category: {existing_category.key} - {place_name}")
+                else:
+                    logger.info(f"Place already exists in category: {existing_category.key} - {place_name}")
+                    
+            except Exception as e:
+                logger.error(f"Error mapping suggestion to category: {e}")
+                # Continue with implementation even if category mapping fails
+            
+            # Set status to implemented
+            suggestion.status = 'implemented'
+            suggestion.processed_by = user
+            suggestion.processed_at = timezone.now()
+            
+            notes = request.data.get('notes', '')
+            if notes:
+                suggestion.admin_notes = notes
+            
+            suggestion.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion implemented successfully by staff',
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Implemented',
+                    'processed_by_email': user.email,
+                    'processed_at': suggestion.processed_at,
+                    'category_mapped': True
+                }
+            })
+            
+        except Suggestion.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': f'Suggestion with ID {pk} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error in staff_implement: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ STAFF REJECT
+    # ============================================
+    
+    @action(detail=True, methods=['post'], url_path='staff-reject')
+    def staff_reject(self, request, pk=None):
+        """Staff reject a suggestion"""
+        try:
+            suggestion = self.get_object()
+            user = request.user
+            
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            # Allow staff, admin, or superuser
+            if user.role not in ['staff', 'admin'] and not user.is_superuser:
+                return Response({
+                    'success': False,
+                    'error': 'Only staff/admins can perform this action'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            if suggestion.status == 'implemented':
+                return Response({
+                    'success': False,
+                    'error': 'Cannot reject an implemented suggestion'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            notes = request.data.get('notes', '')
+            
+            suggestion.status = 'rejected'
+            suggestion.processed_by = user
+            suggestion.processed_at = timezone.now()
+            
+            if notes:
+                suggestion.admin_notes = notes
+                suggestion.rejection_reason = notes
+            
+            suggestion.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion rejected successfully by staff',
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Rejected',
+                    'processed_by_email': user.email,
+                    'processed_at': suggestion.processed_at
+                }
+            })
+            
+        except Suggestion.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Suggestion not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error in staff_reject: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ GUIDE DASHBOARD
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='guide-dashboard')
+    def guide_dashboard(self, request):
+        """Get ALL suggestions for guide's district - Including all statuses"""
+        user = request.user
+        
+        if not user.is_authenticated:
+            return Response({
+                'success': False,
+                'error': 'Authentication required'
+            }, status=status.HTTP_401_UNAUTHORIZED)
+        
+        if user.role != 'guide':
+            return Response({
+                'success': False,
+                'error': 'Only guides can access this'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            guide = Guide.objects.get(user=user)
+            guide_districts = list(guide.districts.values_list('name', flat=True))
+            
+            if not guide_districts:
+                return Response({
+                    'success': True,
+                    'data': [],
+                    'count': 0,
+                    'message': 'No districts assigned'
+                })
+            
+            # ✅ Get ALL suggestions in guide's districts (not just pending)
+            district_filter = Q()
+            for d in guide_districts:
+                district_filter |= Q(district__iexact=d)
+            
+            suggestions = Suggestion.objects.filter(
+                district_filter
+            ).order_by('-created_at')
+            
+            print(f"🔍 Guide {user.email} - Districts: {guide_districts}")
+            print(f"📊 Found {suggestions.count()} suggestions for guide")
+            
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                suggestions = suggestions.filter(status=status_filter)
+            
+            type_filter = request.query_params.get('type')
+            if type_filter:
+                suggestions = suggestions.filter(suggestion_type=type_filter)
+            
+            # Prepare data with proper image handling
+            data = []
+            for s in suggestions:
+                image_url = None
+                # Try to get primary image
+                primary_image = s.images.filter(is_primary=True).first()
+                if primary_image and primary_image.image:
+                    try:
+                        image_url = primary_image.image.url
+                    except:
+                        image_url = None
+                
+                # If no primary image, get first image
+                if not image_url:
+                    first_image = s.images.first()
+                    if first_image and first_image.image:
+                        try:
+                            image_url = first_image.image.url
+                        except:
+                            image_url = None
+                
+                # If still no image, check the main image field
+                if not image_url and s.image:
+                    try:
+                        if hasattr(s.image, 'url'):
+                            image_url = s.image.url
+                        else:
+                            image_url = str(s.image)
+                    except:
+                        pass
+                
+                data.append({
+                    'id': s.id,
+                    'name': s.name,
+                    'title': s.title or s.name,
+                    'description': s.description,
+                    'suggestion_type': s.suggestion_type,
+                    'status': s.status,
+                    'category': s.category,
+                    'district': s.district,
+                    'location_info': s.location_info,
+                    'image': image_url,
+                    'image_url': image_url,
+                    'user': {
+                        'id': s.user.id if s.user else None,
+                        'email': s.user.email if s.user else 'Anonymous',
+                        'username': s.user.username if s.user else 'Anonymous',
+                        'first_name': s.user.first_name if s.user else '',
+                        'last_name': s.user.last_name if s.user else '',
+                    } if s.user else {
+                        'email': 'Anonymous',
+                        'username': 'Anonymous',
+                    },
+                    'user_email': s.user.email if s.user else 'Anonymous',
+                    'created_at': s.created_at.isoformat(),
+                    'updated_at': s.updated_at.isoformat(),
+                    'is_guide_submitted': s.is_guide_submitted if hasattr(s, 'is_guide_submitted') else False,
+                    'guide_notes': s.guide_notes if hasattr(s, 'guide_notes') else '',
+                    'admin_notes': s.admin_notes if hasattr(s, 'admin_notes') else '',
+                })
+            
+            return Response({
+                'success': True,
+                'data': data,
+                'count': len(data),
+                'districts': guide_districts
+            })
+            
+        except Guide.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Guide profile not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error in guide_dashboard: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': str(e),
+                'data': [],
+                'count': 0
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ BY CATEGORY
+    # ============================================
+    
+    @action(detail=False, methods=['get'], url_path='by-category')
+    def by_category(self, request):
+        """Get suggestions by category"""
+        category = request.query_params.get('category')
+        if not category:
+            return Response({
+                'success': False,
+                'data': [],
+                'count': 0,
+                'error': 'Category parameter required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            suggestions = Suggestion.objects.filter(
+                category__iexact=category,
+                status='implemented'
+            ).order_by('-created_at')
+            
+            page = self.paginate_queryset(suggestions)
+            if page is not None:
+                serializer = SuggestionListSerializer(page, many=True, context={'request': request})
+                return self.get_paginated_response({
+                    'success': True,
+                    'data': serializer.data,
+                    'count': suggestions.count(),
+                    'category': category
+                })
+            
+            serializer = SuggestionListSerializer(suggestions, many=True, context={'request': request})
+            return Response({
+                'success': True,
+                'data': serializer.data,
+                'count': suggestions.count(),
+                'category': category
+            })
+        except Exception as e:
+            logger.error(f"Error fetching suggestions by category: {e}")
+            return Response({
+                'success': False,
+                'data': [],
+                'count': 0,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ GUIDE APPROVE - FIXED
+    # ============================================
+    
+    @action(detail=True, methods=['post'], url_path='guide-approve')
+    def guide_approve(self, request, pk=None):
+        """Guide approve a suggestion"""
+        try:
+            # ✅ Get suggestion with proper error handling
+            try:
+                suggestion = Suggestion.objects.get(id=pk)
+            except Suggestion.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': f'Suggestion with ID {pk} not found. Please refresh and try again.'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            user = request.user
+            
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            if user.role != 'guide':
+                return Response({
+                    'success': False,
+                    'error': 'Only guides can perform this action'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # ✅ Get guide profile
+            try:
+                guide = Guide.objects.get(user=user)
+                guide_districts = [d.name.lower() for d in guide.districts.all()]
+                
+                # ✅ Check if suggestion district is in guide's districts
+                suggestion_district = (suggestion.district or '').lower()
+                if suggestion_district not in guide_districts:
+                    return Response({
+                        'success': False,
+                        'error': f'This suggestion is not in your district. Your districts: {", ".join(guide_districts)}'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                    
+            except Guide.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Guide profile not found. Please contact admin.'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # ✅ Allow approval from pending, pending_guide, or pending_admin
+            if suggestion.status not in ['pending', 'pending_guide', 'pending_admin']:
+                return Response({
+                    'success': False,
+                    'error': f'Cannot approve. Current status is: {suggestion.status}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ✅ Set status to approved_by_guide
+            suggestion.status = 'approved_by_guide'
+            suggestion.guide_approved_by = user
+            suggestion.guide_approved_at = timezone.now()
+            suggestion.guide_processed_at = timezone.now()
+            suggestion.guide = guide
+            
+            notes = request.data.get('notes', '')
+            if notes:
+                suggestion.guide_notes = notes
+            
+            suggestion.save()
+            
+            logger.info(f"✅ Guide {user.email} approved suggestion {suggestion.id} - {suggestion.name}")
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion approved by guide',
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Approved by Guide',
+                    'guide_approved_by': user.email,
+                    'guide_approved_at': suggestion.guide_approved_at.isoformat() if suggestion.guide_approved_at else None
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in guide_approve: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': f'Error approving suggestion: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # ============================================
+    # ✅ GUIDE REJECT - FIXED
+    # ============================================
+    
+    @action(detail=True, methods=['post'], url_path='guide-reject')
+    def guide_reject(self, request, pk=None):
+        """Guide reject a suggestion"""
+        try:
+            # ✅ Get suggestion with proper error handling
+            try:
+                suggestion = Suggestion.objects.get(id=pk)
+            except Suggestion.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': f'Suggestion with ID {pk} not found. Please refresh and try again.'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            user = request.user
+            
+            if not user.is_authenticated:
+                return Response({
+                    'success': False,
+                    'error': 'Authentication required'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
+            if user.role != 'guide':
+                return Response({
+                    'success': False,
+                    'error': 'Only guides can perform this action'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # ✅ Get guide profile
+            try:
+                guide = Guide.objects.get(user=user)
+                guide_districts = [d.name.lower() for d in guide.districts.all()]
+                
+                # ✅ Check if suggestion district is in guide's districts
+                suggestion_district = (suggestion.district or '').lower()
+                if suggestion_district not in guide_districts:
+                    return Response({
+                        'success': False,
+                        'error': f'This suggestion is not in your district. Your districts: {", ".join(guide_districts)}'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                    
+            except Guide.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Guide profile not found. Please contact admin.'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # ✅ Allow rejection from pending, pending_guide, or pending_admin
+            if suggestion.status not in ['pending', 'pending_guide', 'pending_admin']:
+                return Response({
+                    'success': False,
+                    'error': f'Cannot reject. Current status is: {suggestion.status}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            reason = request.data.get('reason', '')
+            notes = request.data.get('notes', '')
+            
+            if not reason:
+                return Response({
+                    'success': False,
+                    'error': 'Reason is required for rejection. Please provide a reason.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # ✅ Set status to rejected_by_guide
+            suggestion.status = 'rejected_by_guide'
+            suggestion.guide_rejected_by = user
+            suggestion.guide_rejected_at = timezone.now()
+            suggestion.guide_processed_at = timezone.now()
+            suggestion.rejection_reason = reason
+            suggestion.guide = guide
+            
+            if notes:
+                suggestion.guide_notes = notes
+            
+            suggestion.save()
+            
+            logger.info(f"✅ Guide {user.email} rejected suggestion {suggestion.id} - {suggestion.name} - Reason: {reason}")
+            
+            return Response({
+                'success': True,
+                'message': 'Suggestion rejected by guide',
+                'data': {
+                    'id': suggestion.id,
+                    'name': suggestion.name,
+                    'status': suggestion.status,
+                    'status_display': 'Rejected by Guide',
+                    'guide_rejected_by': user.email,
+                    'guide_rejected_at': suggestion.guide_rejected_at.isoformat() if suggestion.guide_rejected_at else None,
+                    'rejection_reason': reason
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in guide_reject: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'success': False,
+                'error': f'Error rejecting suggestion: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)

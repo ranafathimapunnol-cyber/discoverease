@@ -1,8 +1,10 @@
-# config/settings.py - COMPLETE FIXED & OPTIMIZED VERSION
+# config/settings.py - COMPLETE FIXED & OPTIMIZED WITH LIMIT-OFFSET PAGINATION
 
+import copy
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -37,17 +39,18 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
-    # 'django_celery_beat',  # ⚠️ REMOVED - Using code-based schedules in celery.py
     
     # Local apps
     'accounts.apps.AccountsConfig',
-    'destinations',
-    'suggestions',
     'activities',
-    'trip_planner',
-    'guides',
     'admin_dashboard',
+    'ai',
+    'api',
+    'destinations',
+    'django_extensions',
+    'guides',
     'staff',
+    'suggestions',
 ]
 
 # =============================================
@@ -106,6 +109,9 @@ DATABASES = {
         'CONN_MAX_AGE': 600,
         'TEST': {
             'NAME': 'test_discoverease',
+        },
+        'OPTIONS': {
+            'connect_timeout': 10,
         }
     }
 }
@@ -143,7 +149,7 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# ✅ Only add STATICFILES_DIRS if the folder exists
+# Only add STATICFILES_DIRS if the folder exists
 STATIC_DIR = BASE_DIR / 'static'
 if STATIC_DIR.exists():
     STATICFILES_DIRS = [STATIC_DIR]
@@ -211,7 +217,7 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 * 30  # 30 days
 SESSION_SAVE_EVERY_REQUEST = True
 
 # =============================================
-# REST FRAMEWORK
+# REST FRAMEWORK - LIMIT-OFFSET PAGINATION
 # =============================================
 
 REST_FRAMEWORK = {
@@ -225,9 +231,14 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    # Limit-Offset Pagination
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+    'PAGE_SIZE': 20,  # Default limit
 }
+
+# Custom pagination settings
+# Limit = number of items per page (default: 20, max: 100)
+# Offset = number of items to skip (default: 0)
 
 # =============================================
 # GOOGLE OAUTH
@@ -254,7 +265,7 @@ LOGIN_URL = '/api/auth/login/'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
@@ -266,21 +277,18 @@ DEFAULT_FROM_EMAIL = os.getenv(
 # =============================================
 # CELERY CONFIGURATION
 # =============================================
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
 
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
+CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
-CELERY_TIMEZONE = "Asia/Kolkata"
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+CELERY_TIMEZONE = 'Asia/Kolkata'
 CELERY_ENABLE_UTC = False
 
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-
-# ⚠️ Using code-based schedules in celery.py - NOT django_celery_beat
-# If you want to use Django Admin to manage schedules, uncomment below:
-# CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 # =============================================
 # SECURITY (Development)
@@ -293,8 +301,8 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 # LOGGING - WITH AUTO-CREATED LOGS DIRECTORY
 # =============================================
 
-# ✅ Create logs directory if it doesn't exist
-LOG_DIR = BASE_DIR / "logs"
+# Create logs directory if it doesn't exist
+LOG_DIR = BASE_DIR / 'logs'
 LOG_DIR.mkdir(exist_ok=True)
 
 LOGGING = {
@@ -317,7 +325,7 @@ LOGGING = {
         },
         'file': {
             'class': 'logging.FileHandler',
-            'filename': LOG_DIR / 'django.log',  # ✅ Uses LOG_DIR
+            'filename': LOG_DIR / 'django.log',
             'formatter': 'verbose',
         },
     },
@@ -345,21 +353,19 @@ LOGGING = {
 }
 
 # =============================================
-# GOOGLE RECAPTCHA
+# QDRANT VECTOR DATABASE
 # =============================================
 
-RECAPTCHA_PUBLIC_KEY = os.getenv('RECAPTCHA_PUBLIC_KEY', '')
-RECAPTCHA_PRIVATE_KEY = os.getenv('RECAPTCHA_PRIVATE_KEY', '')
-
-MAX_UPLOAD_SIZE = 5242880  # 5MB
+QDRANT_HOST = os.getenv('QDRANT_HOST', 'localhost')
+QDRANT_PORT = int(os.getenv('QDRANT_PORT', '6333'))
+QDRANT_COLLECTION = os.getenv('QDRANT_COLLECTION', 'kerala_destinations')
+QDRANT_API_KEY = os.getenv('QDRANT_API_KEY', '')
 
 # =============================================
 # PYTHON 3.14 / DJANGO TEMPLATE CONTEXT FIX
 # =============================================
 
 if 'test' in sys.argv and sys.version_info >= (3, 14):
-    import copy
-    
     def safe_copy(x):
         """Safely copy objects without causing AttributeError"""
         if hasattr(x, 'dicts'):
@@ -367,29 +373,21 @@ if 'test' in sys.argv and sys.version_info >= (3, 14):
                 if hasattr(x, '__copy__'):
                     return x.__copy__()
             except AttributeError:
-                new = type(x)()
-                new.dicts = x.dicts[:] if x.dicts else []
-                if hasattr(x, 'current_app'):
-                    new.current_app = x.current_app
-                if hasattr(x, 'use_l10n'):
-                    new.use_l10n = x.use_l10n
-                if hasattr(x, 'use_tz'):
-                    new.use_tz = x.use_tz
-                if hasattr(x, 'autoescape'):
-                    new.autoescape = x.autoescape
-                return new
-            except Exception:
-                new = type(x)()
-                new.dicts = x.dicts[:] if x.dicts else []
-                if hasattr(x, 'current_app'):
-                    new.current_app = x.current_app
-                if hasattr(x, 'use_l10n'):
-                    new.use_l10n = x.use_l10n
-                if hasattr(x, 'use_tz'):
-                    new.use_tz = x.use_tz
-                if hasattr(x, 'autoescape'):
-                    new.autoescape = x.autoescape
-                return new
+                # Fall through to creating a new object
+                pass
+            
+            # Create a new object and copy attributes
+            new = type(x)()
+            new.dicts = x.dicts[:] if x.dicts else []
+            if hasattr(x, 'current_app'):
+                new.current_app = x.current_app
+            if hasattr(x, 'use_l10n'):
+                new.use_l10n = x.use_l10n
+            if hasattr(x, 'use_tz'):
+                new.use_tz = x.use_tz
+            if hasattr(x, 'autoescape'):
+                new.autoescape = x.autoescape
+            return new
         
         try:
             return copy._copy(x)
@@ -401,8 +399,8 @@ if 'test' in sys.argv and sys.version_info >= (3, 14):
         django.test.client.copy = safe_copy
         copy.copy = safe_copy
         print("🐍 Python 3.14 template context fix applied for tests")
-    except Exception as e:
-        print(f"⚠️ Could not apply Python 3.14 fix: {e}")
+    except (ImportError, AttributeError) as e:
+        print(f"Could not apply Python 3.14 fix: {e}")
 
 # =============================================
 # PRINT CONFIGURATION SUMMARY (Development)
@@ -420,4 +418,6 @@ if DEBUG:
     print(f"📧 Email: {EMAIL_HOST_USER or 'Not configured'}")
     print(f"🖼️ Media: {MEDIA_ROOT}")
     print(f"📁 Logs: {LOG_DIR}")
+    print("📄 Pagination: Limit-Offset (default limit: 20)")
+    print(f"🔍 Qdrant: {QDRANT_HOST}:{QDRANT_PORT}")
     print("="*60 + "\n")

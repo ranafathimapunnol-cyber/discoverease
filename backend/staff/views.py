@@ -1,4 +1,4 @@
-# staff/views.py - COMPLETE FIXED VERSION
+# staff/views.py - CLEANED VERSION (No Bookings)
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta
 import re
 
-from guides.models import Guide, GuideBooking, District, GuideCategory, GuideAvailability
+from guides.models import Guide, District, GuideCategory, GuideAvailability
 from suggestions.models import Suggestion
 
 User = get_user_model()
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class StaffViewSet(viewsets.ViewSet):
-    """Staff Dashboard - Staff can manage guides, suggestions, reviews, and insights"""
+    """Staff Dashboard - Staff can manage guides and suggestions"""
     permission_classes = [IsAuthenticated]
 
     def _check_staff_access(self, request_or_user):
@@ -85,10 +85,6 @@ class StaffViewSet(viewsets.ViewSet):
                 'pendingSuggestions': Suggestion.objects.filter(status='pending').count(),
                 'totalSuggestions': Suggestion.objects.count(),
                 'totalGuides': Guide.objects.filter(is_active=True).count(),
-                'totalBookings': GuideBooking.objects.count(),
-                'confirmedBookings': GuideBooking.objects.filter(status='confirmed').count(),
-                'totalReviews': 0,
-                'pendingReviews': 0,
                 'totalUsers': User.objects.filter(is_active=True).count(),
             }
             return Response({'success': True, 'stats': stats})
@@ -98,10 +94,6 @@ class StaffViewSet(viewsets.ViewSet):
                 'pendingSuggestions': 0,
                 'totalSuggestions': 0,
                 'totalGuides': 0,
-                'totalBookings': 0,
-                'confirmedBookings': 0,
-                'totalReviews': 0,
-                'pendingReviews': 0,
                 'totalUsers': 0,
             }})
 
@@ -437,6 +429,7 @@ class StaffViewSet(viewsets.ViewSet):
                     'error': f"District '{district_name}' not found. Available: {', '.join(available)}"
                 }, status=400)
 
+            # Create availability slots
             guide.availabilities.all().delete()
             slots_added = 0
             for i in range(14):
@@ -492,11 +485,11 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # ✅ UPDATE GUIDE - /api/staff/guides/{id}/update/ (NEW URL)
+    # ✅ UPDATE GUIDE - /api/staff/{pk}/update/
     # ============================================
     @action(detail=True, methods=['put', 'patch'], url_path='update')
     def update_guide(self, request, pk=None):
-        """Update a guide - URL: /api/staff/guides/{id}/update/"""
+        """Update a guide - URL: /api/staff/{pk}/update/"""
         if not self._check_staff_access(request):
             return Response({'error': 'Staff access required'}, status=403)
 
@@ -579,7 +572,7 @@ class StaffViewSet(viewsets.ViewSet):
             return Response({'success': False, 'error': str(e)}, status=400)
 
     # ============================================
-    # ✅ UPLOAD GUIDE PROFILE PICTURE - /api/staff/guides/{id}/upload-profile-pic/
+    # ✅ UPLOAD GUIDE PROFILE PICTURE - /api/staff/{pk}/upload-profile-pic/
     # ============================================
     @action(detail=True, methods=['post'], url_path='upload-profile-pic')
     def upload_guide_profile_pic(self, request, pk=None):
@@ -590,13 +583,20 @@ class StaffViewSet(viewsets.ViewSet):
         try:
             guide = get_object_or_404(Guide, id=pk)
             
-            if 'profile_image' not in request.FILES:
+            # Check for file in multiple possible field names
+            file = None
+            if 'profile_image' in request.FILES:
+                file = request.FILES['profile_image']
+            elif 'profile_picture' in request.FILES:
+                file = request.FILES['profile_picture']
+            elif 'image' in request.FILES:
+                file = request.FILES['image']
+            
+            if not file:
                 return Response({
                     'success': False,
-                    'error': 'No image file provided'
+                    'error': 'No image provided. Please upload with field name "profile_image", "profile_picture", or "image".'
                 }, status=400)
-            
-            file = request.FILES['profile_image']
             
             # Validate file size (5MB max)
             if file.size > 5 * 1024 * 1024:
@@ -609,8 +609,15 @@ class StaffViewSet(viewsets.ViewSet):
             if not file.content_type.startswith('image/'):
                 return Response({
                     'success': False,
-                    'error': 'File must be an image'
+                    'error': f'File must be an image. Got: {file.content_type}'
                 }, status=400)
+            
+            # Delete old profile picture if exists
+            if guide.profile_image:
+                try:
+                    guide.profile_image.delete(save=False)
+                except Exception:
+                    pass
             
             guide.profile_image = file
             guide.save()
@@ -715,32 +722,3 @@ class StaffViewSet(viewsets.ViewSet):
                 'success': False,
                 'error': str(e)
             }, status=400)
-
-    # ============================================
-    # STAFF BOOKINGS - /api/staff/bookings/
-    # ============================================
-    @action(detail=False, methods=['get'], url_path='bookings')
-    def bookings(self, request):
-        if not self._check_staff_access(request):
-            return Response({'error': 'Staff access required'}, status=403)
-
-        try:
-            bookings = GuideBooking.objects.all().order_by('-created_at')
-            data = []
-            for booking in bookings.select_related('user', 'guide', 'district'):
-                data.append({
-                    'id': booking.id,
-                    'booking_id': booking.booking_id,
-                    'user': {'username': booking.user.username if booking.user else 'Anonymous'},
-                    'traveler_email': booking.user.email if booking.user else '',
-                    'guide': {'full_name': booking.guide.full_name if booking.guide else 'Unknown'},
-                    'guide_name': booking.guide.full_name if booking.guide else 'Unknown',
-                    'district': {'name': booking.district.name if booking.district else 'N/A'},
-                    'date': booking.date.isoformat(),
-                    'time': booking.time.strftime('%H:%M') if booking.time else 'N/A',
-                    'status': booking.status,
-                    'created_at': booking.created_at.isoformat(),
-                })
-            return Response({'success': True, 'bookings': data})
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=400)
