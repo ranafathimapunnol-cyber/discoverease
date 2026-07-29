@@ -1,5 +1,4 @@
-# management/commands/import_category_data.py - FIXED
-
+# destinations/management/commands/import_category_data.py
 import os
 import re
 import json

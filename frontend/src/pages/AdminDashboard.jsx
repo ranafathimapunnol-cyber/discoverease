@@ -1,9 +1,4 @@
-// src/pages/AdminDashboard.jsx - FULLY FIXED WITH ALL CRUD OPERATIONS
-// - Fixed guide edit with correct endpoints
-// - Fixed profile pictures for admin, staff, and guides
-// - Add Insight/Hidden Gem default implemented with delete
-// - All CRUD operations working
-// - Correct URL patterns for all endpoints
+// src/pages/AdminDashboard.jsx - COMPLETE FIXED VERSION WITH ALL WORKING CRUD
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -45,6 +40,15 @@ import {
     PlusCircle,
     Upload,
     Image as ImageIcon,
+    Phone,
+    Mail,
+    Calendar,
+    Key,
+    TrendingUp,
+    Award,
+    Clock,
+    ArrowUpRight,
+    Flame,
 } from 'lucide-react';
 
 // ============================================
@@ -125,21 +129,428 @@ const Btn = ({ children, variant = 'primary', icon: Icon, size = 'md', style, ..
         </button>
     );
 };
+// ============================================
+// HELPER COMPONENTS FOR OVERVIEW
+// ============================================
+
+const MetricCard = ({ label, value, icon: Icon, color, change, changeType }) => (
+    <Card style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <div>
+                <p style={{
+                    fontSize: 11,
+                    color: C.sageLight,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    fontFamily: FONT.mono,
+                    margin: 0
+                }}>
+                    {label}
+                </p>
+                <h3 style={{
+                    fontSize: 26,
+                    fontWeight: 600,
+                    color: C.inkSoft,
+                    margin: '4px 0 0',
+                    fontFamily: FONT.display
+                }}>
+                    {value}
+                </h3>
+                {change && (
+                    <p style={{
+                        fontSize: 11,
+                        color: changeType === 'up' ? C.success : C.danger,
+                        margin: '4px 0 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                    }}>
+                        {changeType === 'up' ? '↑' : '↓'} {change}
+                    </p>
+                )}
+            </div>
+            <div style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                background: color + '15',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+            }}>
+                <Icon size={18} color={color} />
+            </div>
+        </div>
+    </Card>
+);
+// ============================================
+// OVERVIEW HELPER COMPONENTS
+// ============================================
+
+const StatBox = ({ label, value, icon: Icon, color, bg, change }) => (
+    <div style={{
+        background: '#FFFFFF',
+        borderRadius: 16,
+        padding: '18px 20px',
+        border: '1px solid #EFE6CF',
+        boxShadow: '0 4px 12px rgba(7,46,42,0.04)',
+        transition: 'all 0.2s ease'
+    }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+                <p style={{
+                    fontSize: 11,
+                    color: '#7A7568',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    margin: 0
+                }}>{label}</p>
+                <p style={{
+                    fontSize: 26,
+                    fontWeight: 700,
+                    color: '#0B2422',
+                    margin: '4px 0 0',
+                    fontFamily: "'Fraunces', Georgia, serif"
+                }}>{value}</p>
+                {change && (
+                    <p style={{
+                        fontSize: 11,
+                        color: '#3F7A5E',
+                        margin: '2px 0 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                    }}>
+                        ↑ {change} from last month
+                    </p>
+                )}
+            </div>
+            <div style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: bg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+            }}>
+                <Icon size={20} color={color} />
+            </div>
+        </div>
+    </div>
+);
+
+const StatusProgress = ({ label, value, total, color, bg }) => {
+    const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+    return (
+        <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, color: '#0B2422' }}>{label}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: color }}>{value}</span>
+            </div>
+            <div style={{
+                height: 8,
+                borderRadius: 6,
+                background: '#EFE6CF',
+                overflow: 'hidden'
+            }}>
+                <div style={{
+                    width: `${percentage}%`,
+                    height: '100%',
+                    borderRadius: 6,
+                    background: color,
+                    transition: 'width 1s ease'
+                }} />
+            </div>
+        </div>
+    );
+};
+
+const OverviewTile = ({ label, value, icon: Icon, color, bg }) => (
+    <div style={{
+        padding: '14px 16px',
+        background: bg || '#F9FAFB',
+        borderRadius: 12,
+        border: '1px solid rgba(239,230,207,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12
+    }}>
+        <div style={{
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            background: 'rgba(255,255,255,0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+        }}>
+            <Icon size={16} color={color} />
+        </div>
+        <div>
+            <p style={{ fontSize: 11, color: '#7A7568', margin: 0 }}>{label}</p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: '#0B2422', margin: 0 }}>{value}</p>
+        </div>
+    </div>
+);
+
+const ActivityRow = ({ title, type, status }) => {
+    const getIcon = () => {
+        if (type === 'hidden_gem') return '💎';
+        if (type === 'local_insight' || type === 'insight') return '💡';
+        if (type === 'review') return '⭐';
+        return '📝';
+    };
+    
+    const getStatusColor = () => {
+        if (status === 'implemented') return '#3F7A5E';
+        if (status === 'rejected') return '#B4472A';
+        return '#B4791F';
+    };
+    
+    const getStatusBg = () => {
+        if (status === 'implemented') return '#EAF3EE';
+        if (status === 'rejected') return '#FDF1EC';
+        return '#FBF1DC';
+    };
+
+    return (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '10px 14px',
+            background: '#FBF6EA',
+            borderRadius: 12,
+            border: '1px solid #EFE6CF'
+        }}>
+            <span style={{ fontSize: 20 }}>{getIcon()}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                    fontSize: 13,
+                    color: '#0B2422',
+                    margin: 0,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                }}>
+                    {title}
+                </p>
+                <p style={{
+                    fontSize: 11,
+                    color: '#7A7568',
+                    margin: '2px 0 0',
+                    textTransform: 'capitalize'
+                }}>
+                    {type?.replace('_', ' ') || 'suggestion'}
+                </p>
+            </div>
+            <span style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '3px 12px',
+                borderRadius: 20,
+                color: getStatusColor(),
+                background: getStatusBg(),
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em'
+            }}>
+                {status || 'pending'}
+            </span>
+        </div>
+    );
+};
+
+const ActionButton = ({ label, icon: Icon, onClick, color }) => (
+    <button onClick={onClick} style={{
+        padding: '14px 16px',
+        background: '#FBF6EA',
+        borderRadius: 12,
+        border: '1px solid #EFE6CF',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 6,
+        transition: 'all 0.2s ease',
+        fontFamily: "'Inter', system-ui, sans-serif",
+        fontSize: 12,
+        fontWeight: 500,
+        color: '#0B2422'
+    }} onMouseEnter={(e) => {
+        e.target.style.background = '#F5EDD6';
+        e.target.style.borderColor = color;
+    }} onMouseLeave={(e) => {
+        e.target.style.background = '#FBF6EA';
+        e.target.style.borderColor = '#EFE6CF';
+    }}>
+        <Icon size={18} color={color} />
+        <span>{label}</span>
+    </button>
+);
+const StatusBar = ({ label, count, total, color, bg }) => {
+    const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
+    return (
+        <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: C.sage }}>{label}</span>
+                <span style={{ color: C.inkSoft, fontWeight: 500 }}>{count} ({percentage}%)</span>
+            </div>
+            <div style={{
+                height: 6,
+                borderRadius: 3,
+                background: C.line,
+                overflow: 'hidden'
+            }}>
+                <div style={{
+                    width: `${percentage}%`,
+                    height: '100%',
+                    borderRadius: 3,
+                    background: color,
+                    transition: 'width 1s ease'
+                }} />
+            </div>
+        </div>
+    );
+};
+
+const QuickStat = ({ label, value, icon: Icon, color }) => (
+    <div style={{
+        padding: '12px 14px',
+        background: C.cream,
+        borderRadius: RADIUS.sm,
+        border: `1px solid ${C.line}`,
+        textAlign: 'center'
+    }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 2 }}>
+            <Icon size={14} color={color} />
+            <span style={{ fontSize: 11, color: C.sage }}>{label}</span>
+        </div>
+        <span style={{ fontSize: 18, fontWeight: 600, color: C.inkSoft }}>{value}</span>
+    </div>
+);
+
+const ActivityItem = ({ title, type, status, time }) => {
+    const getIcon = () => {
+        if (type === 'hidden_gem') return '💎';
+        if (type === 'local_insight') return '💡';
+        if (type === 'review') return '⭐';
+        return '📝';
+    };
+    
+    const getStatusColor = () => {
+        if (status === 'implemented') return C.success;
+        if (status === 'rejected') return C.danger;
+        return C.warn;
+    };
+
+    return (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '8px 12px',
+            background: C.cream,
+            borderRadius: RADIUS.sm,
+            border: `1px solid ${C.line}`
+        }}>
+            <div style={{ fontSize: 18 }}>{getIcon()}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                    fontSize: 13,
+                    color: C.inkSoft,
+                    margin: 0,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                }}>
+                    {title}
+                </p>
+                <p style={{
+                    fontSize: 10,
+                    color: C.sage,
+                    margin: '2px 0 0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                }}>
+                    <span>{type?.replace('_', ' ') || 'suggestion'}</span>
+                    <span style={{ width: 3, height: 3, borderRadius: '50%', background: C.sage }} />
+                    <span style={{ color: getStatusColor() }}>{status}</span>
+                </p>
+            </div>
+            {time && (
+                <span style={{ fontSize: 10, color: C.sage, flexShrink: 0 }}>
+                    {new Date(time).toLocaleDateString()}
+                </span>
+            )}
+        </div>
+    );
+};
+
+const QuickAction = ({ label, icon: Icon, onClick, color }) => (
+    <button onClick={onClick} style={{
+        padding: '12px 14px',
+        background: C.cream,
+        borderRadius: RADIUS.sm,
+        border: `1px solid ${C.line}`,
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 4,
+        transition: 'all 0.2s ease',
+        fontFamily: FONT.body,
+        fontSize: 11,
+        color: C.sage
+    }} onMouseEnter={(e) => {
+        e.target.style.background = color + '10';
+        e.target.style.borderColor = color;
+    }} onMouseLeave={(e) => {
+        e.target.style.background = C.cream;
+        e.target.style.borderColor = C.line;
+    }}>
+        <Icon size={18} color={color} />
+        <span>{label}</span>
+    </button>
+);
+
+const SummaryStat = ({ label, value, suffix = '', icon: Icon, color }) => (
+    <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '8px 14px'
+    }}>
+        <Icon size={16} color={color} />
+        <div>
+            <p style={{ fontSize: 10, color: C.sage, margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                {label}
+            </p>
+            <p style={{ fontSize: 16, fontWeight: 600, color: C.inkSoft, margin: 0 }}>
+                {value}{suffix}
+            </p>
+        </div>
+    </div>
+);
 
 const StatusPill = ({ status }) => {
     const map = {
-        pending: { fg: C.warn, bg: C.warnBg, label: 'Pending' },
-        pending_guide: { fg: C.warn, bg: C.warnBg, label: 'Pending Guide' },
-        pending_admin: { fg: C.warn, bg: C.warnBg, label: 'Pending Admin' },
+        pending: { fg: C.warn, bg: C.warnBg, label: '⏳ Pending' },
+        pending_guide: { fg: C.warn, bg: C.warnBg, label: '⏳ Pending' },
+        pending_admin: { fg: C.warn, bg: C.warnBg, label: '⏳ Pending' },
         approved: { fg: C.success, bg: C.successBg, label: '✅ Approved' },
-        approved_by_guide: { fg: C.success, bg: C.successBg, label: 'Approved' },
-        approved_by_admin: { fg: C.success, bg: C.successBg, label: 'Approved' },
+        approved_by_guide: { fg: C.success, bg: C.successBg, label: '✅ Approved' },
+        approved_by_admin: { fg: C.success, bg: C.successBg, label: '✅ Approved' },
+        staff_approved: { fg: C.success, bg: C.successBg, label: '✅ Approved' },
         implemented: { fg: C.gold, bg: C.warnBg, label: '✨ Implemented' },
         rejected: { fg: C.danger, bg: C.dangerBg, label: '❌ Rejected' },
-        rejected_by_guide: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
-        rejected_by_admin: { fg: C.danger, bg: C.dangerBg, label: 'Rejected' },
-        staff_approved: { fg: C.success, bg: C.successBg, label: 'Staff Approved' },
-        staff_rejected: { fg: C.danger, bg: C.dangerBg, label: 'Staff Rejected' },
+        rejected_by_guide: { fg: C.danger, bg: C.dangerBg, label: '❌ Rejected' },
+        rejected_by_admin: { fg: C.danger, bg: C.dangerBg, label: '❌ Rejected' },
+        staff_rejected: { fg: C.danger, bg: C.dangerBg, label: '❌ Rejected' },
         active: { fg: C.success, bg: C.successBg, label: '🟢 Active' },
         inactive: { fg: C.danger, bg: C.dangerBg, label: '🔴 Inactive' },
         verified: { fg: C.success, bg: C.successBg, label: '✅ Verified' },
@@ -167,17 +578,6 @@ const StatChip = ({ label, value, icon: Icon, tone = 'ink' }) => (
             </div>
         </div>
     </Card>
-);
-
-const SectionHead = ({ icon: Icon, title, count, right }) => (
-    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 10, paddingBottom: 14, borderBottom: `1px solid ${C.line}` }}>
-        <h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            {Icon && <Icon size={17} color={C.gold} />}
-            {title}
-            {count !== undefined && <span style={{ fontSize: 12, color: C.sage, fontStyle: 'normal', fontFamily: FONT.mono }}>({count})</span>}
-        </h3>
-        {right}
-    </div>
 );
 
 const Pagination = ({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }) => {
@@ -330,6 +730,7 @@ const AdminDashboard = () => {
     const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
     const [showPlaceModal, setShowPlaceModal] = useState(false);
     const [showStaffModal, setShowStaffModal] = useState(false);
+    const [showEditStaffModal, setShowEditStaffModal] = useState(false);
     const [showGuideModal, setShowGuideModal] = useState(false);
     const [showCredentialsModal, setShowCredentialsModal] = useState(false);
     const [showSuggestionModal, setShowSuggestionModal] = useState(false);
@@ -337,6 +738,8 @@ const AdminDashboard = () => {
     const [selectedGuide, setSelectedGuide] = useState(null);
     const [showAddInsightModal, setShowAddInsightModal] = useState(false);
     const [showAddHiddenGemModal, setShowAddHiddenGemModal] = useState(false);
+    const [showTouristerModal, setShowTouristerModal] = useState(false);
+    const [showEditTouristerModal, setShowEditTouristerModal] = useState(false);
 
     // Category form states
     const [categoryForm, setCategoryForm] = useState({
@@ -358,8 +761,18 @@ const AdminDashboard = () => {
     const [editingPlace, setEditingPlace] = useState(null);
     const [placeLoading, setPlaceLoading] = useState(false);
 
+    // Tourister form states
+    const [touristerForm, setTouristerForm] = useState({
+        full_name: '', email: '', password: '', phone: '', is_active: true
+    });
+    const [editingTourister, setEditingTourister] = useState(null);
+    const [touristerLoading, setTouristerLoading] = useState(false);
+
     // Staff form states
-    const [staffForm, setStaffForm] = useState({ email: '', password: '' });
+    const [staffForm, setStaffForm] = useState({
+        full_name: '', email: '', password: '', phone: '', is_active: true
+    });
+    const [editingStaff, setEditingStaff] = useState(null);
     const [staffLoading, setStaffLoading] = useState(false);
 
     // Guide form states
@@ -427,7 +840,7 @@ const AdminDashboard = () => {
     };
 
     // ============================================
-    // PROFILE PICTURE - FIXED
+    // PROFILE PICTURE
     // ============================================
     const getProfileImageUrl = (imageUrl) => {
         if (!imageUrl) return null;
@@ -452,106 +865,102 @@ const AdminDashboard = () => {
         return imageUrl;
     };
 
-    const loadProfilePicture = () => {
-        const saved = localStorage.getItem('admin_profile_picture');
-        if (saved) {
-            setProfilePicture(saved);
-            return;
-        }
-        if (profile) {
-            const imageUrl = profile.profile_image || profile.image || profile.avatar || profile.profile_picture;
-            if (imageUrl) {
-                const fullUrl = getProfileImageUrl(imageUrl);
-                if (fullUrl) {
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('admin_profile_picture', fullUrl);
-                    return;
-                }
-            }
-        }
-        if (user) {
-            const imageUrl = user.profile_image || user.image || user.avatar || user.profile_picture;
-            if (imageUrl) {
-                const fullUrl = getProfileImageUrl(imageUrl);
-                if (fullUrl) {
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('admin_profile_picture', fullUrl);
-                    return;
-                }
-            }
-        }
-        setProfilePicture(null);
+    // ============================================
+    // GET TYPE FUNCTIONS
+    // ============================================
+    const getTypeBadge = (type) => {
+        const badges = {
+            'hidden_gem': '💎 Hidden Gem',
+            'local_insight': '💡 Local Insight',
+            'insight': '💡 Local Insight',
+            'review': '⭐ Review',
+        };
+        return badges[type] || type;
     };
 
-    const handleProfilePictureUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        if (file.size > 5 * 1024 * 1024) {
-            showToast('❌ File size must be less than 5MB', 'error');
-            return;
+    const getTypeIcon = (type) => {
+        const icons = {
+            'hidden_gem': Sparkles,
+            'local_insight': Lightbulb,
+            'insight': Lightbulb,
+            'review': Star,
+        };
+        return icons[type] || Star;
+    };
+
+    const getImageUrl = (suggestion) => {
+        if (!suggestion) return null;
+        const imageField = suggestion.image || suggestion.image_url || suggestion.profile_image || suggestion.photo || suggestion.avatar;
+        if (!imageField || typeof imageField !== 'string') return null;
+        const cleanedUrl = imageField.trim();
+        if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
+            return cleanedUrl;
         }
-        if (!file.type.startsWith('image/')) {
-            showToast('❌ Please upload an image file', 'error');
-            return;
+        if (cleanedUrl.startsWith('/media/') || cleanedUrl.startsWith('/uploads/')) {
+            const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+            const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+            const mediaBase = cleanBase.replace('/api', '');
+            return `${mediaBase}${cleanedUrl}`;
         }
-        
-        setUploading(true);
-        const formData = new FormData();
-        formData.append('profile_image', file);
-        
+        return null;
+    };
+
+    // ============================================
+    // PAGINATION HELPERS
+    // ============================================
+    const getPaginatedData = (data, page) => {
+        const startIndex = (page - 1) * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        return data.slice(startIndex, endIndex);
+    };
+
+    const getTotalPages = (data) => Math.ceil(data.length / ITEMS_PER_PAGE);
+
+    // ============================================
+    // CLEAR CACHE
+    // ============================================
+    const clearCache = () => {
         try {
-            const response = await api.post('/auth/update-profile-picture/', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
-            
-            if (response?.data?.success) {
-                const imageUrl = response.data.profile_image || response.data.image_url || response.data.url;
-                if (imageUrl) {
-                    const fullUrl = getProfileImageUrl(imageUrl);
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('admin_profile_picture', fullUrl);
-                    showToast('✅ Profile picture updated successfully!');
-                    await fetchAllData();
-                } else {
-                    showToast('✅ Profile picture updated!');
-                }
-            } else {
-                showToast(response?.data?.error || '❌ Failed to upload profile picture', 'error');
-            }
-        } catch (error) {
-            console.error('Error uploading profile picture:', error);
-            showToast('❌ Failed to upload profile picture. Please try again.', 'error');
-        } finally {
-            setUploading(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
+            localStorage.removeItem('suggestions_data');
+            localStorage.removeItem('categories_data');
+            localStorage.removeItem('admin_profile_picture');
+            console.log('🗑️ Cache cleared');
+        } catch (e) {
+            console.log('Cache clear failed:', e);
         }
     };
 
     // ============================================
     // FETCH ALL DATA
     // ============================================
-    const fetchAllData = useCallback(async () => {
-        if (dataFetchedRef.current) return;
+    const fetchAllData = useCallback(async (forceRefresh = false) => {
+        if (dataFetchedRef.current && !forceRefresh) return;
+        
+        if (forceRefresh) {
+            clearCache();
+            dataFetchedRef.current = false;
+        }
+        
         dataFetchedRef.current = true;
         setLoading(true);
         setRefreshing(true);
 
         try {
-            setGuides([]);
-            setStaff([]);
-            setUsers([]);
-            setTouristers([]);
-            setCategories([]);
-            setAllPlaces([]);
-
             // 1. Fetch categories
             try {
+                console.log('🔍 Fetching categories...');
                 const response = await api.get('/destinations/destinations/category-data/');
+                console.log('📊 Categories response:', response.data);
+                
                 if (response?.data?.success) {
-                    const categoriesData = response.data.data || [];
+                    let categoriesData = response.data.data || [];
+                    console.log(`✅ Loaded ${categoriesData.length} categories`);
+                    
+                    categoriesData = categoriesData.map(cat => ({
+                        ...cat,
+                        places: cat.places || []
+                    }));
+                    
                     setCategories(categoriesData);
                     
                     const allPlacesData = [];
@@ -569,76 +978,70 @@ const AdminDashboard = () => {
                     });
                     setAllPlaces(allPlacesData);
                     
-                    const totalPlaces = categoriesData.reduce((sum, cat) => sum + (cat.count || 0), 0);
+                    const totalPlaces = categoriesData.reduce((sum, cat) => sum + (cat.count || cat.places?.length || 0), 0);
                     setStats(prev => ({
                         ...prev,
                         totalCategories: categoriesData.length,
                         totalPlaces: totalPlaces
                     }));
-                    localStorage.setItem('categories_data', JSON.stringify(categoriesData));
+                } else {
+                    console.warn('⚠️ Categories response not successful:', response?.data);
+                    setCategories([]);
+                    setAllPlaces([]);
                 }
             } catch (error) {
-                const cached = localStorage.getItem('categories_data');
-                if (cached) {
-                    try {
-                        const parsed = JSON.parse(cached);
-                        setCategories(parsed);
-                        const allPlacesData = [];
-                        parsed.forEach(cat => {
-                            if (cat.places && cat.places.length > 0) {
-                                cat.places.forEach(place => {
-                                    allPlacesData.push({
-                                        ...place,
-                                        category_key: cat.key,
-                                        category_title: cat.title,
-                                        category_image: cat.image,
-                                    });
-                                });
-                            }
-                        });
-                        setAllPlaces(allPlacesData);
-                        const totalPlaces = parsed.reduce((sum, cat) => sum + (cat.count || 0), 0);
-                        setStats(prev => ({
-                            ...prev,
-                            totalCategories: parsed.length,
-                            totalPlaces: totalPlaces
-                        }));
-                    } catch (e) {}
-                }
+                console.error('❌ Error fetching categories:', error);
+                setCategories([]);
+                setAllPlaces([]);
             }
 
             // 2. Fetch suggestions
             try {
+                console.log('🔍 Fetching suggestions...');
                 const response = await api.get('/suggestions/admin-suggestions/');
+                console.log('📊 Suggestions response:', response.data);
+                
                 let items = [];
                 
                 if (response?.data) {
-                    if (response.data.success && Array.isArray(response.data.suggestions)) {
-                        items = response.data.suggestions;
-                    } else if (Array.isArray(response.data.data)) {
+                    if (response.data.data && Array.isArray(response.data.data)) {
                         items = response.data.data;
+                    } else if (response.data.results && Array.isArray(response.data.results)) {
+                        items = response.data.results;
                     } else if (Array.isArray(response.data)) {
                         items = response.data;
+                    } else if (response.data.results && response.data.results.data && Array.isArray(response.data.results.data)) {
+                        items = response.data.results.data;
+                    } else {
+                        for (const key in response.data) {
+                            if (Array.isArray(response.data[key])) {
+                                items = response.data[key];
+                                break;
+                            }
+                        }
                     }
                 }
                 
-                if (items.length > 0) {
-                    localStorage.setItem('suggestions_data', JSON.stringify(items));
-                } else {
-                    const cached = localStorage.getItem('suggestions_data');
-                    if (cached) {
-                        try {
-                            const parsed = JSON.parse(cached);
-                            if (parsed.length > 0) items = parsed;
-                        } catch (e) {}
-                    }
-                }
+                console.log(`✅ Loaded ${items.length} suggestions`);
                 
                 setAllSuggestions(items);
 
-                const gems = items.filter(s => (s.suggestion_type || s.type || '') === 'hidden_gem');
-                const insights = items.filter(s => (s.suggestion_type || s.type || '') === 'local_insight' || (s.suggestion_type || s.type || '') === 'insight');
-                const reviewsItems = items.filter(s => (s.suggestion_type || s.type || '') === 'review');
+                const gems = items.filter(s => {
+                    const type = (s.suggestion_type || s.type || '').toLowerCase();
+                    return type === 'hidden_gem';
+                });
+                
+                const insights = items.filter(s => {
+                    const type = (s.suggestion_type || s.type || '').toLowerCase();
+                    return type === 'local_insight' || type === 'insight';
+                });
+                
+                const reviewsItems = items.filter(s => {
+                    const type = (s.suggestion_type || s.type || '').toLowerCase();
+                    return type === 'review';
+                });
+
+                console.log(`📊 Hidden Gems: ${gems.length}, Insights: ${insights.length}, Reviews: ${reviewsItems.length}`);
 
                 setHiddenGems(gems);
                 setLocalInsights(insights);
@@ -647,73 +1050,98 @@ const AdminDashboard = () => {
                 setStats(prev => ({
                     ...prev,
                     totalHiddenGems: gems.length,
-                    pendingHiddenGems: gems.filter(s => s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin').length,
-                    implementedHiddenGems: gems.filter(s => s.status === 'implemented').length,
+                    pendingHiddenGems: gems.filter(s => {
+                        const status = (s.status || '').toLowerCase();
+                        return status === 'pending' || status === 'pending_guide' || status === 'pending_admin';
+                    }).length,
+                    implementedHiddenGems: gems.filter(s => {
+                        const status = (s.status || '').toLowerCase();
+                        return status === 'implemented';
+                    }).length,
                     totalLocalInsights: insights.length,
-                    pendingLocalInsights: insights.filter(s => s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin').length,
-                    implementedLocalInsights: insights.filter(s => s.status === 'implemented').length,
+                    pendingLocalInsights: insights.filter(s => {
+                        const status = (s.status || '').toLowerCase();
+                        return status === 'pending' || status === 'pending_guide' || status === 'pending_admin';
+                    }).length,
+                    implementedLocalInsights: insights.filter(s => {
+                        const status = (s.status || '').toLowerCase();
+                        return status === 'implemented';
+                    }).length,
                     totalReviews: reviewsItems.length,
-                    pendingReviews: reviewsItems.filter(s => s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin').length,
-                    implementedReviews: reviewsItems.filter(s => s.status === 'implemented').length,
+                    pendingReviews: reviewsItems.filter(s => {
+                        const status = (s.status || '').toLowerCase();
+                        return status === 'pending' || status === 'pending_guide' || status === 'pending_admin';
+                    }).length,
+                    implementedReviews: reviewsItems.filter(s => {
+                        const status = (s.status || '').toLowerCase();
+                        return status === 'implemented';
+                    }).length,
                 }));
             } catch (error) {
-                const cached = localStorage.getItem('suggestions_data');
-                if (cached) {
-                    try {
-                        const items = JSON.parse(cached);
-                        if (items.length > 0) {
-                            setAllSuggestions(items);
-                            setHiddenGems(items.filter(s => (s.suggestion_type || s.type || '') === 'hidden_gem'));
-                            setLocalInsights(items.filter(s => (s.suggestion_type || s.type || '') === 'local_insight'));
-                            setReviews(items.filter(s => (s.suggestion_type || s.type || '') === 'review'));
-                        }
-                    } catch (e) {}
-                }
+                console.error('❌ Error fetching suggestions:', error);
+                setAllSuggestions([]);
+                setHiddenGems([]);
+                setLocalInsights([]);
+                setReviews([]);
             }
 
             // 3. Fetch touristers
             try {
-                const response = await api.get('/admin/admin/users/touristers/');
+                console.log('🔍 Fetching touristers...');
+                const response = await api.get('/admin/touristers/');
+                console.log('📊 Touristers response:', response.data);
+                
                 if (response?.data?.success) {
-                    const touristersData = response.data.touristers || response.data.users || [];
+                    const touristersData = response.data.touristers || [];
+                    console.log(`✅ Loaded ${touristersData.length} touristers`);
                     setTouristers(touristersData);
                     setUsers(touristersData);
                     setStats(prev => ({ ...prev, totalUsers: touristersData.length }));
+                } else {
+                    setTouristers([]);
+                    setUsers([]);
                 }
             } catch (error) {
-                try {
-                    const response = await api.get('/admin/admin/users/');
-                    if (response?.data?.success) {
-                        const usersData = response.data.users || [];
-                        setUsers(usersData);
-                        const touristersData = usersData.filter(u => u.role === 'tourister' || u.role === 'user');
-                        setTouristers(touristersData);
-                        setStats(prev => ({ ...prev, totalUsers: touristersData.length }));
-                    }
-                } catch (e) {}
+                console.error('❌ Error fetching touristers:', error);
+                setTouristers([]);
+                setUsers([]);
             }
 
             // 4. Fetch staff
             try {
-                const response = await api.get('/admin/admin/staff/');
+                console.log('🔍 Fetching staff...');
+                const response = await api.get('/admin/staff/');
+                console.log('📊 Staff response:', response.data);
+                
                 if (response?.data?.success) {
-                    setStaff(response.data.staff || []);
-                    setStats(prev => ({ ...prev, totalStaff: response.data.staff?.length || 0 }));
+                    const staffData = response.data.staff || [];
+                    console.log(`✅ Loaded ${staffData.length} staff members`);
+                    setStaff(staffData);
+                    setStats(prev => ({ ...prev, totalStaff: staffData.length }));
+                } else {
+                    setStaff([]);
                 }
             } catch (error) {
-                console.error('Error fetching staff:', error);
+                console.error('❌ Error fetching staff:', error);
+                setStaff([]);
             }
 
             // 5. Fetch guides
             try {
-                const response = await api.get('/admin/admin/guides/');
+                console.log('🔍 Fetching guides...');
+                const response = await api.get('/admin/guides/');
+                console.log('📊 Guides response:', response.data);
+                
                 if (response?.data?.success) {
                     const guidesData = response.data.guides || [];
+                    console.log(`✅ Loaded ${guidesData.length} guides`);
                     setGuides(guidesData);
                     setStats(prev => ({ ...prev, totalGuides: guidesData.length }));
+                } else {
+                    setGuides([]);
                 }
             } catch (error) {
-                console.error('Error fetching guides:', error);
+                console.error('❌ Error fetching guides:', error);
                 setGuides([]);
             }
 
@@ -749,10 +1177,6 @@ const AdminDashboard = () => {
                 }
             } catch (error) {
                 console.error('Error fetching profile:', error);
-                const saved = localStorage.getItem('admin_profile_picture');
-                if (saved) {
-                    setProfilePicture(saved);
-                }
             }
 
         } catch (error) {
@@ -765,10 +1189,13 @@ const AdminDashboard = () => {
         }
     }, []);
 
+    // ============================================
+    // useEffect
+    // ============================================
     useEffect(() => {
         if (!user) { navigate('/login'); return; }
         if (user.role !== 'admin') { navigate('/'); return; }
-        fetchAllData();
+        fetchAllData(true);
         return () => { dataFetchedRef.current = false; };
     }, [user, navigate, fetchAllData]);
 
@@ -790,7 +1217,7 @@ const AdminDashboard = () => {
             if (response?.data?.success) {
                 showToast('✅ Profile updated successfully!');
                 setIsEditingProfile(false);
-                await fetchAllData();
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || '❌ Failed to update profile', 'error');
             }
@@ -803,203 +1230,147 @@ const AdminDashboard = () => {
     };
 
     // ============================================
-    // CATEGORY CRUD
+    // TOURISTER CRUD - FIXED
     // ============================================
-    const handleAddCategory = async (e) => {
-        e.preventDefault();
-        setCategoryLoading(true);
-        try {
-            const generatedKey = categoryForm.label.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-            const data = {
-                key: generatedKey,
-                label: categoryForm.label.trim(),
-                description: categoryForm.description.trim(),
-                image: categoryForm.image.trim() || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
-                type: categoryForm.type
-            };
+    const openAddTourister = () => {
+        setEditingTourister(null);
+        setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true });
+        setShowTouristerModal(true);
+    };
 
-            const response = await api.post('/destinations/destinations/add-category/', data);
+    const openEditTourister = (tourister) => {
+        setEditingTourister(tourister);
+        setTouristerForm({
+            full_name: `${tourister.first_name || ''} ${tourister.last_name || ''}`.trim(),
+            email: tourister.email || '',
+            password: '',
+            phone: tourister.phone || '',
+            is_active: tourister.is_active !== false,
+        });
+        setShowEditTouristerModal(true);
+    };
+
+    const handleAddTourister = async (e) => {
+        e.preventDefault();
+        setTouristerLoading(true);
+        try {
+            const response = await api.post('/admin/touristers/add/', touristerForm);
             if (response?.data?.success) {
-                showToast('✅ Category added successfully!');
-                setShowCategoryModal(false);
-                setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' });
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                showToast('✅ Tourister added successfully!');
+                setShowTouristerModal(false);
+                setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true });
+                await fetchAllData(true);
             } else {
-                showToast(response?.data?.error || 'Failed to add category', 'error');
+                showToast(response?.data?.error || 'Failed to add tourister', 'error');
             }
         } catch (error) {
-            console.error('Error adding category:', error);
-            showToast(error.response?.data?.error || 'Failed to add category', 'error');
+            console.error('Error adding tourister:', error);
+            showToast(error.response?.data?.error || 'Failed to add tourister', 'error');
         } finally {
-            setCategoryLoading(false);
+            setTouristerLoading(false);
         }
     };
 
-    const handleEditCategory = async (e) => {
+    const handleUpdateTourister = async (e) => {
         e.preventDefault();
-        setCategoryLoading(true);
-        try {
-            const data = {
-                title: editCategoryForm.title.trim(),
-                description: editCategoryForm.description.trim(),
-                image: editCategoryForm.image.trim() || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
-                type: editCategoryForm.type,
-                is_active: editCategoryForm.is_active
-            };
-
-            const response = await api.patch(`/destinations/destinations/admin/categories/${editingCategory.key}/edit/`, data);
-            if (response?.data?.success) {
-                showToast('✅ Category updated successfully!');
-                setShowEditCategoryModal(false);
-                setEditingCategory(null);
-                dataFetchedRef.current = false;
-                await fetchAllData();
-            } else {
-                showToast(response?.data?.error || 'Failed to update category', 'error');
-            }
-        } catch (error) {
-            console.error('Error editing category:', error);
-            showToast(error.response?.data?.error || 'Failed to update category', 'error');
-        } finally {
-            setCategoryLoading(false);
-        }
-    };
-
-    const deleteCategory = async (key) => {
-        if (!window.confirm('Delete this category and all its places?')) return;
-        setCategories(prev => prev.filter(c => c.key !== key));
-        showToast('🗑️ Deleting category...');
-        try {
-            const response = await api.delete(`/destinations/destinations/admin/categories/${key}/`);
-            if (response?.data?.success || response?.status === 204) {
-                showToast('✅ Category deleted successfully');
-                dataFetchedRef.current = false;
-                await fetchAllData();
-            } else {
-                showToast(response?.data?.error || 'Failed to delete category', 'error');
-                await fetchAllData();
-            }
-        } catch (error) {
-            console.error('Error deleting category:', error);
-            showToast('Failed to delete category', 'error');
-            await fetchAllData();
-        }
-    };
-
-    // ============================================
-    // PLACE CRUD
-    // ============================================
-    const handleAddPlace = async (e) => {
-        e.preventDefault();
-        setPlaceLoading(true);
+        setTouristerLoading(true);
         try {
             const data = {
-                category: selectedCategoryKey,
-                name: placeForm.name.trim(),
-                location: placeForm.location.trim(),
-                description: placeForm.description.trim(),
-                difficulty: placeForm.difficulty || 'Easy',
-                duration: placeForm.duration || '2-3 hours',
-                best_time: placeForm.best_time || 'All year round',
-                image: placeForm.image.trim() || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
-                type: placeForm.type || 'well-known',
-                hidden_gem: placeForm.hidden_gem.trim() || ''
+                first_name: touristerForm.full_name.split(' ')[0] || '',
+                last_name: touristerForm.full_name.split(' ').slice(1).join(' ') || '',
+                phone: touristerForm.phone,
+                is_active: touristerForm.is_active,
             };
-
-            const response = await api.post('/destinations/destinations/add-place/', data);
+            if (touristerForm.password) {
+                data.password = touristerForm.password;
+            }
+            const response = await api.patch(`/admin/touristers/${editingTourister.id}/update/`, data);
             if (response?.data?.success) {
-                showToast('✅ Place added successfully!');
-                setShowPlaceModal(false);
-                setPlaceForm({ name: '', location: '', description: '', difficulty: '', duration: '', best_time: '', image: '', type: 'well-known', hidden_gem: '' });
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                showToast('✅ Tourister updated successfully!');
+                setShowEditTouristerModal(false);
+                setEditingTourister(null);
+                setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true });
+                await fetchAllData(true);
             } else {
-                showToast(response?.data?.error || 'Failed to add place', 'error');
+                showToast(response?.data?.error || 'Failed to update tourister', 'error');
             }
         } catch (error) {
-            console.error('Error adding place:', error);
-            showToast(error.response?.data?.error || 'Failed to add place', 'error');
+            console.error('Error updating tourister:', error);
+            showToast(error.response?.data?.error || 'Failed to update tourister', 'error');
         } finally {
-            setPlaceLoading(false);
+            setTouristerLoading(false);
         }
     };
 
-    const handleUpdatePlace = async (e) => {
-        e.preventDefault();
-        setPlaceLoading(true);
+    const deleteTourister = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this tourister?')) return;
         try {
-            const data = {
-                name: placeForm.name.trim(),
-                location: placeForm.location.trim(),
-                description: placeForm.description.trim(),
-                difficulty: placeForm.difficulty,
-                duration: placeForm.duration,
-                best_time: placeForm.best_time,
-                image: placeForm.image.trim(),
-                type: placeForm.type,
-                hidden_gem: placeForm.hidden_gem.trim()
-            };
-
-            const response = await api.post(`/destinations/destinations/admin/places/${editingPlace.id}/update/`, data);
-            if (response?.data?.success) {
-                showToast('✅ Place updated successfully!');
-                setShowPlaceModal(false);
-                setEditingPlace(null);
-                setPlaceForm({ name: '', location: '', description: '', difficulty: '', duration: '', best_time: '', image: '', type: 'well-known', hidden_gem: '' });
-                dataFetchedRef.current = false;
-                await fetchAllData();
+            setLoading(true);
+            const response = await api.delete(`/admin/touristers/${id}/delete/`);
+            if (response?.data?.success || response?.status === 204 || response?.status === 200) {
+                showToast('✅ Tourister deleted successfully!');
+                setTouristers(prev => prev.filter(u => u.id !== id));
+                setUsers(prev => prev.filter(u => u.id !== id));
+                setStats(prev => ({ ...prev, totalUsers: prev.totalUsers - 1 }));
+                await fetchAllData(true);
             } else {
-                showToast(response?.data?.error || 'Failed to update place', 'error');
+                showToast(response?.data?.error || 'Failed to delete tourister', 'error');
             }
         } catch (error) {
-            console.error('Error updating place:', error);
-            showToast(error.response?.data?.error || 'Failed to update place', 'error');
+            console.error('Error deleting tourister:', error);
+            showToast(error.response?.data?.error || 'Failed to delete tourister', 'error');
         } finally {
-            setPlaceLoading(false);
+            setLoading(false);
         }
     };
 
-    const deletePlace = async (placeId) => {
-        if (!window.confirm('Delete this place?')) return;
-        setAllPlaces(prev => prev.filter(p => p.id !== placeId));
-        showToast('🗑️ Deleting place...');
+    const toggleTouristerStatus = async (tourister) => {
+        if (!window.confirm(`${tourister.is_active ? 'Deactivate' : 'Activate'} this tourister?`)) return;
         try {
-            const response = await api.delete(`/destinations/destinations/admin/places/${placeId}/`);
-            if (response?.data?.success || response?.status === 204) {
-                showToast('✅ Place deleted successfully');
-                dataFetchedRef.current = false;
-                await fetchAllData();
-            } else {
-                showToast(response?.data?.error || 'Failed to delete place', 'error');
-                await fetchAllData();
+            const response = await api.post(`/admin/touristers/${tourister.id}/toggle-status/`);
+            if (response?.data?.success) {
+                showToast(`✅ Tourister ${response.data.is_active ? 'activated' : 'deactivated'}!`);
+                await fetchAllData(true);
             }
         } catch (error) {
-            console.error('Error deleting place:', error);
-            showToast('Failed to delete place', 'error');
-            await fetchAllData();
+            console.error('Error toggling tourister status:', error);
+            showToast('Failed to toggle status', 'error');
         }
     };
 
     // ============================================
-    // STAFF CRUD
+    // STAFF CRUD - FIXED
     // ============================================
+    const openAddStaff = () => {
+        setEditingStaff(null);
+        setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true });
+        setShowStaffModal(true);
+    };
+
+    const openEditStaff = (staffMember) => {
+        setEditingStaff(staffMember);
+        setStaffForm({
+            full_name: `${staffMember.first_name || ''} ${staffMember.last_name || ''}`.trim(),
+            email: staffMember.email || '',
+            password: '',
+            phone: staffMember.phone || '',
+            is_active: staffMember.is_active !== false,
+        });
+        setShowEditStaffModal(true);
+    };
+
     const handleAddStaff = async (e) => {
         e.preventDefault();
         setStaffLoading(true);
         try {
-            const response = await api.post('/admin/admin/staff/add/', {
-                email: staffForm.email,
-                password: staffForm.password
-            });
+            const response = await api.post('/admin/staff/add/', staffForm);
             if (response?.data?.success) {
-                setNewCredentials({ email: staffForm.email, password: staffForm.password });
+                setNewCredentials({ email: staffForm.email, password: response.data.password || staffForm.password });
                 setShowCredentialsModal(true);
                 setShowStaffModal(false);
-                setStaffForm({ email: '', password: '' });
+                setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true });
                 showToast('✅ Staff added successfully!');
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || 'Failed to add staff', 'error');
             }
@@ -1011,29 +1382,60 @@ const AdminDashboard = () => {
         }
     };
 
-    const deleteStaff = async (id) => {
-        if (!window.confirm('Delete this staff member?')) return;
-        setStaff(prev => prev.filter(s => s.id !== id));
-        showToast('🗑️ Deleting staff...');
+    const handleUpdateStaff = async (e) => {
+        e.preventDefault();
+        setStaffLoading(true);
         try {
-            const response = await api.delete(`/admin/admin/${id}/staff/`);
-            if (response?.data?.success || response?.status === 204) {
+            const data = {
+                first_name: staffForm.full_name.split(' ')[0] || '',
+                last_name: staffForm.full_name.split(' ').slice(1).join(' ') || '',
+                phone: staffForm.phone,
+                is_active: staffForm.is_active,
+            };
+            if (staffForm.password) {
+                data.password = staffForm.password;
+            }
+            const response = await api.patch(`/admin/staff/${editingStaff.id}/update/`, data);
+            if (response?.data?.success) {
+                showToast('✅ Staff updated successfully!');
+                setShowEditStaffModal(false);
+                setEditingStaff(null);
+                setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true });
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to update staff', 'error');
+            }
+        } catch (error) {
+            console.error('Error updating staff:', error);
+            showToast(error.response?.data?.error || 'Failed to update staff', 'error');
+        } finally {
+            setStaffLoading(false);
+        }
+    };
+
+    const deleteStaff = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this staff member?')) return;
+        try {
+            setLoading(true);
+            const response = await api.delete(`/admin/staff/${id}/delete/`);
+            if (response?.data?.success || response?.status === 204 || response?.status === 200) {
                 showToast('✅ Staff deleted successfully!');
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                setStaff(prev => prev.filter(s => s.id !== id));
+                setStats(prev => ({ ...prev, totalStaff: prev.totalStaff - 1 }));
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || 'Failed to delete staff', 'error');
-                await fetchAllData();
             }
         } catch (error) {
             console.error('Error deleting staff:', error);
-            showToast('Failed to delete staff', 'error');
-            await fetchAllData();
+            showToast(error.response?.data?.error || 'Failed to delete staff', 'error');
+        } finally {
+            setLoading(false);
         }
     };
 
     // ============================================
-    // GUIDE CRUD - FIXED ENDPOINTS
+    // GUIDE CRUD - FIXED
     // ============================================
     const handleAddGuide = async (e) => {
         e.preventDefault();
@@ -1054,15 +1456,14 @@ const AdminDashboard = () => {
                 is_active: guideForm.is_active
             };
 
-            const response = await api.post('/admin/admin/guides/add/', data);
+            const response = await api.post('/admin/guides/add/', data);
             if (response?.data?.success) {
-                setNewCredentials({ email: guideForm.email, password: guideForm.password || 'guide123456' });
+                setNewCredentials({ email: guideForm.email, password: response.data.password || guideForm.password || 'guide123456' });
                 setShowCredentialsModal(true);
                 setShowGuideModal(false);
                 resetGuideForm();
                 showToast('✅ Guide added successfully!');
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || 'Failed to add guide', 'error');
             }
@@ -1093,45 +1494,25 @@ const AdminDashboard = () => {
         reader.readAsDataURL(file);
     };
 
-    // ✅ FIXED: Profile picture upload - /admin/{id}/upload-profile-pic/
     const handleEditGuideProfilePicUpload = async (guideId) => {
-        if (!editGuidePicFile) return;
+        if (!editGuidePicFile) return true;
         
         try {
             const formData = new FormData();
             formData.append('profile_image', editGuidePicFile);
-            
-            // ✅ FIXED: Use /admin/{id}/upload-profile-pic/
-            const response = await api.post(`/admin/admin/${guideId}/upload-profile-pic/`, formData, {
+            const response = await api.post(`/admin/guides/${guideId}/upload-profile-pic/`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            
             if (response?.data?.success) {
                 showToast('✅ Profile picture updated!');
                 return true;
             }
         } catch (error) {
             console.error('Error uploading guide profile pic:', error);
-            
-            // Try fallback with update endpoint
-            try {
-                const formData2 = new FormData();
-                formData2.append('profile_image', editGuidePicFile);
-                const response = await api.patch(`/admin/admin/${guideId}/update/`, formData2, {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                });
-                if (response?.data?.success) {
-                    showToast('✅ Profile picture updated!');
-                    return true;
-                }
-            } catch (e2) {
-                console.error('Fallback upload failed:', e2);
-            }
         }
         return false;
     };
 
-    // ✅ FIXED: Update guide - /admin/{id}/update/
     const handleUpdateGuide = async (e) => {
         e.preventDefault();
         setGuideLoading(true);
@@ -1150,8 +1531,7 @@ const AdminDashboard = () => {
             };
             if (guideForm.password) { data.password = guideForm.password; }
 
-            // ✅ FIXED: Use /admin/{id}/update/
-            const response = await api.patch(`/admin/admin/${editingGuide.id}/update/`, data);
+            const response = await api.patch(`/admin/guides/${editingGuide.id}/update/`, data);
             
             if (response?.data?.success) {
                 if (editGuidePicFile) {
@@ -1163,76 +1543,74 @@ const AdminDashboard = () => {
                 resetGuideForm();
                 setEditGuidePicFile(null);
                 setEditGuideProfilePic(null);
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || 'Failed to update guide', 'error');
             }
         } catch (error) {
             console.error('Error updating guide:', error);
-            
-            // Try fallback with PUT
-            try {
-                const response = await api.put(`/admin/admin/${editingGuide.id}/update/`, {
-                    full_name: guideForm.full_name,
-                    phone: guideForm.phone,
-                    bio: guideForm.bio,
-                    experience_years: parseInt(guideForm.experience_years) || 0,
-                    languages: guideForm.languages,
-                    primary_district: guideForm.primary_district,
-                    price_per_day: parseFloat(guideForm.price_per_day) || 0,
-                    price_per_hour: parseFloat(guideForm.price_per_hour) || 0,
-                    is_verified: true,
-                    is_active: guideForm.is_active
-                });
-                if (response?.data?.success) {
-                    if (editGuidePicFile) {
-                        await handleEditGuideProfilePicUpload(editingGuide.id);
-                    }
-                    showToast('✅ Guide updated successfully!');
-                    setShowGuideModal(false);
-                    setEditingGuide(null);
-                    resetGuideForm();
-                    setEditGuidePicFile(null);
-                    setEditGuideProfilePic(null);
-                    dataFetchedRef.current = false;
-                    await fetchAllData();
-                    setGuideLoading(false);
-                    return;
-                }
-            } catch (e2) {
-                console.error('PUT fallback failed:', e2);
-            }
-            
             showToast(error.response?.data?.error || 'Failed to update guide', 'error');
         } finally {
             setGuideLoading(false);
         }
     };
 
-    // ✅ FIXED: Delete guide - /admin/{id}/delete/
-    const deleteGuide = async (id) => {
-        if (!window.confirm('Delete this guide?')) return;
-        setGuides(prev => prev.filter(g => g.id !== id));
-        showToast('🗑️ Deleting guide...');
-        try {
-            // ✅ FIXED: Use /admin/{id}/delete/
-            const response = await api.delete(`/admin/admin/${id}/delete/`);
-            if (response?.data?.success || response?.status === 204) {
-                showToast('✅ Guide deleted successfully!');
-                dataFetchedRef.current = false;
-                await fetchAllData();
-            } else {
-                showToast(response?.data?.error || 'Failed to delete guide', 'error');
-                await fetchAllData();
-            }
-        } catch (error) {
-            console.error('Error deleting guide:', error);
-            await fetchAllData();
-            showToast('❌ Failed to delete guide. Please try again.', 'error');
+// ============================================
+// GUIDE DELETE - COMPLETE FIXED VERSION
+// ============================================
+const deleteGuide = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this guide? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        setLoading(true);
+        console.log(`🗑️ Attempting to delete guide with ID: ${id}`);
+        console.log('📊 Current guides before delete:', guides.map(g => g.id));
+        
+        const response = await api.delete(`/admin/guides/${id}/delete/`);
+        console.log('📊 Delete response status:', response.status);
+        console.log('📊 Delete response data:', response.data);
+        
+        // ✅ Check if deletion was successful
+        if (response.status === 200 || response.status === 204 || response?.data?.success) {
+            showToast('✅ Guide deleted successfully!');
+            
+            // ✅ CRITICAL FIX: Filter out the deleted guide from ALL guide-related states
+            const updatedGuides = guides.filter(g => g.id !== id);
+            console.log(`📊 Guides before: ${guides.length}, after: ${updatedGuides.length}`);
+            
+            // ✅ Update all guide-related states
+            setGuides(updatedGuides);
+            
+            // ✅ Update filtered guides as well
+            const updatedFilteredGuides = filteredGuides.filter(g => g.id !== id);
+            setFilteredGuides(updatedFilteredGuides);
+            
+            // ✅ Update stats
+            setStats(prev => ({ 
+                ...prev, 
+                totalGuides: Math.max(0, prev.totalGuides - 1) 
+            }));
+            
+            // ✅ Force a refresh from server to ensure consistency
+            await fetchAllData(true);
+            
+            // ✅ Force a re-render by updating a dummy state if needed
+            // This ensures the UI updates immediately
+            setGuides([...updatedGuides]);
+            
+        } else {
+            showToast(response?.data?.error || 'Failed to delete guide', 'error');
         }
-    };
-
+    } catch (error) {
+        console.error('❌ Error deleting guide:', error);
+        console.error('❌ Error response:', error.response?.data);
+        showToast(error.response?.data?.error || 'Failed to delete guide', 'error');
+    } finally {
+        setLoading(false);
+    }
+};
     const openEditGuide = (guide) => {
         setEditingGuide(guide);
         const profilePic = guide.profile_image || guide.image || guide.avatar;
@@ -1275,7 +1653,274 @@ const AdminDashboard = () => {
     };
 
     // ============================================
-    // ADD INSIGHT - DEFAULT IMPLEMENTED + DELETE
+    // CATEGORY CRUD - FIXED
+    // ============================================
+    const handleAddCategory = async (e) => {
+        e.preventDefault();
+        setCategoryLoading(true);
+        try {
+            const generatedKey = categoryForm.label.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+            const data = {
+                key: generatedKey,
+                label: categoryForm.label.trim(),
+                description: categoryForm.description.trim(),
+                image: categoryForm.image.trim() || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+                type: categoryForm.type
+            };
+
+            const response = await api.post('/destinations/destinations/add-category/', data);
+            if (response?.data?.success) {
+                showToast('✅ Category added successfully!');
+                setShowCategoryModal(false);
+                setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' });
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to add category', 'error');
+            }
+        } catch (error) {
+            console.error('Error adding category:', error);
+            showToast(error.response?.data?.error || 'Failed to add category', 'error');
+        } finally {
+            setCategoryLoading(false);
+        }
+    };
+
+    const handleEditCategory = async (e) => {
+        e.preventDefault();
+        setCategoryLoading(true);
+        try {
+            const data = {
+                title: editCategoryForm.title.trim(),
+                description: editCategoryForm.description.trim(),
+                image: editCategoryForm.image.trim() || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+                type: editCategoryForm.type,
+                is_active: editCategoryForm.is_active
+            };
+
+            const response = await api.patch(`/destinations/destinations/admin/categories/${editingCategory.key}/edit/`, data);
+            if (response?.data?.success) {
+                showToast('✅ Category updated successfully!');
+                setShowEditCategoryModal(false);
+                setEditingCategory(null);
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to update category', 'error');
+            }
+        } catch (error) {
+            console.error('Error editing category:', error);
+            showToast(error.response?.data?.error || 'Failed to update category', 'error');
+        } finally {
+            setCategoryLoading(false);
+        }
+    };
+
+    const deleteCategory = async (key) => {
+        if (!window.confirm('Delete this category and all its places?')) return;
+        try {
+            setLoading(true);
+            const response = await api.delete(`/destinations/destinations/admin/categories/${key}/`);
+            if (response?.data?.success || response?.status === 204 || response?.status === 200) {
+                showToast('✅ Category deleted successfully');
+                setCategories(prev => prev.filter(c => c.key !== key));
+                setAllPlaces(prev => prev.filter(p => p.category_key !== key));
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to delete category', 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting category:', error);
+            showToast('Failed to delete category', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ============================================
+    // PLACE CRUD - FIXED
+    // ============================================
+    const handleAddPlace = async (e) => {
+        e.preventDefault();
+        setPlaceLoading(true);
+        try {
+            const data = {
+                category: selectedCategoryKey,
+                name: placeForm.name.trim(),
+                location: placeForm.location.trim(),
+                description: placeForm.description.trim(),
+                difficulty: placeForm.difficulty || 'Easy',
+                duration: placeForm.duration || '2-3 hours',
+                best_time: placeForm.best_time || 'All year round',
+                image: placeForm.image.trim() || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+                type: placeForm.type || 'well-known',
+                hidden_gem: placeForm.hidden_gem.trim() || ''
+            };
+
+            const response = await api.post('/destinations/destinations/add-place/', data);
+            if (response?.data?.success) {
+                showToast('✅ Place added successfully!');
+                setShowPlaceModal(false);
+                setPlaceForm({ name: '', location: '', description: '', difficulty: '', duration: '', best_time: '', image: '', type: 'well-known', hidden_gem: '' });
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to add place', 'error');
+            }
+        } catch (error) {
+            console.error('Error adding place:', error);
+            showToast(error.response?.data?.error || 'Failed to add place', 'error');
+        } finally {
+            setPlaceLoading(false);
+        }
+    };
+
+    const handleUpdatePlace = async (e) => {
+        e.preventDefault();
+        setPlaceLoading(true);
+        try {
+            const data = {
+                name: placeForm.name.trim(),
+                location: placeForm.location.trim(),
+                description: placeForm.description.trim(),
+                difficulty: placeForm.difficulty,
+                duration: placeForm.duration,
+                best_time: placeForm.best_time,
+                image: placeForm.image.trim(),
+                type: placeForm.type,
+                hidden_gem: placeForm.hidden_gem.trim()
+            };
+
+            const response = await api.post(`/destinations/destinations/admin/places/${editingPlace.id}/update/`, data);
+            if (response?.data?.success) {
+                showToast('✅ Place updated successfully!');
+                setShowPlaceModal(false);
+                setEditingPlace(null);
+                setPlaceForm({ name: '', location: '', description: '', difficulty: '', duration: '', best_time: '', image: '', type: 'well-known', hidden_gem: '' });
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to update place', 'error');
+            }
+        } catch (error) {
+            console.error('Error updating place:', error);
+            showToast(error.response?.data?.error || 'Failed to update place', 'error');
+        } finally {
+            setPlaceLoading(false);
+        }
+    };
+
+    const deletePlace = async (placeId) => {
+        if (!window.confirm('Delete this place?')) return;
+        try {
+            setLoading(true);
+            const response = await api.delete(`/destinations/destinations/admin/places/${placeId}/`);
+            if (response?.data?.success || response?.status === 204 || response?.status === 200) {
+                showToast('✅ Place deleted successfully');
+                setAllPlaces(prev => prev.filter(p => p.id !== placeId));
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to delete place', 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting place:', error);
+            showToast('Failed to delete place', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ============================================
+    // SUGGESTION PROCESSING - FIXED
+    // ============================================
+    const processSuggestion = async (id, action, type = 'suggestion') => {
+        setActionLoading(true);
+        setProcessingId(id);
+
+        try {
+            if (action === 'delete') {
+                if (!window.confirm(`Delete this ${type} permanently?`)) {
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+                try {
+                    const response = await api.delete(`/admin/suggestions/${id}/delete/`);
+                    if (response?.status === 204 || response?.data?.success || response?.status === 200) {
+                        showToast('🗑️ Deleted successfully!');
+                        setAllSuggestions(prev => prev.filter(s => s.id !== id));
+                        setHiddenGems(prev => prev.filter(s => s.id !== id));
+                        setLocalInsights(prev => prev.filter(s => s.id !== id));
+                        setReviews(prev => prev.filter(s => s.id !== id));
+                        await fetchAllData(true);
+                        if (showSuggestionModal) {
+                            setShowSuggestionModal(false);
+                            setSelectedSuggestion(null);
+                        }
+                        setActionLoading(false);
+                        setProcessingId(null);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Delete failed:', error);
+                    await fetchAllData(true);
+                    showToast('Failed to delete', 'error');
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+            }
+
+            // ✅ CORRECTED ENDPOINTS - Using admin endpoints
+            let endpoint = '';
+            if (action === 'implement') {
+                endpoint = `/admin/suggestions/${id}/implement/`;
+            } else if (action === 'reject') {
+                endpoint = `/admin/suggestions/${id}/reject/`;
+            } else if (action === 'approve') {
+                endpoint = `/admin/suggestions/${id}/approve/`;
+            }
+
+            if (endpoint) {
+                const notes = action === 'reject' ? prompt('Reason for rejection:') : '';
+                if (action === 'reject' && notes === null) {
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+
+                const response = await api.post(endpoint, { notes, reason: notes });
+                if (response?.data?.success) {
+                    showToast(`✅ ${type} ${action}ed successfully!`);
+                    // Update local state
+                    const updateStatus = (items) => items.map(s => 
+                        s.id === id ? { ...s, status: action === 'implement' ? 'implemented' : 'rejected' } : s
+                    );
+                    setAllSuggestions(updateStatus);
+                    setHiddenGems(updateStatus);
+                    setLocalInsights(updateStatus);
+                    setReviews(updateStatus);
+                    await fetchAllData(true);
+                    if (showSuggestionModal) {
+                        setShowSuggestionModal(false);
+                        setSelectedSuggestion(null);
+                    }
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                } else {
+                    showToast(response?.data?.error || `Failed to ${action} ${type}`, 'error');
+                }
+            }
+
+            showToast(`❌ Failed to ${action} ${type}`, 'error');
+        } catch (error) {
+            console.error(`Error ${action} suggestion:`, error);
+            showToast(`❌ Failed to ${action} ${type}`, 'error');
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
+        }
+    };
+
+    // ============================================
+    // INSIGHT & HIDDEN GEM
     // ============================================
     const handleAddInsight = async (e) => {
         e.preventDefault();
@@ -1300,8 +1945,7 @@ const AdminDashboard = () => {
                 showToast('✅ Local Insight added and implemented!');
                 setShowAddInsightModal(false);
                 setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null });
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || 'Failed to add insight', 'error');
             }
@@ -1313,9 +1957,6 @@ const AdminDashboard = () => {
         }
     };
 
-    // ============================================
-    // ADD HIDDEN GEM - DEFAULT IMPLEMENTED + DELETE
-    // ============================================
     const handleAddHiddenGem = async (e) => {
         e.preventDefault();
         setHiddenGemLoading(true);
@@ -1339,8 +1980,7 @@ const AdminDashboard = () => {
                 showToast('💎 Hidden Gem added and implemented!');
                 setShowAddHiddenGemModal(false);
                 setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null });
-                dataFetchedRef.current = false;
-                await fetchAllData();
+                await fetchAllData(true);
             } else {
                 showToast(response?.data?.error || 'Failed to add hidden gem', 'error');
             }
@@ -1349,125 +1989,6 @@ const AdminDashboard = () => {
             showToast(error.response?.data?.error || 'Failed to add hidden gem', 'error');
         } finally {
             setHiddenGemLoading(false);
-        }
-    };
-
-    // ============================================
-    // DELETE SUGGESTION
-    // ============================================
-    const deleteSuggestion = async (id, type = 'suggestion') => {
-        if (!window.confirm(`Delete this ${type}?`)) return;
-        setActionLoading(true);
-        setProcessingId(id);
-        
-        try {
-            const response = await api.delete(`/suggestions/admin-suggestions/${id}/delete/`);
-            if (response?.data?.success) {
-                showToast(`🗑️ ${type} deleted successfully!`);
-                dataFetchedRef.current = false;
-                await fetchAllData();
-                setActionLoading(false);
-                setProcessingId(null);
-                return;
-            }
-        } catch (error) {
-            console.error('Delete failed:', error);
-        }
-        
-        showToast(`❌ Failed to delete ${type}`, 'error');
-        setActionLoading(false);
-        setProcessingId(null);
-    };
-
-    // ============================================
-    // SUGGESTION PROCESSING
-    // ============================================
-    const processSuggestion = async (id, action, type = 'suggestion') => {
-        setActionLoading(true);
-        setProcessingId(id);
-
-        try {
-            if (action === 'delete') {
-                if (!window.confirm('Delete this suggestion permanently?')) {
-                    setActionLoading(false);
-                    setProcessingId(null);
-                    return;
-                }
-                
-                setAllSuggestions(prev => prev.filter(s => s.id !== id));
-                setHiddenGems(prev => prev.filter(s => s.id !== id));
-                setLocalInsights(prev => prev.filter(s => s.id !== id));
-                setReviews(prev => prev.filter(s => s.id !== id));
-                
-                try {
-                    const response = await api.delete(`/suggestions/admin-suggestions/${id}/delete/`);
-                    if (response?.data?.success) {
-                        showToast('🗑️ Deleted successfully!');
-                        dataFetchedRef.current = false;
-                        await fetchAllData();
-                        if (showSuggestionModal) { setShowSuggestionModal(false); setSelectedSuggestion(null); }
-                        setActionLoading(false);
-                        setProcessingId(null);
-                        return;
-                    }
-                } catch (error) {
-                    console.error('Delete failed:', error);
-                    await fetchAllData();
-                }
-                showToast('⚠️ Could not delete. Please try again.', 'error');
-                setActionLoading(false);
-                setProcessingId(null);
-                return;
-            }
-
-            if (action === 'implement') {
-                const notes = `✅ Implemented by Admin: ${user?.email || 'Admin'}`;
-                try {
-                    const response = await api.post(`/suggestions/admin-suggestions/${id}/implement/`, { notes });
-                    if (response?.data?.success) {
-                        showToast(`✅ ${type} implemented successfully!`);
-                        dataFetchedRef.current = false;
-                        await fetchAllData();
-                        if (showSuggestionModal) { setShowSuggestionModal(false); setSelectedSuggestion(null); }
-                        setActionLoading(false);
-                        setProcessingId(null);
-                        return;
-                    }
-                } catch (error) {
-                    console.error('Implement failed:', error);
-                }
-            }
-
-            if (action === 'reject') {
-                const notes = prompt('Reason for rejection:');
-                if (notes === null) {
-                    setActionLoading(false);
-                    setProcessingId(null);
-                    return;
-                }
-                try {
-                    const response = await api.post(`/suggestions/admin-suggestions/${id}/reject/`, { notes });
-                    if (response?.data?.success) {
-                        showToast(`❌ ${type} rejected!`);
-                        dataFetchedRef.current = false;
-                        await fetchAllData();
-                        if (showSuggestionModal) { setShowSuggestionModal(false); setSelectedSuggestion(null); }
-                        setActionLoading(false);
-                        setProcessingId(null);
-                        return;
-                    }
-                } catch (error) {
-                    console.error('Reject failed:', error);
-                }
-            }
-
-            showToast(`❌ Failed to ${action} ${type}`, 'error');
-        } catch (error) {
-            console.error('Error processing suggestion:', error);
-            showToast(`❌ Failed to ${action} ${type}`, 'error');
-        } finally {
-            setActionLoading(false);
-            setProcessingId(null);
         }
     };
 
@@ -1520,17 +2041,6 @@ const AdminDashboard = () => {
         return filtered;
     }, [allPlaces, placesFilter, placesSearch]);
 
-    // ============================================
-    // PAGINATION HELPERS
-    // ============================================
-    const getPaginatedData = (data, page) => {
-        const startIndex = (page - 1) * ITEMS_PER_PAGE;
-        const endIndex = startIndex + ITEMS_PER_PAGE;
-        return data.slice(startIndex, endIndex);
-    };
-
-    const getTotalPages = (data) => Math.ceil(data.length / ITEMS_PER_PAGE);
-
     useEffect(() => { setHiddenGemsPage(1); }, [hiddenGemsFilter]);
     useEffect(() => { setLocalInsightsPage(1); }, [localInsightsFilter]);
     useEffect(() => { setReviewsPage(1); }, [reviewsFilter]);
@@ -1539,117 +2049,258 @@ const AdminDashboard = () => {
     useEffect(() => { setPlacesPage(1); }, [placesFilter, placesSearch]);
 
     // ============================================
-    // GET TYPE FUNCTIONS
+    // OVERVIEW-ONLY DERIVED DATA (presentational, read-only — no CRUD/state touched)
     // ============================================
-    const getTypeBadge = (type) => {
-        const badges = {
-            'hidden_gem': '💎 Hidden Gem',
-            'local_insight': '💡 Local Insight',
-            'insight': '💡 Local Insight',
-            'review': '⭐ Review',
-        };
-        return badges[type] || type;
-    };
+    const topGuidesByRating = useMemo(() => {
+        return [...guides]
+            .filter(g => g && g.id)
+            .sort((a, b) => (b.rating || 0) - (a.rating || 0) || (b.total_reviews || 0) - (a.total_reviews || 0))
+            .slice(0, 4);
+    }, [guides]);
 
-    const getTypeIcon = (type) => {
-        const icons = {
-            'hidden_gem': Sparkles,
-            'local_insight': Lightbulb,
-            'insight': Lightbulb,
-            'review': Star,
-        };
-        return icons[type] || Star;
-    };
+    const topCategoriesByPlaces = useMemo(() => {
+        return [...categories]
+            .map(c => ({ ...c, count: c.count || c.places?.length || 0 }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+    }, [categories]);
+
+    const recentTouristers = useMemo(() => {
+        return [...touristers].slice(-4).reverse();
+    }, [touristers]);
+
+    const unverifiedGuidesCount = useMemo(() => guides.filter(g => !g.is_verified).length, [guides]);
+    const inactiveStaffCount = useMemo(() => staff.filter(s => s.is_active === false).length, [staff]);
 
     // ============================================
     // RENDER FUNCTIONS
     // ============================================
-
-    const getImageUrl = (suggestion) => {
-        if (!suggestion) return null;
-        const imageField = suggestion.image || suggestion.image_url || suggestion.profile_image || suggestion.photo || suggestion.avatar;
-        if (!imageField || typeof imageField !== 'string') return null;
-        const cleanedUrl = imageField.trim();
-        if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
-            return cleanedUrl;
-        }
-        if (cleanedUrl.startsWith('/media/') || cleanedUrl.startsWith('/uploads/')) {
-            const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
-            const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
-            const mediaBase = cleanBase.replace('/api', '');
-            return `${mediaBase}${cleanedUrl}`;
-        }
-        return null;
-    };
-
     const renderSuggestionCard = (s, typeLabel) => {
-        const imageUrl = getImageUrl(s);
-        const hasImage = !!imageUrl;
+        const imageUrl = s?.image || s?.image_url || null;
+        const hasImage = imageUrl && typeof imageUrl === 'string' && imageUrl.length > 0;
 
         const getFallbackEmoji = () => {
-            switch (s.suggestion_type) {
-                case 'hidden_gem': return '💎';
-                case 'local_insight': return '💡';
-                case 'review': return '⭐';
-                default: return '📍';
-            }
+            const type = (s?.suggestion_type || s?.type || '').toLowerCase();
+            if (type === 'hidden_gem') return '💎';
+            if (type === 'local_insight' || type === 'insight') return '💡';
+            if (type === 'review') return '⭐';
+            return '📍';
         };
 
-        const isImplemented = s.status === 'implemented';
-        const isPending = s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin';
+        const isImplemented = (s?.status || '').toLowerCase() === 'implemented';
+        const isPending = ['pending', 'pending_guide', 'pending_admin'].includes((s?.status || '').toLowerCase());
 
         return (
-            <div key={s.id} style={{ display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${isImplemented ? C.success : isPending ? C.warn : C.line}`, alignItems: 'flex-start', transition: 'all 0.2s ease', cursor: 'pointer' }} 
-                onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }}>
-                <div style={{ width: 80, height: 80, borderRadius: RADIUS.sm, background: C.paper, border: `1px solid ${C.line}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', position: 'relative' }}>
+            <div key={s?.id || Math.random()} 
+                style={{ 
+                    display: 'flex', 
+                    gap: 14, 
+                    padding: 14, 
+                    background: C.cream, 
+                    borderRadius: RADIUS.md, 
+                    border: `1px solid ${isImplemented ? C.success : isPending ? C.warn : C.line}`, 
+                    alignItems: 'flex-start', 
+                    transition: 'all 0.2s ease', 
+                    cursor: 'pointer' 
+                }} 
+                onClick={() => { 
+                    setSelectedSuggestion(s); 
+                    setShowSuggestionModal(true); 
+                }}
+            >
+                <div style={{ 
+                    width: 80, 
+                    height: 80, 
+                    borderRadius: RADIUS.sm, 
+                    background: C.paper, 
+                    border: `1px solid ${C.line}`, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    flexShrink: 0, 
+                    overflow: 'hidden', 
+                    position: 'relative' 
+                }}>
                     {isImplemented && (
-                        <div style={{ position: 'absolute', top: 4, right: 4, background: C.success, color: '#fff', padding: '2px 6px', borderRadius: 999, fontSize: 8, fontWeight: 600 }}>✅</div>
+                        <div style={{ 
+                            position: 'absolute', 
+                            top: 4, 
+                            right: 4, 
+                            background: C.success, 
+                            color: '#fff', 
+                            padding: '2px 6px', 
+                            borderRadius: 999, 
+                            fontSize: 8, 
+                            fontWeight: 600 
+                        }}>✅</div>
                     )}
-                    {hasImage && imageUrl ? (
-                        <img src={imageUrl} alt={s.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            onError={(e) => { e.target.style.display = 'none'; const parent = e.target.parentElement; if (parent) { parent.innerHTML = `<span style="font-size: 32px;">${getFallbackEmoji()}</span>`; } }} />
-                    ) : <span style={{ fontSize: 32 }}>{getFallbackEmoji()}</span>}
+                    {hasImage ? (
+                        <img 
+                            src={imageUrl} 
+                            alt={s?.name || 'Suggestion'} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            onError={(e) => { 
+                                e.target.style.display = 'none'; 
+                                const parent = e.target.parentElement; 
+                                if (parent) { 
+                                    parent.innerHTML = `<span style="font-size: 32px;">${getFallbackEmoji()}</span>`; 
+                                } 
+                            }} 
+                        />
+                    ) : (
+                        <span style={{ fontSize: 32 }}>{getFallbackEmoji()}</span>
+                    )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                         <div>
-                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{s.name || 'Untitled'}</h4>
+                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
+                                {s?.name || s?.title || 'Untitled'}
+                            </h4>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
-                                <span style={{ fontSize: 11, color: C.sage }}>{s.user_email || 'Anonymous'} · {s.district || 'N/A'}</span>
-                                <span style={{ fontSize: 9, padding: '2px 9px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>{typeLabel}</span>
-                                {s.rating && <span style={{ fontSize: 11, color: C.gold }}>{'★'.repeat(Math.round(s.rating))}{'☆'.repeat(5 - Math.round(s.rating))}</span>}
+                                <span style={{ fontSize: 11, color: C.sage }}>
+                                    {s?.user_email || 'Anonymous'} · {s?.district || 'N/A'}
+                                </span>
+                                <span style={{ 
+                                    fontSize: 9, 
+                                    padding: '2px 9px', 
+                                    borderRadius: 999, 
+                                    background: C.goldSoft, 
+                                    color: C.gold 
+                                }}>
+                                    {typeLabel || s?.suggestion_type || s?.type || 'Suggestion'}
+                                </span>
+                                {s?.rating && (
+                                    <span style={{ fontSize: 11, color: C.gold }}>
+                                        {'★'.repeat(Math.round(s.rating))}{'☆'.repeat(5 - Math.round(s.rating))}
+                                    </span>
+                                )}
                             </div>
                         </div>
-                        <StatusPill status={s.status || 'pending'} />
+                        <StatusPill status={s?.status || 'pending'} />
                     </div>
-                    <p style={{ fontSize: 12.5, color: C.sage, margin: '6px 0', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                        {s.description || 'No description'}
+                    <p style={{ 
+                        fontSize: 12.5, 
+                        color: C.sage, 
+                        margin: '6px 0', 
+                        lineHeight: 1.5, 
+                        display: '-webkit-box', 
+                        WebkitLineClamp: 2, 
+                        WebkitBoxOrient: 'vertical', 
+                        overflow: 'hidden' 
+                    }}>
+                        {s?.description || 'No description'}
                     </p>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
                         {isPending && (
                             <>
-                                <button onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'implement', s.suggestion_type); }}
-                                    disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: '#2563EB', color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                                <button 
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        processSuggestion(s.id, 'implement', s.suggestion_type || s.type || 'suggestion'); 
+                                    }}
+                                    disabled={actionLoading} 
+                                    style={{ 
+                                        padding: '4px 12px', 
+                                        borderRadius: 999, 
+                                        border: 'none', 
+                                        background: '#2563EB', 
+                                        color: '#fff', 
+                                        fontSize: 11, 
+                                        cursor: actionLoading ? 'not-allowed' : 'pointer', 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        gap: 4, 
+                                        opacity: actionLoading && processingId === s.id ? 0.5 : 1 
+                                    }}>
                                     <CheckCircle size={11} /> Implement
                                 </button>
-                                <button onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'reject', s.suggestion_type); }}
-                                    disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                                <button 
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        processSuggestion(s.id, 'reject', s.suggestion_type || s.type || 'suggestion'); 
+                                    }}
+                                    disabled={actionLoading} 
+                                    style={{ 
+                                        padding: '4px 12px', 
+                                        borderRadius: 999, 
+                                        border: `1px solid #EFCBB5`, 
+                                        background: 'transparent', 
+                                        color: C.danger, 
+                                        fontSize: 11, 
+                                        cursor: actionLoading ? 'not-allowed' : 'pointer', 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        gap: 4, 
+                                        opacity: actionLoading && processingId === s.id ? 0.5 : 1 
+                                    }}>
                                     <X size={11} /> Reject
                                 </button>
                             </>
                         )}
-                        {s.status === 'implemented' && (
-                            <span style={{ padding: '4px 12px', borderRadius: 999, background: C.warnBg, color: C.gold, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>✨ Implemented</span>
+                        {s?.status === 'implemented' && (
+                            <span style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                background: C.warnBg, 
+                                color: C.gold, 
+                                fontSize: 11, 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                            }}>✨ Implemented</span>
                         )}
-                        {s.status === 'rejected' && (
-                            <span style={{ padding: '4px 12px', borderRadius: 999, background: C.dangerBg, color: C.danger, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>❌ Rejected</span>
+                        {s?.status === 'rejected' && (
+                            <span style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                background: C.dangerBg, 
+                                color: C.danger, 
+                                fontSize: 11, 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                            }}>❌ Rejected</span>
                         )}
-                        <button onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'delete', s.suggestion_type); }}
-                            disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                        <button 
+                            onClick={(e) => { 
+                                e.stopPropagation(); 
+                                processSuggestion(s.id, 'delete', s.suggestion_type || s.type || 'suggestion'); 
+                            }}
+                            disabled={actionLoading} 
+                            style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                border: `1px solid #EFCBB5`, 
+                                background: C.dangerBg, 
+                                color: C.danger, 
+                                fontSize: 11, 
+                                cursor: actionLoading ? 'not-allowed' : 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4, 
+                                opacity: actionLoading && processingId === s.id ? 0.5 : 1 
+                            }}>
                             <Trash2 size={11} /> Delete
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); setSelectedSuggestion(s); setShowSuggestionModal(true); }}
-                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <button 
+                            onClick={(e) => { 
+                                e.stopPropagation(); 
+                                setSelectedSuggestion(s); 
+                                setShowSuggestionModal(true); 
+                            }}
+                            style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                border: `1px solid ${C.line}`, 
+                                background: 'transparent', 
+                                color: C.sage, 
+                                fontSize: 11, 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                            }}>
                             <Eye size={11} /> View
                         </button>
                     </div>
@@ -1658,6 +2309,210 @@ const AdminDashboard = () => {
         );
     };
 
+    const renderTouristerCard = (u) => (
+        <div key={u.id} style={{ display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${u.is_active !== false ? C.line : C.danger}44`, alignItems: 'flex-start', transition: 'all 0.2s ease' }}>
+            <div style={{ width: 50, height: 50, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', fontSize: 18, fontWeight: 600, color: C.ink }}>
+                {u.profile_image ? <img src={u.profile_image} alt={u.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : u.username?.charAt(0)?.toUpperCase() || 'T'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                        <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{u.first_name || ''} {u.last_name || ''}</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                            <span style={{ fontSize: 11, color: C.sage }}><Mail size={11} style={{ display: 'inline', marginRight: 4 }} />{u.email}</span>
+                            {u.phone && <span style={{ fontSize: 11, color: C.sage }}><Phone size={11} style={{ display: 'inline', marginRight: 4 }} />{u.phone}</span>}
+                            <span style={{ fontSize: 11, color: C.sage }}>· @{u.username || 'N/A'}</span>
+                        </div>
+                    </div>
+                    <StatusPill status={u.is_active !== false ? 'active' : 'inactive'} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    <button onClick={() => openEditTourister(u)} 
+                        style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Edit2 size={11} /> Edit
+                    </button>
+                    <button onClick={() => toggleTouristerStatus(u)} 
+                        style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: u.is_active !== false ? C.dangerBg : C.successBg, color: u.is_active !== false ? C.danger : C.success, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {u.is_active !== false ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <button onClick={() => deleteTourister(u.id)} 
+                        style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Trash2 size={11} /> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderStaffCard = (s) => (
+        <div key={s.id} style={{ display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${s.is_active !== false ? C.line : C.danger}44`, alignItems: 'flex-start', transition: 'all 0.2s ease' }}>
+            <div style={{ width: 50, height: 50, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', fontSize: 18, fontWeight: 600, color: C.ink }}>
+                {s.profile_image ? <img src={s.profile_image} alt={s.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : s.email?.charAt(0)?.toUpperCase() || 'S'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                        <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{s.first_name || ''} {s.last_name || ''}</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                            <span style={{ fontSize: 11, color: C.sage }}><Mail size={11} style={{ display: 'inline', marginRight: 4 }} />{s.email}</span>
+                            {s.phone && <span style={{ fontSize: 11, color: C.sage }}><Phone size={11} style={{ display: 'inline', marginRight: 4 }} />{s.phone}</span>}
+                            <span style={{ fontSize: 11, color: C.sage }}>· <Shield size={11} style={{ display: 'inline', marginRight: 4 }} />Staff</span>
+                        </div>
+                    </div>
+                    <StatusPill status={s.is_active !== false ? 'active' : 'inactive'} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    <button onClick={() => openEditStaff(s)} 
+                        style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Edit2 size={11} /> Edit
+                    </button>
+                    <button onClick={() => deleteStaff(s.id)} 
+                        style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Trash2 size={11} /> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+   const renderGuideCard = (guide) => {
+    // ✅ Add safety check
+    if (!guide || !guide.id) {
+        console.warn('⚠️ Invalid guide data:', guide);
+        return null;
+    }
+    
+    const guideImageUrl = guide.profile_image || guide.image || guide.avatar;
+    const imageUrl = guideImageUrl ? getProfileImageUrl(guideImageUrl) : null;
+
+    return (
+        <div key={guide.id} style={{ 
+            display: 'flex', 
+            gap: 14, 
+            padding: 14, 
+            background: C.cream, 
+            borderRadius: RADIUS.md, 
+            border: `1px solid ${guide.is_verified ? C.success : C.warn}44`, 
+            alignItems: 'flex-start', 
+            transition: 'all 0.2s ease' 
+        }}>
+            <div style={{ 
+                width: 60, 
+                height: 60, 
+                borderRadius: '50%', 
+                background: guide.is_verified ? `linear-gradient(135deg, ${C.gold}, ${C.goldLight})` : C.line, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                flexShrink: 0, 
+                overflow: 'hidden', 
+                fontSize: 20, 
+                fontWeight: 600, 
+                color: C.ink, 
+                border: `2px solid ${guide.is_verified ? C.gold : C.sage}44` 
+            }}>
+                {imageUrl ? (
+                    <img 
+                        src={imageUrl} 
+                        alt={guide.full_name} 
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                        onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.parentElement.textContent = guide.full_name?.charAt(0)?.toUpperCase() || 'G';
+                        }}
+                    /> 
+                ) : guide.full_name?.charAt(0)?.toUpperCase() || 'G'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                        <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
+                            {guide.full_name}
+                        </h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                            <span style={{ fontSize: 11, color: C.sage }}>
+                                <Mail size={11} style={{ display: 'inline', marginRight: 4 }} />
+                                {guide.email}
+                            </span>
+                            <span style={{ fontSize: 11, color: C.sage }}>
+                                · {guide.primary_district || guide.district || 'N/A'}
+                            </span>
+                            {guide.rating > 0 && (
+                                <span style={{ fontSize: 11, color: C.gold }}>
+                                    {'★'.repeat(Math.round(guide.rating))} {guide.rating}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <StatusPill status={guide.is_verified ? 'verified' : 'unverified'} />
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: C.sage }}>
+                    <span>💼 {guide.experience_years || 0} years</span>
+                    <span>💰 ₹{guide.price_per_day || 0}/day</span>
+                    <span>📚 {guide.languages || 'N/A'}</span>
+                    {guide.phone && <span>📱 {guide.phone}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    <button 
+                        onClick={() => openViewGuide(guide)} 
+                        style={{ 
+                            padding: '4px 12px', 
+                            borderRadius: 999, 
+                            border: `1px solid ${C.gold}`, 
+                            background: 'transparent', 
+                            color: C.gold, 
+                            fontSize: 11, 
+                            cursor: 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 4 
+                        }}
+                    >
+                        <Eye size={11} /> View Profile
+                    </button>
+                    <button 
+                        onClick={() => openEditGuide(guide)} 
+                        style={{ 
+                            padding: '4px 12px', 
+                            borderRadius: 999, 
+                            border: `1px solid ${C.line}`, 
+                            background: 'transparent', 
+                            color: C.sage, 
+                            fontSize: 11, 
+                            cursor: 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 4 
+                        }}
+                    >
+                        <Edit2 size={11} /> Edit
+                    </button>
+                    <button 
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            console.log(`🖱️ Delete button clicked for guide ID: ${guide.id}`);
+                            deleteGuide(guide.id);
+                        }} 
+                        style={{ 
+                            padding: '4px 12px', 
+                            borderRadius: 999, 
+                            border: `1px solid #EFCBB5`, 
+                            background: C.dangerBg, 
+                            color: C.danger, 
+                            fontSize: 11, 
+                            cursor: 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 4 
+                        }}
+                    >
+                        <Trash2 size={11} /> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
     const renderCategoryCard = (cat) => {
         const places = cat.places || [];
         const imageUrl = cat.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80';
@@ -1728,117 +2583,6 @@ const AdminDashboard = () => {
         );
     };
 
-    const renderGuideCard = (guide) => {
-        const guideImageUrl = guide.profile_image || guide.image || guide.avatar;
-        const imageUrl = guideImageUrl ? getProfileImageUrl(guideImageUrl) : null;
-
-        return (
-            <div key={guide.id} style={{ display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${guide.is_verified ? C.success : C.warn}44`, alignItems: 'flex-start', transition: 'all 0.2s ease' }}>
-                <div style={{ width: 60, height: 60, borderRadius: '50%', background: guide.is_verified ? `linear-gradient(135deg, ${C.gold}, ${C.goldLight})` : C.line, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', fontSize: 20, fontWeight: 600, color: C.ink, border: `2px solid ${guide.is_verified ? C.gold : C.sage}44` }}>
-                    {imageUrl ? <img src={imageUrl} alt={guide.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : guide.full_name?.charAt(0)?.toUpperCase() || 'G'}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                        <div>
-                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{guide.full_name}</h4>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
-                                <span style={{ fontSize: 11, color: C.sage }}>{guide.email}</span>
-                                <span style={{ fontSize: 11, color: C.sage }}>· {guide.primary_district || 'N/A'}</span>
-                                {guide.rating > 0 && <span style={{ fontSize: 11, color: C.gold }}>{'★'.repeat(Math.round(guide.rating))} {guide.rating}</span>}
-                            </div>
-                        </div>
-                        <StatusPill status={guide.is_verified ? 'verified' : 'unverified'} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: C.sage }}>
-                        <span>💼 {guide.experience_years || 0} years</span>
-                        <span>💰 ₹{guide.price_per_day || 0}/day</span>
-                        <span>📚 {guide.languages || 'N/A'}</span>
-                        {guide.phone && <span>📱 {guide.phone}</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                        <button onClick={() => openViewGuide(guide)} 
-                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.gold}`, background: 'transparent', color: C.gold, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Eye size={11} /> View Profile
-                        </button>
-                        <button onClick={() => openEditGuide(guide)} 
-                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Edit2 size={11} /> Edit
-                        </button>
-                        <button onClick={() => deleteGuide(guide.id)} 
-                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Trash2 size={11} /> Delete
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    const renderTouristerCard = (u) => (
-        <div key={u.id} style={{ display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${C.line}`, alignItems: 'flex-start', transition: 'all 0.2s ease' }}>
-            <div style={{ width: 50, height: 50, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', fontSize: 18, fontWeight: 600, color: C.ink }}>
-                {u.profile_image ? <img src={u.profile_image} alt={u.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : u.username?.charAt(0)?.toUpperCase() || 'T'}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <div>
-                        <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{u.first_name || ''} {u.last_name || ''}</h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
-                            <span style={{ fontSize: 11, color: C.sage }}>{u.email}</span>
-                            <span style={{ fontSize: 11, color: C.sage }}>· @{u.username || 'N/A'}</span>
-                        </div>
-                    </div>
-                    <StatusPill status={u.is_active !== false ? 'active' : 'inactive'} />
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    <button onClick={() => {
-                        if (!window.confirm(`${u.is_active !== false ? 'Deactivate' : 'Activate'} this tourister?`)) return;
-                        setUsers(prev => prev.map(usr => usr.id === u.id ? { ...usr, is_active: !u.is_active } : usr));
-                        setTouristers(prev => prev.map(usr => usr.id === u.id ? { ...usr, is_active: !u.is_active } : usr));
-                        api.post(`/admin/admin/${u.id}/users/toggle-status/`, { is_active: !u.is_active })
-                            .then(() => { showToast(`✅ Tourister ${u.is_active !== false ? 'deactivated' : 'activated'}!`); fetchAllData(); })
-                            .catch(() => { showToast('❌ Failed to update status', 'error'); fetchAllData(); });
-                    }} style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: u.is_active !== false ? C.dangerBg : C.successBg, color: u.is_active !== false ? C.danger : C.success, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {u.is_active !== false ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button onClick={() => deleteUser(u.id)} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Trash2 size={11} /> Delete
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-
-    const renderStaffCard = (s) => (
-        <div key={s.id} style={{ display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${C.line}`, alignItems: 'flex-start', transition: 'all 0.2s ease' }}>
-            <div style={{ width: 50, height: 50, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', fontSize: 18, fontWeight: 600, color: C.ink }}>
-                {s.profile_image ? <img src={s.profile_image} alt={s.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : s.email?.charAt(0)?.toUpperCase() || 'S'}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <div><h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{s.first_name || ''} {s.last_name || ''}</h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}><span style={{ fontSize: 11, color: C.sage }}>{s.email}</span></div>
-                    </div>
-                    <StatusPill status={s.is_active !== false ? 'active' : 'inactive'} />
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    <button onClick={() => {
-                        if (!window.confirm(`${s.is_active !== false ? 'Deactivate' : 'Activate'} this staff member?`)) return;
-                        setStaff(prev => prev.map(st => st.id === s.id ? { ...st, is_active: !s.is_active } : st));
-                        api.post(`/admin/admin/${s.id}/staff/toggle-status/`, { is_active: !s.is_active })
-                            .then(() => { showToast(`✅ Staff ${s.is_active !== false ? 'deactivated' : 'activated'}!`); fetchAllData(); })
-                            .catch(() => { showToast('❌ Failed to update status', 'error'); fetchAllData(); });
-                    }} style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: s.is_active !== false ? C.dangerBg : C.successBg, color: s.is_active !== false ? C.danger : C.success, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {s.is_active !== false ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button onClick={() => deleteStaff(s.id)} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Trash2 size={11} /> Delete
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-
     // ============================================
     // LOADING
     // ============================================
@@ -1856,6 +2600,9 @@ const AdminDashboard = () => {
 
     const activeNavItem = navItems.find(n => n.key === activeTab);
 
+    // ============================================
+    // MAIN RENDER
+    // ============================================
     return (
         <div style={{ height: '100vh', background: C.cream, fontFamily: FONT.body, display: 'flex', overflow: 'hidden' }}>
             <style>{`
@@ -1911,7 +2658,7 @@ const AdminDashboard = () => {
                     <div style={{ flex: 1 }} />
 
                     <div style={{ padding: '14px 14px 20px', borderTop: `1px solid ${C.line}`, marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <button onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData().finally(() => setRefreshing(false)); }} disabled={refreshing} style={{ padding: '9px 14px', borderRadius: RADIUS.sm, border: `1px solid ${C.line}`, background: 'transparent', color: C.inkSoft, cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT.body, opacity: refreshing ? 0.6 : 1 }}>
+                        <button onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData(true).finally(() => setRefreshing(false)); }} disabled={refreshing} style={{ padding: '9px 14px', borderRadius: RADIUS.sm, border: `1px solid ${C.line}`, background: 'transparent', color: C.inkSoft, cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT.body, opacity: refreshing ? 0.6 : 1 }}>
                             <RefreshCw size={13} style={refreshing ? { animation: 'spin 1s linear infinite' } : undefined} /> {refreshing ? 'Refreshing…' : 'Refresh'}
                         </button>
                         <button onClick={logout} style={{ padding: '9px 14px', borderRadius: RADIUS.sm, border: 'none', background: 'transparent', color: C.sage, cursor: 'pointer', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8, fontFamily: FONT.body }}>
@@ -1925,7 +2672,7 @@ const AdminDashboard = () => {
             <div style={{ flex: 1, minWidth: 0, height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 <div className="ad-content-scroll" style={{ flex: 1, overflowY: 'auto', padding: '30px 28px 60px' }}>
                     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-                        {/* Page header - REMOVED Add Insight and Add Hidden Gem buttons from header */}
+                        {/* Page header */}
                         <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                             <div>
                                 <p style={{ fontFamily: FONT.mono, fontSize: 10.5, letterSpacing: '0.16em', textTransform: 'uppercase', color: C.gold, margin: '0 0 5px' }}>
@@ -1933,7 +2680,7 @@ const AdminDashboard = () => {
                                 </p>
                                 <h2 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 26, color: C.inkSoft, margin: 0 }}>{activeNavItem?.label}</h2>
                             </div>
-                            <Btn variant="ghost" icon={RefreshCw} onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData().finally(() => setRefreshing(false)); }} disabled={refreshing} style={{ opacity: refreshing ? 0.6 : 1 }}>
+                            <Btn variant="ghost" icon={RefreshCw} onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData(true).finally(() => setRefreshing(false)); }} disabled={refreshing} style={{ opacity: refreshing ? 0.6 : 1 }}>
                                 {refreshing ? 'Updating…' : 'Update'}
                             </Btn>
                         </div>
@@ -1950,51 +2697,766 @@ const AdminDashboard = () => {
                             <StatChip label="Reviews" value={stats.totalReviews} icon={Star} tone="gold" />
                         </div>
 
-                        {/* Overview Tab */}
-                        {activeTab === 'overview' && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                                <Card style={{ padding: 20 }}>
-                                    <SectionHead icon={LayoutGrid} title="Categories Overview" />
-                                    {categories.slice(0, 5).length === 0 ? (
-                                        <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>No categories yet.</p>
-                                    ) : (
-                                        categories.slice(0, 5).map((cat) => (
-                                            <div key={cat.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
-                                                <div><p style={{ margin: 0, fontSize: 13, color: C.inkSoft, fontWeight: 500 }}>{cat.title}</p><p style={{ margin: '2px 0 0', fontSize: 11, color: C.sage }}>{cat.places?.length || 0} places</p></div>
-                                                <span style={{ fontSize: 11, color: C.sage }}>{cat.key}</span>
-                                            </div>
-                                        ))
-                                    )}
-                                </Card>
-                                <Card style={{ padding: 20 }}>
-                                    <SectionHead icon={MessageSquare} title="Recent Suggestions" />
-                                    {allSuggestions.slice(0, 5).length === 0 ? (
-                                        <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '24px 0' }}>No suggestions yet.</p>
-                                    ) : (
-                                        allSuggestions.slice(0, 5).map((s) => (
-                                            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${C.line}` }}>
-                                                <div><p style={{ margin: 0, fontSize: 13, color: C.inkSoft, fontWeight: 500 }}>{s.name}</p><p style={{ margin: '2px 0 0', fontSize: 11, color: C.sage }}>{s.user_email || 'Anonymous'} · {s.district || 'N/A'}</p></div>
-                                                <StatusPill status={s.status} />
-                                            </div>
-                                        ))
-                                    )}
-                                </Card>
-                            </div>
-                        )}
+{activeTab === 'overview' && (
+    <div style={{ padding: '0 4px' }}>
 
-                        {/* Categories Tab */}
+        {/* ===== HERO HEADER ===== */}
+        <div style={{
+            background: 'linear-gradient(145deg, #0B2422 0%, #072E2A 100%)',
+            borderRadius: 24,
+            padding: '32px 36px',
+            marginBottom: 24,
+            position: 'relative',
+            overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(7,46,42,0.25)'
+        }}>
+            <div style={{
+                position: 'absolute',
+                top: -80,
+                right: -60,
+                width: 300,
+                height: 300,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(199,154,62,0.08) 0%, transparent 70%)',
+                pointerEvents: 'none'
+            }} />
+            <div style={{
+                position: 'absolute',
+                bottom: -100,
+                left: '30%',
+                width: 250,
+                height: 250,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(199,154,62,0.05) 0%, transparent 70%)',
+                pointerEvents: 'none'
+            }} />
+
+            <div style={{ position: 'relative', zIndex: 1 }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 16
+                }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+                            <div style={{
+                                width: 48,
+                                height: 48,
+                                borderRadius: 14,
+                                background: 'rgba(199,154,62,0.15)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                border: '1px solid rgba(199,154,62,0.2)'
+                            }}>
+                                <span style={{ fontSize: 24 }}>🏠</span>
+                            </div>
+                            <div>
+                                <h1 style={{
+                                    fontFamily: "'Fraunces', Georgia, serif",
+                                    fontStyle: 'italic',
+                                    fontSize: 26,
+                                    fontWeight: 600,
+                                    color: '#FFFFFF',
+                                    margin: 0,
+                                    letterSpacing: '-0.5px'
+                                }}>
+                                    Dashboard
+                                </h1>
+                                <p style={{
+                                    fontSize: 14,
+                                    color: 'rgba(255,255,255,0.6)',
+                                    margin: '2px 0 0'
+                                }}>
+                                    Welcome back, {profile?.full_name || 'Admin'} 👋
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 16,
+                        flexWrap: 'wrap'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 14px',
+                            background: 'rgba(255,255,255,0.06)',
+                            borderRadius: 20,
+                            border: '1px solid rgba(255,255,255,0.06)'
+                        }}>
+                            <div style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: '#4CAF50',
+                                animation: 'pulse 2s infinite'
+                            }} />
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                                All systems go
+                            </span>
+                        </div>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 14px',
+                            background: 'rgba(255,255,255,0.06)',
+                            borderRadius: 20,
+                            border: '1px solid rgba(255,255,255,0.06)'
+                        }}>
+                            <Calendar size={14} color="rgba(255,255,255,0.5)" />
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                                {new Date().toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                })}
+                            </span>
+                        </div>
+                        <Btn
+                            variant="ghost"
+                            icon={RefreshCw}
+                            size="sm"
+                            onClick={() => {
+                                dataFetchedRef.current = false;
+                                setRefreshing(true);
+                                fetchAllData(true).finally(() => setRefreshing(false));
+                            }}
+                            disabled={refreshing}
+                            style={{
+                                borderColor: 'rgba(255,255,255,0.15)',
+                                color: 'rgba(255,255,255,0.7)',
+                                padding: '6px 14px'
+                            }}
+                        >
+                            {refreshing ? 'Refreshing...' : 'Refresh'}
+                        </Btn>
+                    </div>
+                </div>
+            </div>
+            <style>{`
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.4; }
+                }
+            `}</style>
+        </div>
+
+        {/* ===== ATTENTION STRIP — things that need admin action right now ===== */}
+        {(stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews + unverifiedGuidesCount) > 0 && (
+            <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 10,
+                marginBottom: 24,
+                padding: '14px 18px',
+                background: C.warnBg,
+                border: `1px solid ${C.gold}30`,
+                borderRadius: 16,
+                alignItems: 'center'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#8A6A1F' }}>
+                    <Flame size={16} color={C.gold} /> Needs your attention
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+                    {(stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews) > 0 && (
+                        <button onClick={() => setActiveTab('hidden-gems')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
+                            <Clock size={12} color={C.warn} /> {stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews} suggestions pending review
+                        </button>
+                    )}
+                    {unverifiedGuidesCount > 0 && (
+                        <button onClick={() => setActiveTab('guides')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
+                            <UserCheck size={12} color={C.warn} /> {unverifiedGuidesCount} guide{unverifiedGuidesCount === 1 ? '' : 's'} awaiting verification
+                        </button>
+                    )}
+                    {inactiveStaffCount > 0 && (
+                        <button onClick={() => setActiveTab('staff')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
+                            <Shield size={12} color={C.warn} /> {inactiveStaffCount} inactive staff account{inactiveStaffCount === 1 ? '' : 's'}
+                        </button>
+                    )}
+                </div>
+            </div>
+        )}
+
+        {/* ===== TWO COLUMN LAYOUT ===== */}
+        <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+            gap: 24,
+            marginBottom: 24
+        }}>
+
+            {/* ===== LEFT COLUMN: Suggestions Status ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 20
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: '#FBF6EA',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <MessageSquare size={16} color="#C79A3E" />
+                        </div>
+                        <div>
+                            <h3 style={{
+                                fontFamily: "'Fraunces', Georgia, serif",
+                                fontStyle: 'italic',
+                                fontSize: 17,
+                                fontWeight: 600,
+                                color: '#0B2422',
+                                margin: 0
+                            }}>Suggestion Status</h3>
+                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Real-time overview</p>
+                        </div>
+                    </div>
+                    <span style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: '#C79A3E',
+                        background: '#FBF6EA',
+                        padding: '4px 12px',
+                        borderRadius: 20
+                    }}>
+                        {stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews} total
+                    </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <StatusProgress
+                        label="Pending"
+                        value={stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews}
+                        total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
+                        color="#B4791F"
+                        bg="#FBF1DC"
+                    />
+                    <StatusProgress
+                        label="Implemented"
+                        value={stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews}
+                        total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
+                        color="#3F7A5E"
+                        bg="#EAF3EE"
+                    />
+                    <StatusProgress
+                        label="Rejected"
+                        value={(() => {
+                            const total = stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews;
+                            const pending = stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews;
+                            const implemented = stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews;
+                            return total - pending - implemented;
+                        })()}
+                        total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
+                        color="#B4472A"
+                        bg="#FDF1EC"
+                    />
+
+                    {/* Per-type breakdown */}
+                    <div style={{ marginTop: 4, paddingTop: 14, borderTop: '1px solid #EFE6CF', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>💎 Hidden Gems</span>
+                            <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedHiddenGems}/{stats.totalHiddenGems} live · <span style={{ color: C.warn }}>{stats.pendingHiddenGems} pending</span></span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>💡 Local Insights</span>
+                            <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedLocalInsights}/{stats.totalLocalInsights} live · <span style={{ color: C.warn }}>{stats.pendingLocalInsights} pending</span></span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>⭐ Reviews</span>
+                            <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedReviews}/{stats.totalReviews} live · <span style={{ color: C.warn }}>{stats.pendingReviews} pending</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{
+                    marginTop: 18,
+                    paddingTop: 16,
+                    borderTop: '1px solid #EFE6CF',
+                    display: 'flex',
+                    justifyContent: 'space-around'
+                }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Pending</p>
+                        <p style={{ fontSize: 20, fontWeight: 700, color: '#B4791F', margin: 0 }}>
+                            {stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews}
+                        </p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Implemented</p>
+                        <p style={{ fontSize: 20, fontWeight: 700, color: '#3F7A5E', margin: 0 }}>
+                            {stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews}
+                        </p>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                        <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Rate</p>
+                        <p style={{ fontSize: 20, fontWeight: 700, color: '#C79A3E', margin: 0 }}>
+                            {(() => {
+                                const total = stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews;
+                                const implemented = stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews;
+                                return total > 0 ? Math.round((implemented / total) * 100) : 0;
+                            })()}%
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* ===== RIGHT COLUMN: Quick Stats ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    marginBottom: 20
+                }}>
+                    <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: '#F5F3FF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <LayoutGrid size={16} color="#8B5CF6" />
+                    </div>
+                    <div>
+                        <h3 style={{
+                            fontFamily: "'Fraunces', Georgia, serif",
+                            fontStyle: 'italic',
+                            fontSize: 17,
+                            fontWeight: 600,
+                            color: '#0B2422',
+                            margin: 0
+                        }}>Platform Overview</h3>
+                        <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>All your content at a glance</p>
+                    </div>
+                </div>
+
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 12
+                }}>
+                    <OverviewTile
+                        label="Touristers"
+                        value={stats.totalUsers}
+                        icon={Users}
+                        color="#3B82F6"
+                        bg="#EFF6FF"
+                    />
+                    <OverviewTile
+                        label="Staff"
+                        value={stats.totalStaff}
+                        icon={Shield}
+                        color="#8B5CF6"
+                        bg="#F5F3FF"
+                    />
+                    <OverviewTile
+                        label="Guides"
+                        value={stats.totalGuides}
+                        icon={UserCheck}
+                        color="#C79A3E"
+                        bg="#FBF6EA"
+                    />
+                    <OverviewTile
+                        label="Categories"
+                        value={stats.totalCategories}
+                        icon={LayoutGrid}
+                        color="#10B981"
+                        bg="#ECFDF5"
+                    />
+                    <OverviewTile
+                        label="Hidden Gems"
+                        value={stats.totalHiddenGems}
+                        icon={Sparkles}
+                        color="#C79A3E"
+                        bg="#FBF6EA"
+                    />
+                    <OverviewTile
+                        label="Local Insights"
+                        value={stats.totalLocalInsights}
+                        icon={Lightbulb}
+                        color="#B4791F"
+                        bg="#FBF1DC"
+                    />
+                </div>
+
+                {/* Guide verification split */}
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid #EFE6CF' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}><Award size={13} color={C.gold} /> Guide verification</span>
+                        <span style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>{stats.totalGuides - unverifiedGuidesCount}/{stats.totalGuides} verified</span>
+                    </div>
+                    <StatusBar label="Verified" count={stats.totalGuides - unverifiedGuidesCount} total={stats.totalGuides} color={C.success} bg={C.successBg} />
+                </div>
+            </div>
+        </div>
+
+        {/* ===== THIRD ROW: Top Guides + Top Categories ===== */}
+        <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+            gap: 24,
+            marginBottom: 24
+        }}>
+            {/* ===== Top Performing Guides ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#FBF6EA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Award size={16} color="#C79A3E" />
+                        </div>
+                        <div>
+                            <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Top Guides</h3>
+                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Ranked by rating</p>
+                        </div>
+                    </div>
+                    <button onClick={() => setActiveTab('guides')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                        View all <ArrowUpRight size={13} />
+                    </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {topGuidesByRating.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
+                            <div style={{ fontSize: 28, marginBottom: 6 }}>🧭</div>
+                            <p style={{ margin: 0, fontSize: 13 }}>No guides yet</p>
+                        </div>
+                    ) : topGuidesByRating.map((g, idx) => (
+                        <div key={g.id} onClick={() => openViewGuide(g)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: C.cream, borderRadius: 12, border: `1px solid ${C.line}`, cursor: 'pointer' }}>
+                            <span style={{ fontFamily: FONT.mono, fontSize: 11, color: C.sageLight, width: 14 }}>#{idx + 1}</span>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: C.ink, flexShrink: 0, overflow: 'hidden' }}>
+                                {g.full_name?.charAt(0)?.toUpperCase() || 'G'}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.full_name}</p>
+                                <p style={{ fontSize: 10.5, color: C.sage, margin: 0 }}>{g.primary_district || 'N/A'}</p>
+                            </div>
+                            <span style={{ fontSize: 12, color: C.gold, fontWeight: 600, flexShrink: 0 }}>{g.rating > 0 ? `★ ${g.rating}` : '— new'}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* ===== Top Categories ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <TrendingUp size={16} color="#10B981" />
+                        </div>
+                        <div>
+                            <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Top Categories</h3>
+                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>By number of places</p>
+                        </div>
+                    </div>
+                    <button onClick={() => setActiveTab('categories')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                        View all <ArrowUpRight size={13} />
+                    </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {topCategoriesByPlaces.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
+                            <div style={{ fontSize: 28, marginBottom: 6 }}>📂</div>
+                            <p style={{ margin: 0, fontSize: 13 }}>No categories yet</p>
+                        </div>
+                    ) : topCategoriesByPlaces.map((cat) => {
+                        const maxCount = topCategoriesByPlaces[0]?.count || 1;
+                        return (
+                            <div key={cat.key}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                                    <span style={{ fontSize: 12.5, color: C.inkSoft }}>{cat.title || cat.key}</span>
+                                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.gold }}>{cat.count}</span>
+                                </div>
+                                <div style={{ height: 6, borderRadius: 3, background: C.line, overflow: 'hidden' }}>
+                                    <div style={{ width: `${maxCount > 0 ? Math.max(4, (cat.count / maxCount) * 100) : 0}%`, height: '100%', borderRadius: 3, background: C.gold, transition: 'width 1s ease' }} />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+
+        {/* ===== BOTTOM ROW: Recent Activity, New Touristers, Quick Actions ===== */}
+        <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: 24
+        }}>
+
+            {/* ===== Recent Activity ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 16
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: '#EAF3EE',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            <RefreshCw size={16} color="#3F7A5E" />
+                        </div>
+                        <div>
+                            <h3 style={{
+                                fontFamily: "'Fraunces', Georgia, serif",
+                                fontStyle: 'italic',
+                                fontSize: 17,
+                                fontWeight: 600,
+                                color: '#0B2422',
+                                margin: 0
+                            }}>Recent Activity</h3>
+                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Latest updates</p>
+                        </div>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#7A7568' }}>Last 5</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {allSuggestions.slice(0, 5).map((s, idx) => (
+                        <div key={s.id || idx} onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }} style={{ cursor: 'pointer' }}>
+                            <ActivityRow
+                                title={s.name || 'Untitled'}
+                                type={s.suggestion_type || 'suggestion'}
+                                status={s.status || 'pending'}
+                            />
+                        </div>
+                    ))}
+                    {allSuggestions.length === 0 && (
+                        <div style={{
+                            textAlign: 'center',
+                            padding: '30px 0',
+                            color: '#7A7568'
+                        }}>
+                            <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+                            <p style={{ margin: 0, fontSize: 13 }}>No recent activity</p>
+                            <p style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>Suggestions will appear here</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* ===== Newest Touristers ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Users size={16} color="#3B82F6" />
+                        </div>
+                        <div>
+                            <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Newest Touristers</h3>
+                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Recently joined</p>
+                        </div>
+                    </div>
+                    <button onClick={() => setActiveTab('touristers')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                        View all <ArrowUpRight size={13} />
+                    </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {recentTouristers.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
+                            <div style={{ fontSize: 28, marginBottom: 6 }}>👥</div>
+                            <p style={{ margin: 0, fontSize: 13 }}>No touristers yet</p>
+                        </div>
+                    ) : recentTouristers.map((u) => (
+                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: C.cream, borderRadius: 12, border: `1px solid ${C.line}` }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: C.ink, flexShrink: 0, overflow: 'hidden' }}>
+                                {u.profile_image ? <img src={u.profile_image} alt={u.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (u.first_name?.charAt(0)?.toUpperCase() || u.username?.charAt(0)?.toUpperCase() || 'T')}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.first_name || ''} {u.last_name || ''}</p>
+                                <p style={{ fontSize: 10.5, color: C.sage, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</p>
+                            </div>
+                            <StatusPill status={u.is_active !== false ? 'active' : 'inactive'} />
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* ===== Quick Actions ===== */}
+            <div style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                padding: 24,
+                border: '1px solid #EFE6CF',
+                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    marginBottom: 16
+                }}>
+                    <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: '#FBF6EA',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <PlusCircle size={16} color="#C79A3E" />
+                    </div>
+                    <div>
+                        <h3 style={{
+                            fontFamily: "'Fraunces', Georgia, serif",
+                            fontStyle: 'italic',
+                            fontSize: 17,
+                            fontWeight: 600,
+                            color: '#0B2422',
+                            margin: 0
+                        }}>Quick Actions</h3>
+                        <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Common tasks</p>
+                    </div>
+                </div>
+
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 10
+                }}>
+                    <ActionButton
+                        label="Add Tourister"
+                        icon={Users}
+                        onClick={openAddTourister}
+                        color="#3B82F6"
+                    />
+                    <ActionButton
+                        label="Add Staff"
+                        icon={Shield}
+                        onClick={openAddStaff}
+                        color="#8B5CF6"
+                    />
+                    <ActionButton
+                        label="Add Guide"
+                        icon={UserCheck}
+                        onClick={() => { resetGuideForm(); setEditingGuide(null); setShowGuideModal(true); }}
+                        color="#C79A3E"
+                    />
+                    <ActionButton
+                        label="Add Category"
+                        icon={FolderPlus}
+                        onClick={() => { setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); setShowCategoryModal(true); }}
+                        color="#10B981"
+                    />
+                    <ActionButton
+                        label="Add Hidden Gem"
+                        icon={Sparkles}
+                        onClick={() => { setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null }); setShowAddHiddenGemModal(true); }}
+                        color="#C79A3E"
+                    />
+                    <ActionButton
+                        label="Add Insight"
+                        icon={Lightbulb}
+                        onClick={() => { setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null }); setShowAddInsightModal(true); }}
+                        color="#B4791F"
+                    />
+                </div>
+
+                <div style={{
+                    marginTop: 16,
+                    paddingTop: 16,
+                    borderTop: '1px solid #EFE6CF',
+                    display: 'flex',
+                    justifyContent: 'center'
+                }}>
+                    <button onClick={() => setActiveTab('hidden-gems')} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 20px',
+                        background: '#FBF6EA',
+                        border: '1px solid #EFE6CF',
+                        borderRadius: 12,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        color: '#0B2422',
+                        transition: 'all 0.2s ease'
+                    }} onMouseEnter={(e) => {
+                        e.target.style.background = '#F5EDD6';
+                    }} onMouseLeave={(e) => {
+                        e.target.style.background = '#FBF6EA';
+                    }}>
+                        <Sparkles size={14} color="#C79A3E" />
+                        View All Suggestions
+                        <ChevronRight size={14} color="#C79A3E" />
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+)}
+
+                        {/* CATEGORIES TAB */}
                         {activeTab === 'categories' && (
                             <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
                                     <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>📂 Categories</h3>
-                                        <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage categories and places</p></div>
+                                        <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage all categories ({categories.length} total)</p></div>
                                     <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); setShowCategoryModal(true); }}>Add Category</Btn>
                                 </div>
                                 {categories.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No categories found.</p>
                                 ) : (
                                     <>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
                                             {getPaginatedData(categories, categoriesPage).map((cat) => renderCategoryCard(cat))}
                                         </div>
                                         <Pagination currentPage={categoriesPage} totalPages={getTotalPages(categories)} onPageChange={setCategoriesPage} totalItems={categories.length} itemsPerPage={ITEMS_PER_PAGE} />
@@ -2003,130 +3465,125 @@ const AdminDashboard = () => {
                             </div>
                         )}
 
-                        {/* Places Tab */}
+                        {/* PLACES TAB */}
                         {activeTab === 'places' && (
                             <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 12 }}>
-                                    <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>📍 All Places</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
+                                    <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>📍 Places</h3>
                                         <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage all places ({allPlaces.length} total)</p></div>
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                        <input type="text" placeholder="🔍 Search places..." value={placesSearch} onChange={(e) => setPlacesSearch(e.target.value)} style={{ ...inputStyle, minWidth: '180px', padding: '7px 12px', fontSize: 12 }} />
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        <input type="text" value={placesSearch} onChange={(e) => setPlacesSearch(e.target.value)} style={{ ...inputStyle, padding: '6px 12px', fontSize: 12, width: 150 }} placeholder="Search places..." />
                                         <select value={placesFilter} onChange={(e) => setPlacesFilter(e.target.value)} style={selectStyle}>
                                             <option value="all">All Types</option>
                                             <option value="well-known">⭐ Well Known</option>
-                                            <option value="hidden">✨ Hidden Gems</option>
+                                            <option value="hidden">✨ Hidden</option>
                                         </select>
-                                        <div style={{ display: 'flex', gap: 4 }}>
-                                            <button onClick={() => setViewMode('grid')} style={{ padding: '7px 10px', borderRadius: RADIUS.sm, border: `1px solid ${viewMode === 'grid' ? C.gold : C.line}`, background: viewMode === 'grid' ? C.goldSoft : 'transparent', color: viewMode === 'grid' ? C.gold : C.sage, cursor: 'pointer' }}><Grid size={16} /></button>
-                                            <button onClick={() => setViewMode('list')} style={{ padding: '7px 10px', borderRadius: RADIUS.sm, border: `1px solid ${viewMode === 'list' ? C.gold : C.line}`, background: viewMode === 'list' ? C.goldSoft : 'transparent', color: viewMode === 'list' ? C.gold : C.sage, cursor: 'pointer' }}><List size={16} /></button>
-                                        </div>
                                     </div>
                                 </div>
                                 {filteredPlaces.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No places found.</p>
                                 ) : (
                                     <>
-                                        {viewMode === 'grid' ? (
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-                                                {getPaginatedData(filteredPlaces, placesPage).map((place) => renderPlaceCard(place))}
-                                            </div>
-                                        ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                                {getPaginatedData(filteredPlaces, placesPage).map((place) => renderPlaceCard(place))}
-                                            </div>
-                                        )}
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
+                                            {getPaginatedData(filteredPlaces, placesPage).map((place) => renderPlaceCard(place))}
+                                        </div>
                                         <Pagination currentPage={placesPage} totalPages={getTotalPages(filteredPlaces)} onPageChange={setPlacesPage} totalItems={filteredPlaces.length} itemsPerPage={ITEMS_PER_PAGE} />
                                     </>
                                 )}
                             </div>
                         )}
 
-                        {/* Hidden Gems Tab - WITH Add Hidden Gem Button */}
+                        {/* HIDDEN GEMS TAB */}
                         {activeTab === 'hidden-gems' && (
-                            <Card style={{ padding: 22 }}>
-                                <SectionHead icon={Sparkles} title="Hidden Gems" count={hiddenGems.length}
-                                    right={
-                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                            <select value={hiddenGemsFilter} onChange={(e) => setHiddenGemsFilter(e.target.value)} style={selectStyle}>
-                                                <option value="all">All Status ({hiddenGems.length})</option>
-                                                <option value="pending">⏳ Pending ({hiddenGems.filter(s => s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin').length})</option>
-                                                <option value="implemented">✨ Implemented ({hiddenGems.filter(s => s.status === 'implemented').length})</option>
-                                                <option value="rejected">❌ Rejected ({hiddenGems.filter(s => s.status === 'rejected' || s.status === 'rejected_by_guide' || s.status === 'rejected_by_admin' || s.status === 'staff_rejected').length})</option>
-                                            </select>
-                                            <Btn variant="gold" icon={Plus} size="sm" onClick={() => setShowAddHiddenGemModal(true)}>
-                                                Add Hidden Gem
-                                            </Btn>
-                                        </div>
-                                    }
-                                />
-                                {filteredHiddenGems.length === 0 ? (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
+                                    <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>💎 Hidden Gems</h3>
+                                        <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage hidden gem suggestions ({hiddenGems.length} total)</p></div>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <select value={hiddenGemsFilter} onChange={(e) => setHiddenGemsFilter(e.target.value)} style={selectStyle}>
+                                            <option value="all">All</option>
+                                            <option value="pending">⏳ Pending</option>
+                                            <option value="implemented">✨ Implemented</option>
+                                            <option value="rejected">❌ Rejected</option>
+                                        </select>
+                                        <Btn variant="gold" icon={Plus} size="sm" onClick={() => { setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null }); setShowAddHiddenGemModal(true); }}>Add Gem</Btn>
+                                    </div>
+                                </div>
+                                {hiddenGems.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No hidden gems found.</p>
                                 ) : (
                                     <>
-                                        <div style={{ display: 'grid', gap: 12 }}>{getPaginatedData(filteredHiddenGems, hiddenGemsPage).map((s) => renderSuggestionCard(s, 'Hidden Gem'))}</div>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredHiddenGems, hiddenGemsPage).map((s) => renderSuggestionCard(s, 'Hidden Gem'))}
+                                        </div>
                                         <Pagination currentPage={hiddenGemsPage} totalPages={getTotalPages(filteredHiddenGems)} onPageChange={setHiddenGemsPage} totalItems={filteredHiddenGems.length} itemsPerPage={ITEMS_PER_PAGE} />
                                     </>
                                 )}
-                            </Card>
+                            </div>
                         )}
 
-                        {/* Local Insights Tab - WITH Add Insight Button */}
+                        {/* LOCAL INSIGHTS TAB */}
                         {activeTab === 'local-insights' && (
-                            <Card style={{ padding: 22 }}>
-                                <SectionHead icon={Lightbulb} title="Local Insights" count={localInsights.length}
-                                    right={
-                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                            <select value={localInsightsFilter} onChange={(e) => setLocalInsightsFilter(e.target.value)} style={selectStyle}>
-                                                <option value="all">All Status ({localInsights.length})</option>
-                                                <option value="pending">⏳ Pending ({localInsights.filter(s => s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin').length})</option>
-                                                <option value="implemented">✨ Implemented ({localInsights.filter(s => s.status === 'implemented').length})</option>
-                                                <option value="rejected">❌ Rejected ({localInsights.filter(s => s.status === 'rejected' || s.status === 'rejected_by_guide' || s.status === 'rejected_by_admin' || s.status === 'staff_rejected').length})</option>
-                                            </select>
-                                            <Btn variant="primary" icon={Plus} size="sm" onClick={() => setShowAddInsightModal(true)}>
-                                                Add Insight
-                                            </Btn>
-                                        </div>
-                                    }
-                                />
-                                {filteredLocalInsights.length === 0 ? (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
+                                    <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>💡 Local Insights</h3>
+                                        <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage local insight suggestions ({localInsights.length} total)</p></div>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <select value={localInsightsFilter} onChange={(e) => setLocalInsightsFilter(e.target.value)} style={selectStyle}>
+                                            <option value="all">All</option>
+                                            <option value="pending">⏳ Pending</option>
+                                            <option value="implemented">✨ Implemented</option>
+                                            <option value="rejected">❌ Rejected</option>
+                                        </select>
+                                        <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null }); setShowAddInsightModal(true); }}>Add Insight</Btn>
+                                    </div>
+                                </div>
+                                {localInsights.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No local insights found.</p>
                                 ) : (
                                     <>
-                                        <div style={{ display: 'grid', gap: 12 }}>{getPaginatedData(filteredLocalInsights, localInsightsPage).map((s) => renderSuggestionCard(s, 'Local Insight'))}</div>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredLocalInsights, localInsightsPage).map((s) => renderSuggestionCard(s, 'Local Insight'))}
+                                        </div>
                                         <Pagination currentPage={localInsightsPage} totalPages={getTotalPages(filteredLocalInsights)} onPageChange={setLocalInsightsPage} totalItems={filteredLocalInsights.length} itemsPerPage={ITEMS_PER_PAGE} />
                                     </>
                                 )}
-                            </Card>
+                            </div>
                         )}
 
-                        {/* Reviews Tab */}
+                        {/* REVIEWS TAB */}
                         {activeTab === 'reviews' && (
-                            <Card style={{ padding: 22 }}>
-                                <SectionHead icon={Star} title="Reviews" count={reviews.length}
-                                    right={<select value={reviewsFilter} onChange={(e) => setReviewsFilter(e.target.value)} style={selectStyle}>
-                                        <option value="all">All Status ({reviews.length})</option>
-                                        <option value="pending">⏳ Pending ({reviews.filter(r => r.status === 'pending' || r.status === 'pending_guide' || r.status === 'pending_admin').length})</option>
-                                        <option value="implemented">✨ Implemented ({reviews.filter(r => r.status === 'implemented').length})</option>
-                                        <option value="rejected">❌ Rejected ({reviews.filter(r => r.status === 'rejected' || r.status === 'rejected_by_guide' || r.status === 'rejected_by_admin' || r.status === 'staff_rejected').length})</option>
-                                    </select>}
-                                />
-                                {filteredReviews.length === 0 ? (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
+                                    <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>⭐ Reviews</h3>
+                                        <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage review suggestions ({reviews.length} total)</p></div>
+                                    <select value={reviewsFilter} onChange={(e) => setReviewsFilter(e.target.value)} style={selectStyle}>
+                                        <option value="all">All</option>
+                                        <option value="pending">⏳ Pending</option>
+                                        <option value="implemented">✨ Implemented</option>
+                                        <option value="rejected">❌ Rejected</option>
+                                    </select>
+                                </div>
+                                {reviews.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No reviews found.</p>
                                 ) : (
                                     <>
-                                        <div style={{ display: 'grid', gap: 12 }}>{getPaginatedData(filteredReviews, reviewsPage).map((s) => renderSuggestionCard(s, 'Review'))}</div>
+                                        <div style={{ display: 'grid', gap: 12 }}>
+                                            {getPaginatedData(filteredReviews, reviewsPage).map((s) => renderSuggestionCard(s, 'Review'))}
+                                        </div>
                                         <Pagination currentPage={reviewsPage} totalPages={getTotalPages(filteredReviews)} onPageChange={setReviewsPage} totalItems={filteredReviews.length} itemsPerPage={ITEMS_PER_PAGE} />
                                     </>
                                 )}
-                            </Card>
+                            </div>
                         )}
 
-                        {/* Touristers Tab */}
+                        {/* TOURISTERS TAB */}
                         {activeTab === 'touristers' && (
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
                                     <div><h3 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 19, color: C.inkSoft, margin: 0 }}>👥 Touristers</h3>
                                         <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage all touristers ({touristers.length} total)</p></div>
+                                    <Btn variant="primary" icon={Plus} size="sm" onClick={openAddTourister}>Add Tourister</Btn>
                                 </div>
                                 {touristers.length === 0 ? (
                                     <p style={{ textAlign: 'center', color: C.sage, fontSize: 13, padding: '30px 0' }}>No touristers found.</p>
@@ -2139,7 +3596,7 @@ const AdminDashboard = () => {
                             </div>
                         )}
 
-                        {/* Staff Tab */}
+                        {/* STAFF TAB */}
                         {activeTab === 'staff' && (
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
@@ -2147,9 +3604,11 @@ const AdminDashboard = () => {
                                         <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage staff members ({staff.length} total)</p></div>
                                     <div style={{ display: 'flex', gap: 6 }}>
                                         <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} style={selectStyle}>
-                                            <option value="all">All</option><option value="active">🟢 Active</option><option value="inactive">🔴 Inactive</option>
+                                            <option value="all">All</option>
+                                            <option value="active">🟢 Active</option>
+                                            <option value="inactive">🔴 Inactive</option>
                                         </select>
-                                        <Btn variant="primary" icon={Plus} size="sm" onClick={() => { setStaffForm({ email: '', password: '' }); setShowStaffModal(true); }}>Add Staff</Btn>
+                                        <Btn variant="primary" icon={Plus} size="sm" onClick={openAddStaff}>Add Staff</Btn>
                                     </div>
                                 </div>
                                 {staff.length === 0 ? (
@@ -2163,7 +3622,7 @@ const AdminDashboard = () => {
                             </div>
                         )}
 
-                        {/* Guides Tab */}
+                        {/* GUIDES TAB */}
                         {activeTab === 'guides' && (
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
@@ -2171,8 +3630,11 @@ const AdminDashboard = () => {
                                         <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}>Manage tour guides ({guides.length} total)</p></div>
                                     <div style={{ display: 'flex', gap: 6 }}>
                                         <select value={guidesFilter} onChange={(e) => setGuidesFilter(e.target.value)} style={selectStyle}>
-                                            <option value="all">All</option><option value="verified">✅ Verified</option><option value="unverified">⏳ Unverified</option>
-                                            <option value="active">🟢 Active</option><option value="inactive">🔴 Inactive</option>
+                                            <option value="all">All</option>
+                                            <option value="verified">✅ Verified</option>
+                                            <option value="unverified">⏳ Unverified</option>
+                                            <option value="active">🟢 Active</option>
+                                            <option value="inactive">🔴 Inactive</option>
                                         </select>
                                         <Btn variant="primary" icon={Plus} size="sm" onClick={() => { resetGuideForm(); setEditingGuide(null); setShowGuideModal(true); }}>Add Guide</Btn>
                                     </div>
@@ -2191,265 +3653,138 @@ const AdminDashboard = () => {
                 </div>
             </div>
 
-            {/* ============================================
-                MODALS
-            ============================================ */}
+            {/* ============================================ */}
+            {/* MODALS */}
+            {/* ============================================ */}
 
-            {/* Profile Modal */}
-            {activeTab === 'profile' && (
-                <Card style={{ padding: 24 }}>
-                    <SectionHead icon={User} title="Profile" right={
-                        <Btn variant={isEditingProfile ? 'success' : 'primary'} icon={isEditingProfile ? Save : Edit2} onClick={() => setIsEditingProfile(!isEditingProfile)}>
-                            {isEditingProfile ? 'Save' : 'Edit'}
+            {/* Tourister Modal - Add */}
+            {showTouristerModal && (
+                <ModalShell onClose={() => { setShowTouristerModal(false); setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}
+                    title="Add Tourister" subtitle="Create a new tourister account" icon={Users} maxWidth={560}
+                    footer={<>
+                        <Btn variant="ghost" onClick={() => { setShowTouristerModal(false); setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}>Cancel</Btn>
+                        <Btn variant="primary" icon={Plus} onClick={handleAddTourister} disabled={touristerLoading}>
+                            {touristerLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                            {touristerLoading ? 'Adding...' : 'Add Tourister'}
                         </Btn>
-                    } />
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '14px 18px', background: C.cream, borderRadius: RADIUS.md, marginBottom: 20, border: `1px solid ${C.line}` }}>
-                        <div style={{ position: 'relative' }}>
-                            <div
-                                style={{
-                                    width: 68, height: 68, borderRadius: '50%',
-                                    background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 26, fontWeight: 'bold', color: C.ink, overflow: 'hidden', cursor: 'pointer',
-                                    border: `2px solid ${C.gold}66`,
-                                }}
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                {profilePicture ? <img src={profilePicture} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (profile?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'A')}
-                            </div>
-                            <button 
-                                onClick={() => fileInputRef.current?.click()} 
-                                disabled={uploading}
-                                style={{ 
-                                    position: 'absolute', bottom: -2, right: -2, 
-                                    width: 26, height: 26, borderRadius: '50%', 
-                                    background: uploading ? C.sage : C.ink, 
-                                    color: C.goldLight, border: `2px solid ${C.cream}`, 
-                                    cursor: uploading ? 'not-allowed' : 'pointer', 
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    opacity: uploading ? 0.6 : 1,
-                                }}
-                            >
-                                {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />}
-                            </button>
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                accept="image/*" 
-                                style={{ display: 'none' }} 
-                                onChange={handleProfilePictureUpload} 
-                                disabled={uploading} 
-                            />
-                        </div>
-                        <div>
-                            <h4 style={{ fontSize: 17, color: C.inkSoft, margin: 0, fontFamily: FONT.display }}>{profile?.full_name || user?.first_name || 'Admin'}</h4>
-                            <p style={{ fontSize: 13, color: C.sage, margin: '2px 0 0' }}>{profile?.department || 'Admin'} · {profile?.position || 'Administrator'}</p>
-                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <Shield size={12} /> {user?.role || 'admin'}
-                            </span>
-                        </div>
-                        {uploading && <span style={{ fontSize: 11, color: C.sage, marginLeft: 'auto' }}>Uploading...</span>}
-                    </div>
-
-                    {isEditingProfile ? (
-                        <form onSubmit={handleProfileUpdate} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <div>
-                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Full Name</label>
-                                    <input type="text" value={profileForm.full_name} onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })} style={inputStyle} />
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Email</label>
-                                    <input type="email" value={profileForm.email} disabled style={{ ...inputStyle, background: '#f5f5f5', cursor: 'not-allowed' }} />
-                                </div>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <div>
-                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Phone</label>
-                                    <input type="text" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} style={inputStyle} />
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Department</label>
-                                    <input type="text" value={profileForm.department} onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })} style={inputStyle} />
-                                </div>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                <div>
-                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Position</label>
-                                    <input type="text" value={profileForm.position} onChange={(e) => setProfileForm({ ...profileForm, position: e.target.value })} style={inputStyle} />
-                                </div>
-                            </div>
-                            <div>
-                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>Bio</label>
-                                <textarea value={profileForm.bio} onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
-                            </div>
-                            <div style={{ display: 'flex', gap: 10, marginTop: 6, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
-                                <Btn type="submit" variant="primary" icon={Save} disabled={loading}>
-                                    {loading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                                    {loading ? 'Saving...' : 'Save Profile'}
-                                </Btn>
-                                <Btn type="button" variant="ghost" onClick={() => setIsEditingProfile(false)}>Cancel</Btn>
-                            </div>
-                        </form>
-                    ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '7px 20px' }}>
-                            <span style={{ color: C.sage, fontSize: 13 }}>Name</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.full_name || user?.first_name || 'Not set'}</span>
-                            <span style={{ color: C.sage, fontSize: 13 }}>Email</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{user?.email}</span>
-                            <span style={{ color: C.sage, fontSize: 13 }}>Phone</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.phone || 'Not set'}</span>
-                            <span style={{ color: C.sage, fontSize: 13 }}>Department</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.department || 'Admin'}</span>
-                            <span style={{ color: C.sage, fontSize: 13 }}>Position</span><span style={{ color: C.inkSoft, fontSize: 13 }}>{profile?.position || 'Administrator'}</span>
-                            <span style={{ color: C.sage, fontSize: 13 }}>Role</span><span style={{ color: C.gold, fontSize: 13, fontWeight: 600 }}>{user?.role || 'admin'}</span>
-                            {profile?.bio && (
-                                <>
-                                    <span style={{ color: C.sage, fontSize: 13, alignSelf: 'flex-start' }}>Bio</span>
-                                    <span style={{ color: C.inkSoft, fontSize: 13, lineHeight: 1.6 }}>{profile.bio}</span>
-                                </>
-                            )}
-                        </div>
-                    )}
-                </Card>
-            )}
-
-            {/* Category Modal - Add */}
-            {showCategoryModal && (
-                <ModalShell onClose={() => { setShowCategoryModal(false); setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); }}
-                    title="Add Category" subtitle="Create a new category" icon={FolderPlus}
-                    footer={<><Btn variant="ghost" onClick={() => { setShowCategoryModal(false); setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); }}>Cancel</Btn>
-                        <Btn variant="primary" icon={Plus} onClick={handleAddCategory} disabled={categoryLoading}>
-                            {categoryLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                            {categoryLoading ? 'Adding...' : 'Add Category'}
-                        </Btn></>}
+                    </>}
                 >
-                    <form onSubmit={handleAddCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category Name <span style={{ color: C.danger }}>*</span></label>
-                            <input type="text" value={categoryForm.label} onChange={(e) => { const label = e.target.value; setCategoryForm({ ...categoryForm, label: label, key: label.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') }); }} style={inputStyle} required placeholder="e.g., Adventure Sports" /></div>
-                        {categoryForm.key && <div style={{ padding: 8, background: C.cream, borderRadius: RADIUS.sm, border: `1px solid ${C.line}` }}><p style={{ fontSize: 10, color: C.sage, margin: 0 }}>🔑 Key: <span style={{ fontFamily: FONT.mono, fontWeight: 600, color: C.ink }}>{categoryForm.key}</span></p></div>}
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
-                            <textarea value={categoryForm.description} onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={3} placeholder="Describe this category..." /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</label>
-                            <select value={categoryForm.type} onChange={(e) => setCategoryForm({ ...categoryForm, type: e.target.value })} style={selectStyle}>
-                                <option value="Nature & Outdoor">Nature & Outdoor</option>
-                                <option value="Adventure & Activities">Adventure & Activities</option>
-                                <option value="Parks & Recreation">Parks & Recreation</option>
-                                <option value="Cultural & Heritage">Cultural & Heritage</option>
-                                <option value="Wellness & Relaxation">Wellness & Relaxation</option>
-                            </select></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image URL</label>
-                            <input type="url" value={categoryForm.image} onChange={(e) => setCategoryForm({ ...categoryForm, image: e.target.value })} style={inputStyle} placeholder="https://images.unsplash.com/..." /></div>
+                    <form onSubmit={handleAddTourister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={touristerForm.full_name} onChange={(e) => setTouristerForm({ ...touristerForm, full_name: e.target.value })} style={inputStyle} required placeholder="John Doe" /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email <span style={{ color: C.danger }}>*</span></label>
+                            <input type="email" value={touristerForm.email} onChange={(e) => setTouristerForm({ ...touristerForm, email: e.target.value })} style={inputStyle} required placeholder="tourister@example.com" /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password <span style={{ color: C.danger }}>*</span></label>
+                            <input type="password" value={touristerForm.password} onChange={(e) => setTouristerForm({ ...touristerForm, password: e.target.value })} style={inputStyle} required placeholder="Min 6 characters" minLength={6} /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone</label>
+                            <input type="tel" value={touristerForm.phone} onChange={(e) => setTouristerForm({ ...touristerForm, phone: e.target.value })} style={inputStyle} placeholder="+91 9876543210" /></div>
                     </form>
                 </ModalShell>
             )}
 
-            {/* Edit Category Modal */}
-            {showEditCategoryModal && (
-                <ModalShell onClose={() => { setShowEditCategoryModal(false); setEditingCategory(null); setEditCategoryForm({ title: '', description: '', image: '', type: 'Nature & Outdoor', is_active: true }); }}
-                    title="✏️ Edit Category" subtitle={`Editing: ${editingCategory?.title || editingCategory?.key}`} icon={Edit2}
-                    footer={<><Btn variant="ghost" onClick={() => { setShowEditCategoryModal(false); setEditingCategory(null); setEditCategoryForm({ title: '', description: '', image: '', type: 'Nature & Outdoor', is_active: true }); }}>Cancel</Btn>
-                        <Btn variant="primary" icon={Save} onClick={handleEditCategory} disabled={categoryLoading}>
-                            {categoryLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                            {categoryLoading ? 'Saving...' : 'Update Category'}
-                        </Btn></>}
+            {/* Tourister Modal - Edit */}
+            {showEditTouristerModal && editingTourister && (
+                <ModalShell onClose={() => { setShowEditTouristerModal(false); setEditingTourister(null); setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}
+                    title="✏️ Edit Tourister" subtitle={`Updating ${editingTourister.first_name || ''} ${editingTourister.last_name || ''}`} icon={Users} maxWidth={560}
+                    footer={<>
+                        <Btn variant="ghost" onClick={() => { setShowEditTouristerModal(false); setEditingTourister(null); setTouristerForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}>Cancel</Btn>
+                        <Btn variant="primary" icon={Save} onClick={handleUpdateTourister} disabled={touristerLoading}>
+                            {touristerLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                            {touristerLoading ? 'Saving...' : 'Update Tourister'}
+                        </Btn>
+                    </>}
                 >
-                    <form onSubmit={handleEditCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category Title <span style={{ color: C.danger }}>*</span></label>
-                            <input type="text" value={editCategoryForm.title} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, title: e.target.value })} style={inputStyle} required placeholder="Category title" /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
-                            <textarea value={editCategoryForm.description} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={3} placeholder="Describe this category..." /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</label>
-                            <select value={editCategoryForm.type} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, type: e.target.value })} style={selectStyle}>
-                                <option value="Nature & Outdoor">Nature & Outdoor</option>
-                                <option value="Adventure & Activities">Adventure & Activities</option>
-                                <option value="Parks & Recreation">Parks & Recreation</option>
-                                <option value="Cultural & Heritage">Cultural & Heritage</option>
-                                <option value="Wellness & Relaxation">Wellness & Relaxation</option>
-                            </select></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image URL</label>
-                            <input type="url" value={editCategoryForm.image} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, image: e.target.value })} style={inputStyle} placeholder="https://images.unsplash.com/..." /></div>
+                    <form onSubmit={handleUpdateTourister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={touristerForm.full_name} onChange={(e) => setTouristerForm({ ...touristerForm, full_name: e.target.value })} style={inputStyle} required /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email</label>
+                            <input type="email" value={touristerForm.email} disabled style={{ ...inputStyle, background: '#f5f5f5', cursor: 'not-allowed' }} /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>New Password <span style={{ color: C.sageLight }}>(leave blank to keep current)</span></label>
+                            <input type="password" value={touristerForm.password} onChange={(e) => setTouristerForm({ ...touristerForm, password: e.target.value })} style={inputStyle} placeholder="Min 6 characters" minLength={6} /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone</label>
+                            <input type="tel" value={touristerForm.phone} onChange={(e) => setTouristerForm({ ...touristerForm, phone: e.target.value })} style={inputStyle} placeholder="+91 9876543210" /></div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <label style={{ fontSize: 11, color: C.sageLight, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active</label>
-                            <button type="button" onClick={() => setEditCategoryForm({ ...editCategoryForm, is_active: !editCategoryForm.is_active })} style={{ width: 44, height: 24, borderRadius: 12, border: 'none', background: editCategoryForm.is_active ? C.success : '#ccc', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' }}>
-                                <span style={{ position: 'absolute', top: 2, left: editCategoryForm.is_active ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'all 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                            <button type="button" onClick={() => setTouristerForm({ ...touristerForm, is_active: !touristerForm.is_active })} style={{ width: 44, height: 24, borderRadius: 12, border: 'none', background: touristerForm.is_active ? C.success : '#ccc', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' }}>
+                                <span style={{ position: 'absolute', top: 2, left: touristerForm.is_active ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'all 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
                             </button>
-                            <span style={{ fontSize: 12, color: C.sage }}>{editCategoryForm.is_active ? '✅ Active' : '⛔ Inactive'}</span>
+                            <span style={{ fontSize: 12, color: C.sage }}>{touristerForm.is_active ? '✅ Active' : '⛔ Inactive'}</span>
                         </div>
                     </form>
                 </ModalShell>
             )}
 
-            {/* Place Modal */}
-            {showPlaceModal && (
-                <ModalShell onClose={() => { setShowPlaceModal(false); setEditingPlace(null); setPlaceForm({ name: '', location: '', description: '', difficulty: '', duration: '', best_time: '', image: '', type: 'well-known', hidden_gem: '' }); }}
-                    title={editingPlace ? '✏️ Edit Place' : '📍 Add Place'}
-                    subtitle={editingPlace ? `Editing ${editingPlace.name}` : `Adding to ${categories.find(c => c.key === selectedCategoryKey)?.title || 'Category'}`}
-                    icon={Map}
-                    footer={<><Btn variant="ghost" onClick={() => { setShowPlaceModal(false); setEditingPlace(null); }}>Cancel</Btn>
-                        <Btn variant="primary" icon={editingPlace ? Save : Plus} onClick={editingPlace ? handleUpdatePlace : handleAddPlace} disabled={placeLoading}>
-                            {placeLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                            {placeLoading ? 'Saving...' : (editingPlace ? 'Update Place' : 'Add Place')}
-                        </Btn></>}
-                >
-                    <form onSubmit={editingPlace ? handleUpdatePlace : handleAddPlace} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Place Name <span style={{ color: C.danger }}>*</span></label>
-                            <input type="text" value={placeForm.name} onChange={(e) => setPlaceForm({ ...placeForm, name: e.target.value })} style={inputStyle} required placeholder="Place name" /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</label>
-                            <input type="text" value={placeForm.location} onChange={(e) => setPlaceForm({ ...placeForm, location: e.target.value })} style={inputStyle} placeholder="e.g., Varkala" /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
-                            <textarea value={placeForm.description} onChange={(e) => setPlaceForm({ ...placeForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={2} placeholder="Describe the place..." /></div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Difficulty</label>
-                                <input type="text" value={placeForm.difficulty} onChange={(e) => setPlaceForm({ ...placeForm, difficulty: e.target.value })} style={inputStyle} placeholder="Easy" /></div>
-                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Duration</label>
-                                <input type="text" value={placeForm.duration} onChange={(e) => setPlaceForm({ ...placeForm, duration: e.target.value })} style={inputStyle} placeholder="2-3 hours" /></div>
-                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Best Time</label>
-                                <input type="text" value={placeForm.best_time} onChange={(e) => setPlaceForm({ ...placeForm, best_time: e.target.value })} style={inputStyle} placeholder="October to March" /></div>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</label>
-                                <select value={placeForm.type} onChange={(e) => setPlaceForm({ ...placeForm, type: e.target.value })} style={selectStyle}>
-                                    <option value="well-known">⭐ Well Known</option><option value="hidden">✨ Hidden Gem</option>
-                                </select></div>
-                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image URL</label>
-                                <input type="url" value={placeForm.image} onChange={(e) => setPlaceForm({ ...placeForm, image: e.target.value })} style={inputStyle} placeholder="https://images.unsplash.com/..." /></div>
-                        </div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hidden Gem Description</label>
-                            <textarea value={placeForm.hidden_gem} onChange={(e) => setPlaceForm({ ...placeForm, hidden_gem: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={2} placeholder="What makes this a hidden gem?" /></div>
-                    </form>
-                </ModalShell>
-            )}
-
-            {/* Staff Modal */}
+            {/* Staff Modal - Add */}
             {showStaffModal && (
-                <ModalShell onClose={() => { setShowStaffModal(false); setStaffForm({ email: '', password: '' }); }}
-                    title="Add Staff" subtitle="Create a new staff account" icon={Shield}
-                    footer={<><Btn variant="ghost" onClick={() => { setShowStaffModal(false); setStaffForm({ email: '', password: '' }); }}>Cancel</Btn>
+                <ModalShell onClose={() => { setShowStaffModal(false); setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}
+                    title="Add Staff" subtitle="Create a new staff account" icon={Shield} maxWidth={560}
+                    footer={<>
+                        <Btn variant="ghost" onClick={() => { setShowStaffModal(false); setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}>Cancel</Btn>
                         <Btn variant="primary" icon={Plus} onClick={handleAddStaff} disabled={staffLoading}>
                             {staffLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
                             {staffLoading ? 'Adding...' : 'Add Staff'}
-                        </Btn></>}
+                        </Btn>
+                    </>}
                 >
                     <form onSubmit={handleAddStaff} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={staffForm.full_name} onChange={(e) => setStaffForm({ ...staffForm, full_name: e.target.value })} style={inputStyle} required placeholder="John Doe" /></div>
                         <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email <span style={{ color: C.danger }}>*</span></label>
                             <input type="email" value={staffForm.email} onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })} style={inputStyle} required placeholder="staff@example.com" /></div>
                         <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password <span style={{ color: C.danger }}>*</span></label>
-                            <input type="text" value={staffForm.password} onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })} style={inputStyle} required placeholder="Set a password" minLength={6} /></div>
+                            <input type="password" value={staffForm.password} onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })} style={inputStyle} required placeholder="Min 6 characters" minLength={6} /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone</label>
+                            <input type="tel" value={staffForm.phone} onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })} style={inputStyle} placeholder="+91 9876543210" /></div>
                     </form>
                 </ModalShell>
             )}
 
-            {/* Guide Modal - WITH PROFILE PICTURE UPLOAD */}
+            {/* Staff Modal - Edit */}
+            {showEditStaffModal && editingStaff && (
+                <ModalShell onClose={() => { setShowEditStaffModal(false); setEditingStaff(null); setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}
+                    title="✏️ Edit Staff" subtitle={`Updating ${editingStaff.first_name || ''} ${editingStaff.last_name || ''}`} icon={Shield} maxWidth={560}
+                    footer={<>
+                        <Btn variant="ghost" onClick={() => { setShowEditStaffModal(false); setEditingStaff(null); setStaffForm({ full_name: '', email: '', password: '', phone: '', is_active: true }); }}>Cancel</Btn>
+                        <Btn variant="primary" icon={Save} onClick={handleUpdateStaff} disabled={staffLoading}>
+                            {staffLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                            {staffLoading ? 'Saving...' : 'Update Staff'}
+                        </Btn>
+                    </>}
+                >
+                    <form onSubmit={handleUpdateStaff} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={staffForm.full_name} onChange={(e) => setStaffForm({ ...staffForm, full_name: e.target.value })} style={inputStyle} required /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email</label>
+                            <input type="email" value={staffForm.email} disabled style={{ ...inputStyle, background: '#f5f5f5', cursor: 'not-allowed' }} /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>New Password <span style={{ color: C.sageLight }}>(leave blank to keep current)</span></label>
+                            <input type="password" value={staffForm.password} onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })} style={inputStyle} placeholder="Min 6 characters" minLength={6} /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone</label>
+                            <input type="tel" value={staffForm.phone} onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })} style={inputStyle} placeholder="+91 9876543210" /></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <label style={{ fontSize: 11, color: C.sageLight, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active</label>
+                            <button type="button" onClick={() => setStaffForm({ ...staffForm, is_active: !staffForm.is_active })} style={{ width: 44, height: 24, borderRadius: 12, border: 'none', background: staffForm.is_active ? C.success : '#ccc', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' }}>
+                                <span style={{ position: 'absolute', top: 2, left: staffForm.is_active ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'all 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                            </button>
+                            <span style={{ fontSize: 12, color: C.sage }}>{staffForm.is_active ? '✅ Active' : '⛔ Inactive'}</span>
+                        </div>
+                    </form>
+                </ModalShell>
+            )}
+
+            {/* Guide Modal - Add/Edit */}
             {showGuideModal && (
                 <ModalShell onClose={() => { setShowGuideModal(false); setEditingGuide(null); resetGuideForm(); }}
                     title={editingGuide ? '✏️ Edit Guide' : '👤 Add Guide'}
                     subtitle={editingGuide ? `Update ${editingGuide.full_name}'s profile` : 'Create a new guide account'} icon={UserCheck} maxWidth={640}
-                    footer={<><Btn variant="ghost" onClick={() => { setShowGuideModal(false); setEditingGuide(null); resetGuideForm(); }}>Cancel</Btn>
+                    footer={<>
+                        <Btn variant="ghost" onClick={() => { setShowGuideModal(false); setEditingGuide(null); resetGuideForm(); }}>Cancel</Btn>
                         <Btn variant="primary" icon={editingGuide ? Save : Plus} onClick={editingGuide ? handleUpdateGuide : handleAddGuide} disabled={guideLoading}>
                             {guideLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
                             {guideLoading ? 'Saving...' : (editingGuide ? 'Update Guide' : 'Add Guide')}
-                        </Btn></>}
+                        </Btn>
+                    </>}
                 >
                     <form onSubmit={editingGuide ? handleUpdateGuide : handleAddGuide} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        {/* Profile Picture Upload for Edit */}
                         {editingGuide && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 12, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${C.line}` }}>
                                 <div style={{ position: 'relative' }}>
@@ -2470,23 +3805,23 @@ const AdminDashboard = () => {
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name <span style={{ color: C.danger }}>*</span></label>
-                                <input type="text" value={guideForm.full_name} onChange={(e) => setGuideForm({ ...guideForm, full_name: e.target.value })} style={inputStyle} required placeholder="John Doe" maxLength={100} /></div>
+                                <input type="text" value={guideForm.full_name} onChange={(e) => setGuideForm({ ...guideForm, full_name: e.target.value })} style={inputStyle} required placeholder="John Doe" /></div>
                             <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email <span style={{ color: C.danger }}>*</span></label>
-                                <input type="email" value={guideForm.email} onChange={(e) => setGuideForm({ ...guideForm, email: e.target.value })} style={inputStyle} required disabled={!!editingGuide} placeholder="guide@example.com" maxLength={254} /></div>
+                                <input type="email" value={guideForm.email} onChange={(e) => setGuideForm({ ...guideForm, email: e.target.value })} style={inputStyle} required disabled={!!editingGuide} placeholder="guide@example.com" /></div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Password {!editingGuide && <span style={{ color: C.danger }}>*</span>}</label>
-                                <input type="text" value={guideForm.password} onChange={(e) => setGuideForm({ ...guideForm, password: e.target.value })} style={inputStyle} required={!editingGuide} placeholder={editingGuide ? 'Leave blank to keep current' : 'Set a password'} minLength={6} maxLength={128} /></div>
-                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone <span style={{ color: C.sageLight }}>(max 12 chars)</span></label>
-                                <input type="text" value={guideForm.phone} onChange={(e) => { const val = e.target.value.slice(0, 12); setGuideForm({ ...guideForm, phone: val }); }} style={inputStyle} placeholder="+91 9876543210" maxLength={12} /></div>
+                                <input type="text" value={guideForm.password} onChange={(e) => setGuideForm({ ...guideForm, password: e.target.value })} style={inputStyle} required={!editingGuide} placeholder={editingGuide ? 'Leave blank to keep current' : 'Set a password'} minLength={6} /></div>
+                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone</label>
+                                <input type="text" value={guideForm.phone} onChange={(e) => setGuideForm({ ...guideForm, phone: e.target.value })} style={inputStyle} placeholder="+91 9876543210" /></div>
                         </div>
                         <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bio</label>
-                            <textarea value={guideForm.bio} onChange={(e) => setGuideForm({ ...guideForm, bio: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={2} placeholder="Experienced tour guide..." maxLength={500} /></div>
+                            <textarea value={guideForm.bio} onChange={(e) => setGuideForm({ ...guideForm, bio: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={2} placeholder="Experienced tour guide..." /></div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Experience (Years)</label>
                                 <input type="number" min="0" max="50" value={guideForm.experience_years} onChange={(e) => setGuideForm({ ...guideForm, experience_years: e.target.value })} style={inputStyle} placeholder="5" /></div>
                             <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Languages</label>
-                                <input type="text" value={guideForm.languages} onChange={(e) => setGuideForm({ ...guideForm, languages: e.target.value })} style={inputStyle} placeholder="English, Malayalam, Hindi" maxLength={200} /></div>
+                                <input type="text" value={guideForm.languages} onChange={(e) => setGuideForm({ ...guideForm, languages: e.target.value })} style={inputStyle} placeholder="English, Malayalam, Hindi" /></div>
                         </div>
                         <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Primary District <span style={{ color: C.danger }}>*</span></label>
                             <select value={guideForm.primary_district} onChange={(e) => setGuideForm({ ...guideForm, primary_district: e.target.value })} style={selectStyle} required>
@@ -2554,8 +3889,10 @@ const AdminDashboard = () => {
             {showCredentialsModal && (
                 <ModalShell onClose={() => { setShowCredentialsModal(false); setNewCredentials({ email: '', password: '' }); }}
                     title="✅ Account Created!" subtitle="Share these credentials with the user" icon={UserCheck}
-                    footer={<><Btn variant="primary" onClick={() => { navigator.clipboard?.writeText(`Email: ${newCredentials.email}\nPassword: ${newCredentials.password}`); showToast('✅ Credentials copied!'); }}>📋 Copy</Btn>
-                        <Btn variant="ghost" onClick={() => { setShowCredentialsModal(false); setNewCredentials({ email: '', password: '' }); }}>Done</Btn></>}
+                    footer={<>
+                        <Btn variant="primary" onClick={() => { navigator.clipboard?.writeText(`Email: ${newCredentials.email}\nPassword: ${newCredentials.password}`); showToast('✅ Credentials copied!'); }}>📋 Copy</Btn>
+                        <Btn variant="ghost" onClick={() => { setShowCredentialsModal(false); setNewCredentials({ email: '', password: '' }); }}>Done</Btn>
+                    </>}
                 >
                     <div style={{ padding: 16, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${C.line}` }}>
                         <div style={{ marginBottom: 12 }}><p style={{ fontSize: 11, color: C.sageLight, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, margin: 0 }}>Email</p><p style={{ fontSize: 16, fontWeight: 600, color: C.inkSoft, fontFamily: FONT.mono }}>{newCredentials.email}</p></div>
@@ -2631,12 +3968,6 @@ const AdminDashboard = () => {
                             <p style={{ fontSize: 13, color: C.inkSoft, margin: 0 }}>{selectedSuggestion.admin_notes}</p>
                         </div>
                     )}
-                    {selectedSuggestion.processed_by && (
-                        <div style={{ marginTop: 8, padding: 10, background: '#F0F7FF', borderRadius: RADIUS.sm, border: `1px solid #93C5FD` }}>
-                            <p style={{ fontSize: 11, color: '#1E3A5F', margin: 0 }}>👤 Processed by: <strong>{selectedSuggestion.processed_by}</strong></p>
-                            {selectedSuggestion.processed_at && <p style={{ fontSize: 11, color: '#475569', margin: '4px 0 0' }}>🕐 {new Date(selectedSuggestion.processed_at).toLocaleString()}</p>}
-                        </div>
-                    )}
                     <div style={{ marginTop: 8, padding: 10, background: C.cream, borderRadius: RADIUS.sm }}>
                         <p style={{ fontSize: 11, color: C.sage, margin: 0 }}>📅 Created: {selectedSuggestion.created_at ? new Date(selectedSuggestion.created_at).toLocaleString() : 'N/A'}</p>
                     </div>
@@ -2644,94 +3975,416 @@ const AdminDashboard = () => {
             )}
 
             {/* Add Insight Modal */}
-            {showAddInsightModal && (
-                <ModalShell onClose={() => { setShowAddInsightModal(false); setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null }); }}
-                    title="💡 Add Local Insight" subtitle="Will be automatically implemented for touristers" icon={Lightbulb}
+{showAddInsightModal && (
+    <ModalShell 
+        onClose={() => { 
+            setShowAddInsightModal(false); 
+            setInsightForm({ 
+                name: '', 
+                description: '', 
+                district: '', 
+                category: 'general', 
+                image: null, 
+                imagePreview: null 
+            }); 
+        }}
+        title="💡 Add Local Insight" 
+        subtitle="Will be automatically implemented" 
+        icon={Lightbulb}
+        footer={
+            <>
+                <Btn variant="ghost" onClick={() => { 
+                    setShowAddInsightModal(false); 
+                    setInsightForm({ 
+                        name: '', 
+                        description: '', 
+                        district: '', 
+                        category: 'general', 
+                        image: null, 
+                        imagePreview: null 
+                    }); 
+                }}>Cancel</Btn>
+                <Btn variant="primary" icon={Plus} onClick={handleAddInsight} disabled={insightLoading}>
+                    {insightLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                    {insightLoading ? 'Adding...' : 'Add & Implement'}
+                </Btn>
+            </>
+        }
+    >
+        <form onSubmit={handleAddInsight} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Name <span style={{ color: C.danger }}>*</span>
+                </label>
+                <input 
+                    type="text" 
+                    value={insightForm.name} 
+                    onChange={(e) => setInsightForm({ ...insightForm, name: e.target.value })} 
+                    style={inputStyle} 
+                    required 
+                    placeholder="e.g., Best Time to Visit Munnar" 
+                />
+            </div>
+            
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Description <span style={{ color: C.danger }}>*</span>
+                </label>
+                <textarea 
+                    value={insightForm.description} 
+                    onChange={(e) => setInsightForm({ ...insightForm, description: e.target.value })} 
+                    style={{ ...inputStyle, resize: 'vertical' }} 
+                    rows={3} 
+                    required 
+                    placeholder="Share your local insight..." 
+                />
+            </div>
+            
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    District <span style={{ color: C.danger }}>*</span>
+                </label>
+                <select 
+                    value={insightForm.district} 
+                    onChange={(e) => setInsightForm({ ...insightForm, district: e.target.value })} 
+                    style={selectStyle} 
+                    required
+                >
+                    <option value="">Select District</option>
+                    {KERALA_DISTRICTS.map(d => (
+                        <option key={d.id} value={d.name}>{d.name}</option>
+                    ))}
+                </select>
+            </div>
+            
+            {/* ✅ CATEGORY DROPDOWN - ADDED */}
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Category <span style={{ color: C.danger }}>*</span>
+                </label>
+                <select 
+                    value={insightForm.category} 
+                    onChange={(e) => setInsightForm({ ...insightForm, category: e.target.value })} 
+                    style={selectStyle} 
+                    required
+                >
+                    <option value="general">General</option>
+                    <option value="beach">🏖️ Beach</option>
+                    <option value="backwater">🚣 Backwater</option>
+                    <option value="hill_station">⛰️ Hill Station</option>
+                    <option value="waterfall">💧 Waterfall</option>
+                    <option value="temple">🛕 Temple</option>
+                    <option value="fort">🏰 Fort</option>
+                    <option value="wildlife">🐘 Wildlife</option>
+                    <option value="adventure">🧗 Adventure</option>
+                    <option value="heritage">🏛️ Heritage</option>
+                    <option value="natures">🌿natures</option>
+                    <option value="culture">🎭 Culture</option>
+                    <option value="zoo">🐘zoo</option>
+                    <option value="parks">🚣parks</option>
+                    <option value="sacred">🏛️ sacred</option>
+                    <option value="other">other</option>
+                </select>
+            </div>
+            
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Image (optional)
+                </label>
+                <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            setInsightForm({ ...insightForm, image: file });
+                            const reader = new FileReader();
+                            reader.onloadend = () => setInsightForm(prev => ({ ...prev, imagePreview: reader.result }));
+                            reader.readAsDataURL(file);
+                        }
+                    }} 
+                    style={{ ...inputStyle, padding: '8px' }} 
+                />
+                {insightForm.imagePreview && (
+                    <img 
+                        src={insightForm.imagePreview} 
+                        alt="Preview" 
+                        style={{ 
+                            width: '100%', 
+                            maxHeight: 200, 
+                            objectFit: 'cover', 
+                            borderRadius: RADIUS.sm, 
+                            marginTop: 8, 
+                            border: `1px solid ${C.line}` 
+                        }} 
+                    />
+                )}
+            </div>
+        </form>
+    </ModalShell>
+)}
+
+           {/* Add Hidden Gem Modal */}
+{showAddHiddenGemModal && (
+    <ModalShell 
+        onClose={() => { 
+            setShowAddHiddenGemModal(false); 
+            setHiddenGemForm({ 
+                name: '', 
+                description: '', 
+                district: '', 
+                category: 'hidden', 
+                image: null, 
+                imagePreview: null 
+            }); 
+        }}
+        title="💎 Add Hidden Gem" 
+        subtitle="Will be automatically implemented" 
+        icon={Sparkles}
+        footer={
+            <>
+                <Btn variant="ghost" onClick={() => { 
+                    setShowAddHiddenGemModal(false); 
+                    setHiddenGemForm({ 
+                        name: '', 
+                        description: '', 
+                        district: '', 
+                        category: 'hidden', 
+                        image: null, 
+                        imagePreview: null 
+                    }); 
+                }}>Cancel</Btn>
+                <Btn variant="gold" icon={Plus} onClick={handleAddHiddenGem} disabled={hiddenGemLoading}>
+                    {hiddenGemLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                    {hiddenGemLoading ? 'Adding...' : 'Add & Implement'}
+                </Btn>
+            </>
+        }
+    >
+        <form onSubmit={handleAddHiddenGem} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Name <span style={{ color: C.danger }}>*</span>
+                </label>
+                <input 
+                    type="text" 
+                    value={hiddenGemForm.name} 
+                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, name: e.target.value })} 
+                    style={inputStyle} 
+                    required 
+                    placeholder="e.g., Secret Waterfall Near Munnar" 
+                />
+            </div>
+            
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Description <span style={{ color: C.danger }}>*</span>
+                </label>
+                <textarea 
+                    value={hiddenGemForm.description} 
+                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, description: e.target.value })} 
+                    style={{ ...inputStyle, resize: 'vertical' }} 
+                    rows={3} 
+                    required 
+                    placeholder="Describe this hidden gem..." 
+                />
+            </div>
+            
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    District <span style={{ color: C.danger }}>*</span>
+                </label>
+                <select 
+                    value={hiddenGemForm.district} 
+                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, district: e.target.value })} 
+                    style={selectStyle} 
+                    required
+                >
+                    <option value="">Select District</option>
+                    {KERALA_DISTRICTS.map(d => (
+                        <option key={d.id} value={d.name}>{d.name}</option>
+                    ))}
+                </select>
+            </div>
+            
+            {/* ✅ CATEGORY DROPDOWN - ADDED */}
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Category <span style={{ color: C.danger }}>*</span>
+                </label>
+                <select 
+                    value={hiddenGemForm.category} 
+                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, category: e.target.value })} 
+                    style={selectStyle} 
+                    required
+                >
+                   <option value="general">General</option>
+                    <option value="beach">🏖️ Beach</option>
+                    <option value="backwater">🚣 Backwater</option>
+                    <option value="hill_station">⛰️ Hill Station</option>
+                    <option value="waterfall">💧 Waterfall</option>
+                    <option value="temple">🛕 Temple</option>
+                    <option value="fort">🏰 Fort</option>
+                    <option value="wildlife">🐘 Wildlife</option>
+                    <option value="adventure">🧗 Adventure</option>
+                    <option value="heritage">🏛️ Heritage</option>
+                    <option value="natures">🌿natures</option>
+                    <option value="culture">🎭 Culture</option>
+                    <option value="zoo">🐘zoo</option>
+                    <option value="parks">🚣parks</option>
+                    <option value="sacred">🏛️ sacred</option>
+                    <option value="other">other</option>
+                </select>
+            </div>
+            
+            <div>
+                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Image (optional)
+                </label>
+                <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                            setHiddenGemForm({ ...hiddenGemForm, image: file });
+                            const reader = new FileReader();
+                            reader.onloadend = () => setHiddenGemForm(prev => ({ ...prev, imagePreview: reader.result }));
+                            reader.readAsDataURL(file);
+                        }
+                    }} 
+                    style={{ ...inputStyle, padding: '8px' }} 
+                />
+                {hiddenGemForm.imagePreview && (
+                    <img 
+                        src={hiddenGemForm.imagePreview} 
+                        alt="Preview" 
+                        style={{ 
+                            width: '100%', 
+                            maxHeight: 200, 
+                            objectFit: 'cover', 
+                            borderRadius: RADIUS.sm, 
+                            marginTop: 8, 
+                            border: `1px solid ${C.line}` 
+                        }} 
+                    />
+                )}
+            </div>
+        </form>
+    </ModalShell>
+)}
+
+            {/* Category Modal - Add */}
+            {showCategoryModal && (
+                <ModalShell onClose={() => { setShowCategoryModal(false); setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); }}
+                    title="Add Category" subtitle="Create a new category" icon={FolderPlus}
                     footer={<>
-                        <Btn variant="ghost" onClick={() => { setShowAddInsightModal(false); setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null }); }}>Cancel</Btn>
-                        <Btn variant="primary" icon={Plus} onClick={handleAddInsight} disabled={insightLoading}>
-                            {insightLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                            {insightLoading ? 'Adding...' : 'Add & Implement'}
+                        <Btn variant="ghost" onClick={() => { setShowCategoryModal(false); setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); }}>Cancel</Btn>
+                        <Btn variant="primary" icon={Plus} onClick={handleAddCategory} disabled={categoryLoading}>
+                            {categoryLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                            {categoryLoading ? 'Adding...' : 'Add Category'}
                         </Btn>
                     </>}
                 >
-                    <form onSubmit={handleAddInsight} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Name <span style={{ color: C.danger }}>*</span></label>
-                            <input type="text" value={insightForm.name} onChange={(e) => setInsightForm({ ...insightForm, name: e.target.value })} style={inputStyle} required placeholder="e.g., Best Time to Visit Munnar" /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description <span style={{ color: C.danger }}>*</span></label>
-                            <textarea value={insightForm.description} onChange={(e) => setInsightForm({ ...insightForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={3} required placeholder="Share your local insight..." /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>District <span style={{ color: C.danger }}>*</span></label>
-                            <select value={insightForm.district} onChange={(e) => setInsightForm({ ...insightForm, district: e.target.value })} style={selectStyle} required>
-                                <option value="">Select District</option>
-                                {KERALA_DISTRICTS.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    <form onSubmit={handleAddCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category Name <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={categoryForm.label} onChange={(e) => { const label = e.target.value; setCategoryForm({ ...categoryForm, label: label, key: label.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') }); }} style={inputStyle} required placeholder="e.g., Adventure Sports" /></div>
+                        {categoryForm.key && <div style={{ padding: 8, background: C.cream, borderRadius: RADIUS.sm, border: `1px solid ${C.line}` }}><p style={{ fontSize: 10, color: C.sage, margin: 0 }}>🔑 Key: <span style={{ fontFamily: FONT.mono, fontWeight: 600, color: C.ink }}>{categoryForm.key}</span></p></div>}
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+                            <textarea value={categoryForm.description} onChange={(e) => setCategoryForm({ ...categoryForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={3} placeholder="Describe this category..." /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</label>
+                            <select value={categoryForm.type} onChange={(e) => setCategoryForm({ ...categoryForm, type: e.target.value })} style={selectStyle}>
+                                <option value="Nature & Outdoor">Nature & Outdoor</option>
+                                <option value="Adventure & Activities">Adventure & Activities</option>
+                                <option value="Parks & Recreation">Parks & Recreation</option>
+                                <option value="Cultural & Heritage">Cultural & Heritage</option>
+                                <option value="Wellness & Relaxation">Wellness & Relaxation</option>
                             </select></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</label>
-                            <input type="text" value={insightForm.category} onChange={(e) => setInsightForm({ ...insightForm, category: e.target.value })} style={inputStyle} placeholder="e.g., travel-tips, food, culture" /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image</label>
-                            <input type="file" accept="image/*" onChange={(e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                    setInsightForm({ ...insightForm, image: file });
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => setInsightForm(prev => ({ ...prev, imagePreview: reader.result }));
-                                    reader.readAsDataURL(file);
-                                }
-                            }} style={{ ...inputStyle, padding: '8px' }} />
-                            {insightForm.imagePreview && <img src={insightForm.imagePreview} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: RADIUS.sm, marginTop: 8, border: `1px solid ${C.line}` }} />}
-                        </div>
-                        <div style={{ padding: 12, background: C.successBg, borderRadius: RADIUS.sm, border: `1px solid ${C.success}30` }}>
-                            <p style={{ fontSize: 12, color: C.success, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle size={14} /> This insight will be automatically implemented for all touristers to see.</p>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image URL</label>
+                            <input type="url" value={categoryForm.image} onChange={(e) => setCategoryForm({ ...categoryForm, image: e.target.value })} style={inputStyle} placeholder="https://images.unsplash.com/..." /></div>
+                    </form>
+                </ModalShell>
+            )}
+
+            {/* Edit Category Modal */}
+            {showEditCategoryModal && (
+                <ModalShell onClose={() => { setShowEditCategoryModal(false); setEditingCategory(null); setEditCategoryForm({ title: '', description: '', image: '', type: 'Nature & Outdoor', is_active: true }); }}
+                    title="✏️ Edit Category" subtitle={`Editing: ${editingCategory?.title || editingCategory?.key}`} icon={Edit2}
+                    footer={<>
+                        <Btn variant="ghost" onClick={() => { setShowEditCategoryModal(false); setEditingCategory(null); setEditCategoryForm({ title: '', description: '', image: '', type: 'Nature & Outdoor', is_active: true }); }}>Cancel</Btn>
+                        <Btn variant="primary" icon={Save} onClick={handleEditCategory} disabled={categoryLoading}>
+                            {categoryLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                            {categoryLoading ? 'Saving...' : 'Update Category'}
+                        </Btn>
+                    </>}
+                >
+                    <form onSubmit={handleEditCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category Title <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={editCategoryForm.title} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, title: e.target.value })} style={inputStyle} required placeholder="Category title" /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+                            <textarea value={editCategoryForm.description} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={3} placeholder="Describe this category..." /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</label>
+                            <select value={editCategoryForm.type} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, type: e.target.value })} style={selectStyle}>
+                                <option value="Nature & Outdoor">Nature & Outdoor</option>
+                                <option value="Adventure & Activities">Adventure & Activities</option>
+                                <option value="Parks & Recreation">Parks & Recreation</option>
+                                <option value="Cultural & Heritage">Cultural & Heritage</option>
+                                <option value="Wellness & Relaxation">Wellness & Relaxation</option>
+                            </select></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image URL</label>
+                            <input type="url" value={editCategoryForm.image} onChange={(e) => setEditCategoryForm({ ...editCategoryForm, image: e.target.value })} style={inputStyle} placeholder="https://images.unsplash.com/..." /></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <label style={{ fontSize: 11, color: C.sageLight, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active</label>
+                            <button type="button" onClick={() => setEditCategoryForm({ ...editCategoryForm, is_active: !editCategoryForm.is_active })} style={{ width: 44, height: 24, borderRadius: 12, border: 'none', background: editCategoryForm.is_active ? C.success : '#ccc', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative' }}>
+                                <span style={{ position: 'absolute', top: 2, left: editCategoryForm.is_active ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'all 0.2s ease', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                            </button>
+                            <span style={{ fontSize: 12, color: C.sage }}>{editCategoryForm.is_active ? '✅ Active' : '⛔ Inactive'}</span>
                         </div>
                     </form>
                 </ModalShell>
             )}
 
-            {/* Add Hidden Gem Modal */}
-            {showAddHiddenGemModal && (
-                <ModalShell onClose={() => { setShowAddHiddenGemModal(false); setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null }); }}
-                    title="💎 Add Hidden Gem" subtitle="Will be automatically implemented for touristers" icon={Sparkles}
+            {/* Place Modal */}
+            {showPlaceModal && (
+                <ModalShell onClose={() => { setShowPlaceModal(false); setEditingPlace(null); setPlaceForm({ name: '', location: '', description: '', difficulty: '', duration: '', best_time: '', image: '', type: 'well-known', hidden_gem: '' }); }}
+                    title={editingPlace ? '✏️ Edit Place' : '📍 Add Place'}
+                    subtitle={editingPlace ? `Editing ${editingPlace.name}` : `Adding to ${categories.find(c => c.key === selectedCategoryKey)?.title || 'Category'}`}
+                    icon={Map}
                     footer={<>
-                        <Btn variant="ghost" onClick={() => { setShowAddHiddenGemModal(false); setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null }); }}>Cancel</Btn>
-                        <Btn variant="gold" icon={Plus} onClick={handleAddHiddenGem} disabled={hiddenGemLoading}>
-                            {hiddenGemLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                            {hiddenGemLoading ? 'Adding...' : 'Add & Implement'}
+                        <Btn variant="ghost" onClick={() => { setShowPlaceModal(false); setEditingPlace(null); }}>Cancel</Btn>
+                        <Btn variant="primary" icon={editingPlace ? Save : Plus} onClick={editingPlace ? handleUpdatePlace : handleAddPlace} disabled={placeLoading}>
+                            {placeLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                            {placeLoading ? 'Saving...' : (editingPlace ? 'Update Place' : 'Add Place')}
                         </Btn>
                     </>}
                 >
-                    <form onSubmit={handleAddHiddenGem} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Name <span style={{ color: C.danger }}>*</span></label>
-                            <input type="text" value={hiddenGemForm.name} onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, name: e.target.value })} style={inputStyle} required placeholder="e.g., Secret Waterfall Near Munnar" /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description <span style={{ color: C.danger }}>*</span></label>
-                            <textarea value={hiddenGemForm.description} onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={3} required placeholder="Describe this hidden gem..." /></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>District <span style={{ color: C.danger }}>*</span></label>
-                            <select value={hiddenGemForm.district} onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, district: e.target.value })} style={selectStyle} required>
-                                <option value="">Select District</option>
-                                {KERALA_DISTRICTS.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                            </select></div>
-                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image</label>
-                            <input type="file" accept="image/*" onChange={(e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                    setHiddenGemForm({ ...hiddenGemForm, image: file });
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => setHiddenGemForm(prev => ({ ...prev, imagePreview: reader.result }));
-                                    reader.readAsDataURL(file);
-                                }
-                            }} style={{ ...inputStyle, padding: '8px' }} />
-                            {hiddenGemForm.imagePreview && <img src={hiddenGemForm.imagePreview} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: RADIUS.sm, marginTop: 8, border: `1px solid ${C.line}` }} />}
+                    <form onSubmit={editingPlace ? handleUpdatePlace : handleAddPlace} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Place Name <span style={{ color: C.danger }}>*</span></label>
+                            <input type="text" value={placeForm.name} onChange={(e) => setPlaceForm({ ...placeForm, name: e.target.value })} style={inputStyle} required placeholder="Place name" /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</label>
+                            <input type="text" value={placeForm.location} onChange={(e) => setPlaceForm({ ...placeForm, location: e.target.value })} style={inputStyle} placeholder="e.g., Varkala" /></div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Description</label>
+                            <textarea value={placeForm.description} onChange={(e) => setPlaceForm({ ...placeForm, description: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={2} placeholder="Describe the place..." /></div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Difficulty</label>
+                                <input type="text" value={placeForm.difficulty} onChange={(e) => setPlaceForm({ ...placeForm, difficulty: e.target.value })} style={inputStyle} placeholder="Easy" /></div>
+                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Duration</label>
+                                <input type="text" value={placeForm.duration} onChange={(e) => setPlaceForm({ ...placeForm, duration: e.target.value })} style={inputStyle} placeholder="2-3 hours" /></div>
+                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Best Time</label>
+                                <input type="text" value={placeForm.best_time} onChange={(e) => setPlaceForm({ ...placeForm, best_time: e.target.value })} style={inputStyle} placeholder="October to March" /></div>
                         </div>
-                        <div style={{ padding: 12, background: C.successBg, borderRadius: RADIUS.sm, border: `1px solid ${C.success}30` }}>
-                            <p style={{ fontSize: 12, color: C.success, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle size={14} /> This hidden gem will be automatically implemented for all touristers to discover.</p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Type</label>
+                                <select value={placeForm.type} onChange={(e) => setPlaceForm({ ...placeForm, type: e.target.value })} style={selectStyle}>
+                                    <option value="well-known">⭐ Well Known</option><option value="hidden">✨ Hidden Gem</option>
+                                </select></div>
+                            <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Image URL</label>
+                                <input type="url" value={placeForm.image} onChange={(e) => setPlaceForm({ ...placeForm, image: e.target.value })} style={inputStyle} placeholder="https://images.unsplash.com/..." /></div>
                         </div>
+                        <div><label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hidden Gem Description</label>
+                            <textarea value={placeForm.hidden_gem} onChange={(e) => setPlaceForm({ ...placeForm, hidden_gem: e.target.value })} style={{ ...inputStyle, resize: 'vertical' }} rows={2} placeholder="What makes this a hidden gem?" /></div>
                     </form>
                 </ModalShell>
-            )}
-
-            {/* TOAST */}
-            {toast && (
-                <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', padding: '12px 24px', borderRadius: RADIUS.sm, background: toast.type === 'error' ? C.danger : C.ink, color: toast.type === 'error' ? '#fff' : C.goldLight, fontSize: 13, fontFamily: FONT.body, boxShadow: '0 8px 24px rgba(7,46,42,0.25)', zIndex: 100 }}>
-                    {toast.message}
-                </div>
             )}
         </div>
     );

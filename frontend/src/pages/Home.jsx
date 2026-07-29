@@ -940,7 +940,7 @@ const handleSuggestionSubmit = async (e) => {
                         <option value="temple">Temple</option>
                         <option value="fort">Fort</option>
                         <option value="camping">Camping</option>
-                        <option value="nature">Nature</option>
+                        <option value="natures">Natures</option>
                         <option value="beach">desert safari</option>
                         <option value="resort">resort</option>
                         <option value="zoo">zoo</option>

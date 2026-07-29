@@ -1,4 +1,4 @@
-// src/data/categoryData.js
+// src/data/categoryData.jsx
 
 export const categoryData = {
     // ============================================================

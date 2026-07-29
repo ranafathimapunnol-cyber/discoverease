@@ -1,5 +1,4 @@
-// pages/Profile.jsx - COMPLETE FIXED VERSION
-// Removed review overview | Only suggestions shown
+// pages/Profile.jsx - FIXED VERSION WITH WORKING BIO AND PHONE FETCHING
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -39,7 +38,7 @@ const Icon = {
     </svg>
   ),
   Logout: (p) => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
       <path d="M16 17l5-5-5-5M21 12H9" />
     </svg>
@@ -82,59 +81,109 @@ const Icon = {
       <path d="M9 18l6-6-6-6" />
     </svg>
   ),
+  Refresh: (p) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
+      <path d="M23 4v6h-6M1 20v-6h6" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  ),
+  Calendar: (p) => (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path strokeLinecap="round" d="M8 3v4M16 3v4M3 10h18" />
+    </svg>
+  ),
+  Trip: (p) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...p}>
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+      <path d="M12 11v3M9 13h6" />
+    </svg>
+  ),
 };
 
 // ============================================
-// ✅ FIXED: Get Image URL with fallback
+// ✅ GET IMAGE URL
 // ============================================
 const getImageUrl = (item) => {
   if (!item) return null;
 
-  const possibleImageFields = ['image', 'image_url', 'featured_image', 'profile_image', 'photo', 'picture', 'image_upload', 'img'];
-
-  for (const field of possibleImageFields) {
-    if (item[field]) {
-      let url = item[field];
-      if (typeof url === 'string') {
-        if (url.startsWith('http')) return url;
-        if (url.startsWith('/media/')) return `http://localhost:8000${url}`;
-        if (url.startsWith('data:image')) return url;
-        if (url.length > 0 && !url.startsWith('http') && !url.startsWith('data:image')) {
-          return `http://localhost:8000/${url}`;
+  const fields = ['primary_image', 'image_url', 'image', 'images_data'];
+  
+  for (const field of fields) {
+    const value = item[field];
+    if (!value) continue;
+    
+    if (typeof value === 'string') {
+      if (value.startsWith('http://') || value.startsWith('https://')) {
+        return value;
+      }
+      if (value.startsWith('/media/') || value.startsWith('/uploads/')) {
+        return `http://localhost:8000${value}`;
+      }
+      if (value.length > 0 && !value.startsWith('http')) {
+        return `http://localhost:8000${value}`;
+      }
+    }
+    
+    if (Array.isArray(value) && value.length > 0) {
+      const first = value[0];
+      if (first?.image) {
+        const url = first.image;
+        if (typeof url === 'string') {
+          if (url.startsWith('http://') || url.startsWith('https://')) return url;
+          if (url.startsWith('/media/') || url.startsWith('/uploads/')) {
+            return `http://localhost:8000${url}`;
+          }
         }
       }
     }
   }
 
-  if (item.images && Array.isArray(item.images) && item.images.length > 0) {
-    const firstImg = item.images[0];
-    if (typeof firstImg === 'string') {
-      if (firstImg.startsWith('http')) return firstImg;
-      if (firstImg.startsWith('/media/')) return `http://localhost:8000${firstImg}`;
-    }
-  }
-
-  const category = (item.category || '').toLowerCase();
-  const categoryImages = {
-    'beach': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80',
-    'backwater': 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
-    'waterfall': 'https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80',
-    'hill': 'https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80',
-    'wildlife': 'https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80',
-    'heritage': 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&q=80',
-    'temple': 'https://images.unsplash.com/photo-1584555469976-a6bf90e21034?w=600&q=80',
-  };
-
-  return categoryImages[category] || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80';
+  return null;
 };
 
 // ============================================
-// ✅ FIXED: Generate UNIQUE key for items
+// ✅ STATUS HELPERS
 // ============================================
-const getUniqueKey = (item, index) => {
-  const type = item._type || item.suggestion_type || item.type || 'item';
-  const id = item.id || `index-${index}`;
-  return `${type}-${id}-${Date.now()}-${index}`;
+const getStatusCategory = (status) => {
+  if (!status) return 'pending';
+  const s = status.toLowerCase();
+  if (s === 'pending' || s === 'pending_guide' || s === 'pending_admin') return 'pending';
+  if (s === 'approved' || s === 'approved_by_guide' || s === 'approved_by_admin' || s === 'staff_approved') return 'approved';
+  if (s === 'implemented') return 'implemented';
+  if (s === 'rejected' || s === 'rejected_by_guide' || s === 'rejected_by_admin' || s === 'staff_rejected') return 'rejected';
+  return 'pending';
+};
+
+const getStatusColor = (status) => {
+  const colors = {
+    'pending': '#D97706',
+    'approved': '#16A34A',
+    'implemented': '#2563EB',
+    'rejected': '#DC2626',
+  };
+  return colors[getStatusCategory(status)] || '#6B7280';
+};
+
+const getStatusBg = (status) => {
+  const colors = {
+    'pending': '#FEF3C7',
+    'approved': '#DCFCE7',
+    'implemented': '#DBEAFE',
+    'rejected': '#FEE2E2',
+  };
+  return colors[getStatusCategory(status)] || '#F3F4F6';
+};
+
+const getStatusLabel = (status) => {
+  const labels = {
+    'pending': '⏳ Pending',
+    'approved': '✅ Approved',
+    'implemented': '🎯 Implemented',
+    'rejected': '❌ Rejected',
+  };
+  return labels[getStatusCategory(status)] || status;
 };
 
 // ============================================
@@ -148,15 +197,20 @@ const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
-  // Profile data
   const [profileData, setProfileData] = useState(null);
+  
+  // ✅ FIXED: Initialize stats with proper structure
   const [stats, setStats] = useState({
     total_trips: 0,
     completed_trips: 0,
     pending_trips: 0,
-    confirmed_trips: 0
+    confirmed_trips: 0,
+    cancelled_trips: 0,
+    rejected_trips: 0,
   });
+  
   const [userSuggestions, setUserSuggestions] = useState([]);
   const [suggestionStats, setSuggestionStats] = useState({
     total: 0,
@@ -166,14 +220,13 @@ const Profile = () => {
     rejected: 0,
   });
 
-  // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(5);
 
-  // View Details Modal
   const [selectedItem, setSelectedItem] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  // ✅ FIXED: Initialize editData with proper bio and phone fields
   const [editData, setEditData] = useState({
     first_name: '',
     last_name: '',
@@ -200,36 +253,23 @@ const Profile = () => {
   useEffect(() => {
     if (user) {
       setProfileData(user);
+      // ✅ FIXED: Properly set editData with bio and phone
       setEditData({
         first_name: user.first_name || '',
         last_name: user.last_name || '',
         username: user.username || '',
         email: user.email || '',
-        phone: user.phone || '',
-        bio: user.bio || ''
+        phone: user.phone || '',  // Make sure phone is included
+        bio: user.bio || ''      // Make sure bio is included
       });
       loadProfilePicture();
     }
   }, [user]);
 
-  // Load data on mount
   useEffect(() => {
     if (!isLoggedIn || !user) return;
     if (hasInitializedRef.current) return;
     hasInitializedRef.current = true;
-
-    try {
-      const cachedSuggestions = localStorage.getItem('profile_suggestions');
-      if (cachedSuggestions) {
-        const parsed = JSON.parse(cachedSuggestions);
-        if (parsed && parsed.length > 0) {
-          setUserSuggestions(parsed);
-          updateSuggestionStats(parsed);
-        }
-      }
-    } catch (e) {
-      console.warn('Cache load failed:', e);
-    }
 
     fetchProfileData();
   }, [isLoggedIn, user]);
@@ -257,7 +297,91 @@ const Profile = () => {
   }, [filterStatus]);
 
   // ============================================
-  // ✅ FIXED: Fetch Profile Data with fallback
+  // ✅ GET SUGGESTION STATS FROM ARRAY
+  // ============================================
+  const getSuggestionStatsFromArray = (suggestions) => {
+    if (!suggestions || !Array.isArray(suggestions)) {
+      return { total: 0, pending: 0, approved: 0, implemented: 0, rejected: 0 };
+    }
+    
+    let pending = 0;
+    let approved = 0;
+    let implemented = 0;
+    let rejected = 0;
+    
+    suggestions.forEach(s => {
+      const status = (s.status || '').toLowerCase();
+      if (status === 'pending' || status === 'pending_guide' || status === 'pending_admin') {
+        pending++;
+      } else if (status === 'approved' || status === 'approved_by_guide' || status === 'approved_by_admin' || status === 'staff_approved') {
+        approved++;
+      } else if (status === 'implemented') {
+        implemented++;
+      } else if (status === 'rejected' || status === 'rejected_by_guide' || status === 'rejected_by_admin' || status === 'staff_rejected') {
+        rejected++;
+      }
+    });
+    
+    return {
+      total: suggestions.length,
+      pending,
+      approved,
+      implemented,
+      rejected,
+    };
+  };
+
+  // In Profile.jsx - Updated handleDeleteSuggestion function
+const handleDeleteSuggestion = async (suggestionId) => {
+    // ✅ Find the suggestion to check its status
+    const suggestion = userSuggestions.find(s => s.id === suggestionId);
+    
+    // ✅ Only allow deletion for pending suggestions
+    if (!suggestion) {
+        alert('❌ Suggestion not found.');
+        return;
+    }
+    
+    const statusCategory = getStatusCategory(suggestion.status);
+    if (statusCategory !== 'pending') {
+        alert(`❌ You can only delete pending suggestions. This suggestion is ${suggestion.status}.`);
+        return;
+    }
+    
+    if (!window.confirm('Are you sure you want to delete this suggestion? This action cannot be undone.')) {
+        return;
+    }
+
+    setDeletingId(suggestionId);
+    try {
+        const response = await api.delete(`/suggestions/${suggestionId}/`);
+        
+        if (response.status === 204 || response.data?.success) {
+            const updatedSuggestions = userSuggestions.filter(s => s.id !== suggestionId);
+            setUserSuggestions(updatedSuggestions);
+            const stats = getSuggestionStatsFromArray(updatedSuggestions);
+            setSuggestionStats(stats);
+            alert('✅ Suggestion deleted successfully!');
+        } else {
+            alert('❌ Failed to delete suggestion. Please try again.');
+        }
+    } catch (error) {
+        console.error('Error deleting suggestion:', error);
+        // ✅ Better error handling
+        if (error.response?.status === 403) {
+            const errorMsg = error.response?.data?.error || 'You do not have permission to delete this suggestion.';
+            alert(`❌ ${errorMsg}\n\nYou can only delete suggestions that are in pending status.`);
+        } else if (error.response?.status === 404) {
+            alert('❌ Suggestion not found. It may have been already deleted.');
+        } else {
+            alert('❌ Failed to delete suggestion. Please try again.');
+        }
+    } finally {
+        setDeletingId(null);
+    }
+};
+  // ============================================
+  // ✅ FETCH PROFILE DATA - FIXED WITH TRIP STATS
   // ============================================
   const fetchProfileData = async () => {
     if (isRefreshing || !isLoggedIn) return;
@@ -266,104 +390,174 @@ const Profile = () => {
     setError(null);
 
     try {
-      console.log('🔄 Fetching profile data...');
+      console.log('🔄 Fetching user profile data...');
       
-      let response;
+      // 1. Get user profile
+      let profileResponse;
       try {
-        response = await api.get('/auth/profile-data/');
-      } catch (firstError) {
-        console.log('⚠️ First endpoint failed, trying alternative...');
-        response = await api.get('/auth/profile-data');
+        profileResponse = await api.get('/auth/me/');
+        console.log('📊 Profile response:', profileResponse.data);
+      } catch (error) {
+        console.error('❌ Failed to fetch profile:', error);
+        profileResponse = null;
       }
       
-      console.log('📊 Profile response:', response.data);
-
-      if (response.data && response.data.success) {
-        const data = response.data;
-        console.log('✅ Profile data received:', {
-          hasUser: !!data.user,
-          suggestionsCount: data.suggestions?.length || 0,
-        });
-
-        if (data.user) {
-          setProfileData(data.user);
-          setEditData({
-            first_name: data.user.first_name || '',
-            last_name: data.user.last_name || '',
-            username: data.user.username || '',
-            email: data.user.email || '',
-            phone: data.user.phone || '',
-            bio: data.user.bio || ''
-          });
+      // 2. ✅ GET TRIP STATS - FIXED
+      let tripStats = {
+        total_trips: 0,
+        completed_trips: 0,
+        pending_trips: 0,
+        confirmed_trips: 0,
+        cancelled_trips: 0,
+        rejected_trips: 0,
+      };
+      
+      try {
+        const statsResponse = await api.get('/auth/trip-stats/');
+        console.log('📊 Trip stats response:', statsResponse.data);
+        
+        if (statsResponse.data?.success) {
+          tripStats = {
+            total_trips: statsResponse.data.total_trips || 0,
+            completed_trips: statsResponse.data.completed_trips || 0,
+            pending_trips: statsResponse.data.pending_trips || 0,
+            confirmed_trips: statsResponse.data.confirmed_trips || 0,
+            cancelled_trips: statsResponse.data.cancelled_trips || 0,
+            rejected_trips: statsResponse.data.rejected_trips || 0,
+          };
+          console.log('✅ Trip stats loaded:', tripStats);
+        } else {
+          console.warn('⚠️ Trip stats response not successful:', statsResponse.data);
         }
-
-        if (data.stats) {
-          setStats(data.stats);
-        }
-
-        // ✅ Only fetch suggestions (no reviews)
-        if (data.suggestions && Array.isArray(data.suggestions)) {
-          const suggestionsWithType = data.suggestions.map(s => ({
-            ...s,
-            _type: 'suggestion'
-          }));
-          setUserSuggestions(suggestionsWithType);
-          updateSuggestionStats(suggestionsWithType);
-          try {
-            localStorage.setItem('profile_suggestions', JSON.stringify(suggestionsWithType));
-          } catch (e) { }
-        }
-
-        if (data.suggestion_stats) {
-          setSuggestionStats(data.suggestion_stats);
-        }
-      } else {
-        console.log('⚠️ API returned no data, using localStorage fallback');
-        try {
-          const cached = localStorage.getItem('profile_suggestions');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            setUserSuggestions(parsed);
-            updateSuggestionStats(parsed);
-          }
-        } catch (e) { }
+      } catch (statsError) {
+        console.error('❌ Error fetching trip stats:', statsError);
+        // Keep default values
       }
+      
+      // 3. Get user's suggestions
+      let suggestions = [];
+      try {
+        const suggestionsResponse = await api.get('/suggestions/my-suggestions/');
+        console.log('📊 My suggestions raw response:', suggestionsResponse.data);
+        
+        const data = suggestionsResponse.data;
+        
+        // Try all possible paths
+        const possiblePaths = [
+          () => data?.results?.data,
+          () => data?.results,
+          () => data?.data,
+          () => data,
+          () => data?.results?.data?.data,
+          () => data?.results?.results,
+          () => data?.data?.results,
+        ];
+        
+        let extracted = null;
+        for (const pathFn of possiblePaths) {
+          try {
+            const result = pathFn();
+            if (Array.isArray(result) && result.length > 0) {
+              extracted = result;
+              break;
+            }
+          } catch (e) {}
+        }
+        
+        if (!extracted) {
+          const findArray = (obj) => {
+            if (!obj || typeof obj !== 'object') return null;
+            if (Array.isArray(obj) && obj.length > 0) return obj;
+            for (const key of Object.keys(obj)) {
+              const val = obj[key];
+              if (Array.isArray(val) && val.length > 0) return val;
+              if (typeof val === 'object') {
+                const found = findArray(val);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+          extracted = findArray(data);
+        }
+        
+        suggestions = extracted || [];
+        console.log(`✅ Found ${suggestions.length} suggestions`);
+        
+      } catch (suggestionsError) {
+        console.error('❌ Error fetching user suggestions:', suggestionsError);
+      }
+      
+      // ✅ Format suggestions
+      const formattedSuggestions = suggestions.map(s => ({
+        ...s,
+        _type: 'suggestion',
+        image: s.primary_image || s.image_url || s.image || null,
+        name: s.name || s.title || 'Untitled',
+        description: s.description || s.review_text || '',
+        status: s.status || 'pending',
+        category: s.category || 'Uncategorized',
+        district: s.district || 'N/A',
+        created_at: s.created_at || s.createdAt || new Date().toISOString(),
+      }));
+      
+      // ✅ Update all states
+      setUserSuggestions(formattedSuggestions);
+      const suggStats = getSuggestionStatsFromArray(formattedSuggestions);
+      setSuggestionStats(suggStats);
+      
+      // ✅ UPDATE STATS WITH TRIP DATA
+      setStats(tripStats);
+      
+      console.log('📊 Updated stats:', tripStats);
+      console.log('📊 User suggestions:', formattedSuggestions.length);
+      console.log('📊 Suggestion stats:', suggStats);
+      
+      // ✅ UPDATE PROFILE DATA WITH BIO AND PHONE
+      if (profileResponse?.data) {
+        const userData = profileResponse.data.user || profileResponse.data;
+        if (userData) {
+          // ✅ IMPORTANT: Update profileData with complete user data including bio and phone
+          setProfileData({
+            ...userData,
+            phone: userData.phone || '',
+            bio: userData.bio || ''
+          });
+          
+          // ✅ Update editData with bio and phone
+          setEditData({
+            first_name: userData.first_name || '',
+            last_name: userData.last_name || '',
+            username: userData.username || '',
+            email: userData.email || '',
+            phone: userData.phone || '',
+            bio: userData.bio || ''
+          });
+          
+          // ✅ Update AuthContext user if possible
+          if (updateUser) {
+            updateUser({
+              ...userData,
+              phone: userData.phone || '',
+              bio: userData.bio || ''
+            });
+          }
+          
+          console.log('✅ Profile updated with bio:', userData.bio);
+          console.log('✅ Profile updated with phone:', userData.phone);
+        }
+      }
+
     } catch (error) {
       console.error('❌ Error fetching profile:', error);
-      try {
-        const cached = localStorage.getItem('profile_suggestions');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          setUserSuggestions(parsed);
-          updateSuggestionStats(parsed);
-        }
-      } catch (e) { }
       if (isMountedRef.current) {
-        setError('Failed to load profile data. Using cached data.');
+        setError('Failed to load profile data. Please refresh.');
       }
     } finally {
       if (isMountedRef.current) {
         setIsRefreshing(false);
       }
     }
-  };
-
-  const getSuggestionStatsFromArray = (suggestions) => {
-    if (!suggestions || !Array.isArray(suggestions)) {
-      return { total: 0, pending: 0, approved: 0, implemented: 0, rejected: 0 };
-    }
-    return {
-      total: suggestions.length,
-      pending: suggestions.filter(s => (s.status || 'pending').toLowerCase() === 'pending' || (s.status || '').toLowerCase() === 'pending_guide' || (s.status || '').toLowerCase() === 'pending_admin').length,
-      approved: suggestions.filter(s => (s.status || '').toLowerCase() === 'approved' || s.status === 'approved_by_guide' || s.status === 'approved_by_admin' || s.status === 'staff_approved').length,
-      implemented: suggestions.filter(s => (s.status || '').toLowerCase() === 'implemented').length,
-      rejected: suggestions.filter(s => (s.status || '').toLowerCase() === 'rejected' || s.status === 'rejected_by_guide' || s.status === 'rejected_by_admin' || s.status === 'staff_rejected').length,
-    };
-  };
-
-  const updateSuggestionStats = (suggestions) => {
-    const stats = getSuggestionStatsFromArray(suggestions);
-    setSuggestionStats(stats);
   };
 
   // ============================================
@@ -374,9 +568,8 @@ const Profile = () => {
     
     if (filterStatus !== 'all') {
       items = items.filter(item => {
-        const status = item.status || 'pending';
-        return status.toLowerCase() === filterStatus.toLowerCase() || 
-               status.toLowerCase() === filterStatus;
+        const statusCategory = getStatusCategory(item.status);
+        return statusCategory === filterStatus;
       });
     }
     
@@ -455,7 +648,7 @@ const Profile = () => {
 
       try {
         const formData = new FormData();
-        formData.append('profile_picture', file);
+        formData.append('profile_image', file);
         await api.post('/auth/upload-profile-picture/', formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
@@ -498,39 +691,87 @@ const Profile = () => {
   };
 
   // ============================================
-  // PROFILE EDIT FUNCTIONS
+  // ✅ PROFILE EDIT FUNCTIONS - FIXED
   // ============================================
   const handleEditChange = (e) => {
-    setEditData({ ...editData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setEditData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
   const handleSaveProfile = async () => {
     try {
+      console.log('💾 Saving profile with data:', editData);
+      
       const response = await api.patch('/auth/update-profile/', editData);
+      console.log('📊 Update response:', response.data);
+      
       if (response.data.success) {
         alert('✅ Profile updated successfully!');
         setIsEditing(false);
-        fetchProfileData();
-        if (updateUser) updateUser(editData);
+        
+        // ✅ IMPORTANT: Update local state with the new data
+        const updatedUser = {
+          ...profileData,
+          ...editData,
+          phone: editData.phone || '',
+          bio: editData.bio || ''
+        };
+        
+        // Update profileData state
+        setProfileData(updatedUser);
+        
+        // Update AuthContext if available
+        if (updateUser) {
+          updateUser(updatedUser);
+        }
+        
+        // ✅ Also update localStorage
+        try {
+          const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+          const updatedStoredUser = {
+            ...storedUser,
+            ...editData,
+            phone: editData.phone || '',
+            bio: editData.bio || ''
+          };
+          localStorage.setItem('user', JSON.stringify(updatedStoredUser));
+        } catch (e) {
+          console.warn('Could not update localStorage:', e);
+        }
+        
+        // Refresh data from server to ensure consistency
+        await fetchProfileData();
+        
+        console.log('✅ Profile saved successfully with bio:', editData.bio);
+        console.log('✅ Profile saved successfully with phone:', editData.phone);
       } else {
         alert('❌ ' + (response.data.error || 'Failed to update profile'));
       }
     } catch (error) {
-      console.error('Error saving profile:', error);
-      alert('❌ Failed to update profile. Please try again.');
+      console.error('❌ Error saving profile:', error);
+      if (error.response) {
+        console.error('Response data:', error.response.data);
+        alert('❌ Failed to update profile: ' + (error.response.data?.error || error.response.data?.message || 'Please try again.'));
+      } else {
+        alert('❌ Failed to update profile. Please try again.');
+      }
     }
   };
 
   const handleCancelEdit = () => {
     setIsEditing(false);
-    if (user) {
+    if (profileData || user) {
+      const data = profileData || user;
       setEditData({
-        first_name: user.first_name || '',
-        last_name: user.last_name || '',
-        username: user.username || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        bio: user.bio || ''
+        first_name: data.first_name || '',
+        last_name: data.last_name || '',
+        username: data.username || '',
+        email: data.email || '',
+        phone: data.phone || '',
+        bio: data.bio || ''
       });
     }
   };
@@ -590,6 +831,20 @@ const Profile = () => {
   };
 
   // ============================================
+  // REFRESH DATA
+  // ============================================
+  const handleRefresh = () => {
+    if (isRefreshing) return;
+    // Clear cache before refresh
+    try {
+      localStorage.removeItem('profile_suggestions');
+      localStorage.removeItem('suggestions_data');
+      localStorage.removeItem('local_insights');
+    } catch (e) {}
+    fetchProfileData();
+  };
+
+  // ============================================
   // HELPER FUNCTIONS
   // ============================================
   const handleProtectedClick = (path) => {
@@ -601,58 +856,20 @@ const Profile = () => {
     }
   };
 
-  const getStatusColor = (status) => {
-    const colors = {
-      'pending': '#D97706',
-      'pending_guide': '#D97706',
-      'pending_admin': '#D97706',
-      'approved': '#16A34A',
-      'approved_by_guide': '#16A34A',
-      'approved_by_admin': '#16A34A',
-      'staff_approved': '#16A34A',
-      'implemented': '#2563EB',
-      'rejected': '#DC2626',
-      'rejected_by_guide': '#DC2626',
-      'rejected_by_admin': '#DC2626',
-      'staff_rejected': '#DC2626',
-    };
-    return colors[status] || '#6B7280';
-  };
-
-  const getStatusBg = (status) => {
-    const colors = {
-      'pending': '#FEF3C7',
-      'pending_guide': '#FEF3C7',
-      'pending_admin': '#FEF3C7',
-      'approved': '#DCFCE7',
-      'approved_by_guide': '#DCFCE7',
-      'approved_by_admin': '#DCFCE7',
-      'staff_approved': '#DCFCE7',
-      'implemented': '#DBEAFE',
-      'rejected': '#FEE2E2',
-      'rejected_by_guide': '#FEE2E2',
-      'rejected_by_admin': '#FEE2E2',
-      'staff_rejected': '#FEE2E2',
-    };
-    return colors[status] || '#F3F4F6';
-  };
-
-  const getStatusLabel = (status) => {
-    const labels = {
-      'pending': '⏳ Pending',
-      'pending_guide': '⏳ Pending',
-      'pending_admin': '⏳ Pending',
-      'approved': '✅ Approved',
-      'approved_by_guide': '✅ Approved',
-      'approved_by_admin': '✅ Approved',
-      'staff_approved': '✅ Approved',
-      'implemented': '🎯 Implemented',
-      'rejected': '❌ Rejected',
-      'rejected_by_guide': '❌ Rejected',
-      'rejected_by_admin': '❌ Rejected',
-      'staff_rejected': '❌ Rejected',
-    };
-    return labels[status] || status;
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return '';
+    }
   };
 
   // ============================================
@@ -673,8 +890,11 @@ const Profile = () => {
     return null;
   }
 
+  // ✅ Use profileData for display to ensure bio and phone are shown
   const displayName = profileData?.first_name || user?.first_name || user?.username || 'User';
   const displayEmail = profileData?.email || user?.email || 'No email';
+  const displayBio = profileData?.bio || user?.bio || '';
+  const displayPhone = profileData?.phone || user?.phone || 'Not set';
 
   // ============================================
   // BOTTOM NAVIGATION
@@ -769,9 +989,14 @@ const Profile = () => {
         .pagination-btn:hover:not(:disabled) { background: #C79A3E; color: #fff; }
         .pagination-btn.active { background: #C79A3E; color: #fff; }
         .view-btn:hover { background: #C79A3E; color: #fff; }
+        .delete-btn:hover { background: #DC2626; color: #fff; border-color: #DC2626; }
         .modal-overlay { position: fixed; inset: 0; background: rgba(7,46,42,0.6); backdrop-filter: blur(4px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
         .modal-content { background: #FBF6EA; border-radius: 16px; padding: 28px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; border: 1px solid rgba(199,154,62,0.3); box-shadow: 0 20px 60px rgba(7,46,42,0.25); }
         .modal-image { width: 100%; max-height: 300px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(199,154,62,0.15); }
+        .action-btn { transition: all 0.2s ease; }
+        .action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .stat-card { transition: all 0.2s ease; }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(11,36,34,0.08); }
         @media (max-width: 640px) { .pf-two-col { grid-template-columns: 1fr !important; } .pf-stat-grid { grid-template-columns: repeat(2, 1fr) !important; } }
       `}</style>
 
@@ -783,9 +1008,25 @@ const Profile = () => {
             <Link to="/" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid rgba(199,154,62,0.5)", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
               <Icon.Back stroke="#E4C77B" />
             </Link>
-            <Link to="/" className="pf-font-mono" style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "#E4C77B", textDecoration: "none" }}>
-              Back to home →
-            </Link>
+            <button 
+              onClick={handleRefresh} 
+              disabled={isRefreshing}
+              style={{ 
+                background: 'transparent', 
+                border: 'none', 
+                color: '#E4C77B', 
+                cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                opacity: isRefreshing ? 0.5 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 10,
+                fontFamily: "'IBM Plex Mono', monospace",
+                letterSpacing: 1,
+              }}
+            >
+              <Icon.Refresh /> {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
           <p className="pf-font-mono" style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#E4C77B", marginBottom: 10 }}>Traveler passport</p>
           <h1 className="pf-font-display" style={{ fontStyle: "italic", fontSize: 36, fontWeight: 500, color: "#fff", margin: 0, lineHeight: 1.05 }}>My Profile</h1>
@@ -813,7 +1054,11 @@ const Profile = () => {
             <div style={{ flex: 1 }}>
               <h2 className="pf-font-display" style={{ fontSize: 25, color: "#0B2422", margin: 0 }}>{displayName}</h2>
               <p style={{ color: "#5C6E69", fontSize: 13, margin: "4px 0 10px" }}>{displayEmail}</p>
-              <span className="pf-font-mono" style={{ fontSize: 9, color: "#0E5C53", border: "1px solid rgba(14,92,83,0.35)", borderRadius: 999, padding: "4px 10px" }}>Verified account</span>
+              {/* ✅ Display Bio if available */}
+              {displayBio && (
+                <p style={{ color: "#4A5F5A", fontSize: 12, margin: "4px 0 8px", fontStyle: "italic" }}>"{displayBio}"</p>
+              )}
+      
             </div>
             <div>
               {!isEditing ? (
@@ -826,46 +1071,62 @@ const Profile = () => {
               )}
             </div>
           </div>
-          <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-            <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
+          
+          {/* ✅ TRIP STATS - FIXED WITH REAL DATA */}
+          <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 10 }}>
+            <div className="stat-card" style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
               <p style={{ fontSize: 24, fontWeight: 700, color: "#0E5C53", margin: 0 }}>{stats.total_trips || 0}</p>
               <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: 0 }}>Total trips</p>
             </div>
-            <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
+            <div className="stat-card" style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
               <p style={{ fontSize: 24, fontWeight: 700, color: "#16A34A", margin: 0 }}>{stats.completed_trips || 0}</p>
               <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: 0 }}>Completed</p>
             </div>
-            <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
+            <div className="stat-card" style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
               <p style={{ fontSize: 24, fontWeight: 700, color: "#EAB308", margin: 0 }}>{stats.pending_trips || 0}</p>
               <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: 0 }}>Pending</p>
+            </div>
+            <div className="stat-card" style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
+              <p style={{ fontSize: 24, fontWeight: 700, color: "#2563EB", margin: 0 }}>{stats.confirmed_trips || 0}</p>
+              <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: 0 }}>Confirmed</p>
+            </div>
+            <div className="stat-card" style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", textAlign: "center", border: "1px solid rgba(199,154,62,0.2)" }}>
+              <p style={{ fontSize: 24, fontWeight: 700, color: "#DC2626", margin: 0 }}>{stats.cancelled_trips || 0}</p>
+              <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: 0 }}>Cancelled</p>
             </div>
           </div>
         </div>
 
-        {/* ACCOUNT DETAILS CARD */}
+        {/* ✅ ACCOUNT DETAILS CARD - FIXED WITH BIO AND PHONE */}
         <div style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(199,154,62,0.18)", padding: "26px" }}>
           <p className="pf-font-mono" style={{ fontSize: 10, color: "#0E5C53", margin: "0 0 16px" }}>Account details</p>
           {!isEditing ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", border: "1px solid rgba(199,154,62,0.2)" }}>
                 <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: "0 0 4px" }}>First name</p>
-                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{user?.first_name || '—'}</p>
+                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{profileData?.first_name || user?.first_name || '—'}</p>
               </div>
               <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", border: "1px solid rgba(199,154,62,0.2)" }}>
                 <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: "0 0 4px" }}>Last name</p>
-                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{user?.last_name || '—'}</p>
+                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{profileData?.last_name || user?.last_name || '—'}</p>
               </div>
               <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", border: "1px solid rgba(199,154,62,0.2)" }}>
                 <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: "0 0 4px" }}>Username</p>
-                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{user?.username || '—'}</p>
+                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{profileData?.username || user?.username || '—'}</p>
               </div>
+              {/* ✅ PHONE FIELD - FIXED */}
               <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", border: "1px solid rgba(199,154,62,0.2)" }}>
                 <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: "0 0 4px" }}>Phone</p>
-                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{user?.phone || 'Not set'}</p>
+                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{displayPhone}</p>
               </div>
               <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", border: "1px solid rgba(199,154,62,0.2)", gridColumn: "1 / -1" }}>
                 <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: "0 0 4px" }}>Email</p>
-                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{user?.email || '—'}</p>
+                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>{profileData?.email || user?.email || '—'}</p>
+              </div>
+              {/* ✅ BIO FIELD - FIXED */}
+              <div style={{ background: "#FBF6EA", borderRadius: 8, padding: "12px 14px", border: "1px solid rgba(199,154,62,0.2)", gridColumn: "1 / -1" }}>
+                <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: "0 0 4px" }}>Bio</p>
+                <p style={{ fontWeight: 400, color: "#0B2422", margin: 0, fontSize: 14, fontStyle: displayBio ? 'italic' : 'normal' }}>{displayBio || 'No bio yet'}</p>
               </div>
             </div>
           ) : (
@@ -874,18 +1135,38 @@ const Profile = () => {
               <input type="text" name="last_name" value={editData.last_name} onChange={handleEditChange} className="pf-input" style={{ width: "100%", padding: "10px 12px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 6, fontSize: 14, background: "#FBF6EA" }} placeholder="Last name" />
               <input type="text" name="username" value={editData.username} onChange={handleEditChange} className="pf-input" style={{ width: "100%", padding: "10px 12px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 6, fontSize: 14, background: "#FBF6EA" }} placeholder="Username" />
               <input type="text" name="phone" value={editData.phone} onChange={handleEditChange} className="pf-input" style={{ width: "100%", padding: "10px 12px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 6, fontSize: 14, background: "#FBF6EA" }} placeholder="Phone" />
-              <textarea name="bio" value={editData.bio} onChange={handleEditChange} className="pf-input" rows="2" style={{ width: "100%", padding: "10px 12px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 6, fontSize: 14, background: "#FBF6EA", resize: "vertical", gridColumn: "1 / -1" }} placeholder="Tell us about yourself..." />
+              <div style={{ gridColumn: "1 / -1" }}>
+                <textarea 
+                  name="bio" 
+                  value={editData.bio} 
+                  onChange={handleEditChange} 
+                  className="pf-input" 
+                  rows="3" 
+                  style={{ 
+                    width: "100%", 
+                    padding: "10px 12px", 
+                    border: "1px solid rgba(199,154,62,0.3)", 
+                    borderRadius: 6, 
+                    fontSize: 14, 
+                    background: "#FBF6EA", 
+                    resize: "vertical",
+                    fontFamily: "'Inter','Segoe UI',sans-serif",
+                  }} 
+                  placeholder="Tell us about yourself..." 
+                />
+                <p style={{ fontSize: 10, color: "#8A9A95", margin: "4px 0 0" }}>Share your travel interests, favorite destinations, or a fun fact about yourself</p>
+              </div>
             </div>
           )}
         </div>
 
-        {/* CONTRIBUTIONS CARD - Only Suggestions */}
+        {/* CONTRIBUTIONS CARD - User's Suggestions */}
         <div style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(199,154,62,0.18)", padding: "26px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
             <div>
               <p className="pf-font-mono" style={{ fontSize: 10, color: "#0E5C53", margin: 0 }}>My Suggestions</p>
               <p style={{ fontSize: 12, color: "#5C6E69", margin: "4px 0 0" }}>
-                {userSuggestions.length || 0} suggestions
+                {userSuggestions.length || 0} suggestions submitted
               </p>
             </div>
           </div>
@@ -893,7 +1174,7 @@ const Profile = () => {
           {/* Stats Cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(88px, 1fr))", gap: 8, marginBottom: 14 }}>
             <div style={{ background: "#F4FAF8", borderRadius: 8, textAlign: "center", padding: "10px 8px" }}>
-              <p style={{ fontSize: 17, fontWeight: 700, color: "#0E5C53", margin: 0 }}>{userSuggestions.length || 0}</p>
+              <p style={{ fontSize: 17, fontWeight: 700, color: "#0E5C53", margin: 0 }}>{suggestionStats.total || 0}</p>
               <p className="pf-font-mono" style={{ fontSize: 9, color: "#8A9A95", margin: 0 }}>Total</p>
             </div>
             <div style={{ background: "#FEF3C7", borderRadius: 8, textAlign: "center", padding: "10px 8px" }}>
@@ -914,35 +1195,71 @@ const Profile = () => {
             </div>
           </div>
 
-          {/* Items List with View button on right side */}
+          {/* Items List */}
           <div>
             {/* Status Filter */}
             <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-              {['all', 'pending', 'approved', 'implemented', 'rejected'].map((status) => (
-                <button key={status} className={`status-filter-btn pf-font-mono ${filterStatus === status ? 'active' : ''}`} onClick={() => setFilterStatus(status)} style={{ padding: "5px 14px", borderRadius: 999, border: filterStatus === status ? "1px solid #0E5C53" : "1px solid rgba(199,154,62,0.3)", background: filterStatus === status ? "#0E5C53" : "transparent", color: filterStatus === status ? "#fff" : "#5C6E69", fontSize: 10, textTransform: "uppercase", cursor: "pointer" }}>
-                  {status === 'all' ? 'All' : status} · {userSuggestions.filter(s => (s.status || 'pending').toLowerCase() === status).length}
-                </button>
-              ))}
+              {['all', 'pending', 'approved', 'implemented', 'rejected'].map((status) => {
+                let count = 0;
+                if (status === 'all') {
+                  count = userSuggestions.length;
+                } else {
+                  userSuggestions.forEach(s => {
+                    if (getStatusCategory(s.status) === status) count++;
+                  });
+                }
+                
+                return (
+                  <button 
+                    key={status} 
+                    className={`status-filter-btn pf-font-mono ${filterStatus === status ? 'active' : ''}`} 
+                    onClick={() => setFilterStatus(status)} 
+                    style={{ 
+                      padding: "5px 14px", 
+                      borderRadius: 999, 
+                      border: filterStatus === status ? "1px solid #0E5C53" : "1px solid rgba(199,154,62,0.3)", 
+                      background: filterStatus === status ? "#0E5C53" : "transparent", 
+                      color: filterStatus === status ? "#fff" : "#5C6E69", 
+                      fontSize: 10, 
+                      textTransform: "uppercase", 
+                      cursor: "pointer" 
+                    }}
+                  >
+                    {status === 'all' ? 'All' : status} · {count}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Items */}
             <div style={{ maxHeight: 520, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
               {paginatedItems.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "28px 16px", color: "#5C6E69", fontSize: 13, background: "#FBF6EA", borderRadius: 8 }}>
-                  {filterStatus === 'all' ? "You haven't made any suggestions yet." : `No ${filterStatus} suggestions found.`}
-                  {filterStatus === 'all' && <p style={{ fontSize: 12, marginTop: 6, color: "#8A9A95" }}>Suggest a hidden gem or local insight!</p>}
+                  {filterStatus === 'all' ? "You haven't submitted any suggestions yet." : `No ${filterStatus} suggestions found.`}
+                  {filterStatus === 'all' && (
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ fontSize: 12, color: "#8A9A95" }}>Suggest a hidden gem or local insight!</p>
+                      <button 
+                        onClick={() => navigate('/local-insights')}
+                        style={{ marginTop: 8, padding: "6px 16px", borderRadius: 999, border: "1px solid #C79A3E", background: "#C79A3E", color: "#fff", fontSize: 11, cursor: "pointer" }}
+                      >
+                        Go to Local Insights →
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 paginatedItems.map((item, index) => {
-                  const uniqueKey = getUniqueKey(item, index);
+                  const uniqueKey = `${item.id || index}-${Date.now()}-${index}`;
                   const imageUrl = getImageUrl(item);
-                  const isReview = item.suggestion_type === 'review' || item.type === 'review' || item._type === 'review' || item.review_text;
-                  const itemName = item.name || item.destination || item.place || item.title || 'Untitled';
-                  const itemDescription = item.review_text || item.description || '';
-                  const itemDistrict = item.district || item.location || 'N/A';
+                  const itemName = item.name || item.title || 'Untitled';
+                  const itemDescription = item.description || '';
+                  const itemDistrict = item.district || 'N/A';
                   const itemCategory = item.category || 'Uncategorized';
                   const itemStatus = item.status || 'pending';
                   const itemRating = item.rating || 0;
+                  const statusCategory = getStatusCategory(itemStatus);
+                  const createdDate = formatDate(item.created_at);
 
                   return (
                     <div key={uniqueKey} style={{ background: "#FBF6EA", padding: "14px 16px", borderRadius: 8, border: "1px solid rgba(199,154,62,0.15)", display: "flex", alignItems: "center", gap: 12 }}>
@@ -965,17 +1282,81 @@ const Profile = () => {
                           <span style={{ fontSize: 9, padding: "2px 10px", borderRadius: 999, background: getStatusBg(itemStatus), color: getStatusColor(itemStatus), fontWeight: 500 }}>{getStatusLabel(itemStatus)}</span>
                           {itemRating > 0 && <span style={{ fontSize: 9, color: '#FF9800' }}>{'★'.repeat(Math.round(itemRating))}</span>}
                         </div>
-                        <p style={{ fontSize: 11, color: "#5C6E69", margin: "2px 0 0" }}>{itemDistrict} · {itemCategory}</p>
-                        {itemDescription && <p style={{ fontSize: 12, color: "#4A5F5A", margin: "4px 0 0" }}>{itemDescription.length > 80 ? itemDescription.substring(0, 80) + '...' : itemDescription}</p>}
-                        {item.admin_notes && (itemStatus === 'rejected' || itemStatus === 'rejected_by_guide' || itemStatus === 'rejected_by_admin' || itemStatus === 'staff_rejected') && 
-                          <p style={{ fontSize: 10, color: "#DC2626", margin: "6px 0 0", background: "#FEE2E2", padding: "4px 8px", borderRadius: 4 }}>Reason: {item.admin_notes}</p>
+                        
+                        {/* District and Category */}
+                        <p style={{ fontSize: 11, color: "#5C6E69", margin: "2px 0 0" }}>
+                          {itemDistrict} · {itemCategory}
+                        </p>
+                        
+                        {/* Description */}
+                        {itemDescription && (
+                          <p style={{ fontSize: 12, color: "#4A5F5A", margin: "4px 0 0" }}>
+                            {itemDescription.length > 80 ? itemDescription.substring(0, 80) + '...' : itemDescription}
+                          </p>
+                        )}
+                        
+                        {/* Date - Small font */}
+                        {createdDate && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3 }}>
+                            <Icon.Calendar />
+                            <span style={{ fontSize: 9, color: "#8A9A95" }}>{createdDate}</span>
+                          </div>
+                        )}
+                        
+                        {/* Rejection reason */}
+                        {item.admin_notes && statusCategory === 'rejected' && 
+                          <p style={{ fontSize: 10, color: "#DC2626", margin: "6px 0 0", background: "#FEE2E2", padding: "4px 8px", borderRadius: 4 }}>
+                            Reason: {item.admin_notes}
+                          </p>
                         }
                       </div>
 
-                      {/* ✅ VIEW BUTTON - Right side */}
-                      <div style={{ flexShrink: 0 }}>
-                        <button onClick={() => handleViewDetails(item)} className="view-btn" style={{ padding: "6px 14px", borderRadius: 999, border: "1px solid rgba(199,154,62,0.3)", background: "transparent", color: "#0E5C53", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, transition: "all 0.2s ease" }}>
+                      {/* Action Buttons - Right side */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+                        <button 
+                          onClick={() => handleViewDetails(item)} 
+                          className="view-btn" 
+                          style={{ 
+                            padding: "4px 12px", 
+                            borderRadius: 999, 
+                            border: "1px solid rgba(199,154,62,0.3)", 
+                            background: "transparent", 
+                            color: "#0E5C53", 
+                            fontSize: 10, 
+                            cursor: "pointer", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            gap: 4, 
+                            transition: "all 0.2s ease",
+                            whiteSpace: "nowrap"
+                          }}
+                        >
                           <Icon.Eye width="12" height="12" /> View
+                        </button>
+                        
+                        {/* ✅ DELETE BUTTON */}
+                        <button 
+                          onClick={() => handleDeleteSuggestion(item.id)} 
+                          className="delete-btn"
+                          disabled={deletingId === item.id}
+                          style={{ 
+                            padding: "4px 12px", 
+                            borderRadius: 999, 
+                            border: "1px solid #EFCBB5", 
+                            background: "transparent", 
+                            color: "#DC2626", 
+                            fontSize: 10, 
+                            cursor: deletingId === item.id ? "not-allowed" : "pointer", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            gap: 4, 
+                            transition: "all 0.2s ease",
+                            whiteSpace: "nowrap",
+                            opacity: deletingId === item.id ? 0.5 : 1
+                          }}
+                        >
+                          <Icon.Trash width="12" height="12" /> 
+                          {deletingId === item.id ? 'Deleting...' : 'Delete'}
                         </button>
                       </div>
                     </div>
@@ -1006,10 +1387,76 @@ const Profile = () => {
           </div>
         </div>
 
-        {/* ACCOUNT ACTIONS */}
-        <div style={{ background: "#fff", borderRadius: 10, border: "1px solid rgba(199,154,62,0.18)", padding: "20px 26px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <button onClick={handleLogout} style={{ padding: "9px 18px", borderRadius: 999, border: "1px solid #BE5A34", background: "transparent", color: "#BE5A34", fontSize: 10, cursor: "pointer" }}><Icon.Logout /> Logout</button>
-          <button onClick={() => setShowDeleteModal(true)} style={{ padding: "9px 18px", borderRadius: 999, border: "1px solid transparent", background: "transparent", color: "#BE5A34", fontSize: 10, cursor: "pointer" }}><Icon.Delete /> Delete account</button>
+        {/* ACCOUNT ACTIONS - IMPROVED UI */}
+        <div style={{ 
+          background: "#fff", 
+          borderRadius: 10, 
+          border: "1px solid rgba(199,154,62,0.18)", 
+          padding: "20px 24px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 12
+        }}>
+          {/* Logout Button - Improved */}
+          <button 
+            onClick={handleLogout} 
+            className="action-btn"
+            style={{ 
+              padding: "12px 20px", 
+              borderRadius: 999, 
+              border: "1px solid #DC2626", 
+              background: "transparent", 
+              color: "#DC2626", 
+              fontSize: 12, 
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              fontWeight: 600,
+              transition: "all 0.3s ease",
+              width: "100%",
+              letterSpacing: "0.5px",
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = "#DC2626";
+              e.target.style.color = "#fff";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = "transparent";
+              e.target.style.color = "#DC2626";
+            }}
+          >
+            <Icon.Logout /> 
+            <span>Logout</span>
+          </button>
+          
+          {/* Delete Account - Smaller secondary action */}
+          <button 
+            onClick={() => setShowDeleteModal(true)} 
+            style={{ 
+              padding: "8px 16px", 
+              borderRadius: 999, 
+              border: "1px solid transparent", 
+              background: "transparent", 
+              color: "#9CA3AF", 
+              fontSize: 11, 
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              transition: "all 0.2s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.color = "#DC2626";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.color = "#9CA3AF";
+            }}
+          >
+            <Icon.Delete width="12" height="12" /> Delete Account
+          </button>
         </div>
 
         {error && <div style={{ padding: "12px 16px", background: "#FEE2E2", borderRadius: 8, border: "1px solid #FCA5A5", color: "#DC2626", fontSize: 14 }}>⚠️ {error}</div>}
@@ -1020,7 +1467,7 @@ const Profile = () => {
         <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-              <h2 className="pf-font-display" style={{ fontSize: 22, color: "#0B2422", margin: 0 }}>{selectedItem.name || selectedItem.destination || selectedItem.place || 'Details'}</h2>
+              <h2 className="pf-font-display" style={{ fontSize: 22, color: "#0B2422", margin: 0 }}>{selectedItem.name || selectedItem.title || 'Details'}</h2>
               <button onClick={() => setShowDetailModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#5C6E69", padding: 4 }}><Icon.Close width="20" height="20" /></button>
             </div>
             {(() => {
@@ -1031,13 +1478,13 @@ const Profile = () => {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                 <span style={{ fontSize: 11, padding: "3px 12px", borderRadius: 999, background: getStatusBg(selectedItem.status || 'pending'), color: getStatusColor(selectedItem.status || 'pending') }}>{getStatusLabel(selectedItem.status || 'pending')}</span>
                 {selectedItem.rating > 0 && <span style={{ fontSize: 11, padding: "3px 12px", borderRadius: 999, background: "#FEF3C7", color: "#D97706" }}>{'★'.repeat(Math.round(selectedItem.rating))} {selectedItem.rating}</span>}
-                <span style={{ fontSize: 11, padding: "3px 12px", borderRadius: 999, background: "#F3F4F6", color: "#6B7280" }}>{selectedItem.district || selectedItem.location || 'N/A'}</span>
+                <span style={{ fontSize: 11, padding: "3px 12px", borderRadius: 999, background: "#F3F4F6", color: "#6B7280" }}>{selectedItem.district || 'N/A'}</span>
                 <span style={{ fontSize: 11, padding: "3px 12px", borderRadius: 999, background: 'rgba(14,92,83,0.15)', color: '#0E5C53' }}>
                   💎 Suggestion
                 </span>
               </div>
-              <p style={{ fontSize: 14, color: "#4A5F5A", lineHeight: 1.6, marginBottom: 10 }}>{selectedItem.review_text || selectedItem.description || 'No description available.'}</p>
-              {selectedItem.admin_notes && (selectedItem.status === 'rejected' || selectedItem.status === 'rejected_by_guide' || selectedItem.status === 'rejected_by_admin' || selectedItem.status === 'staff_rejected') && 
+              <p style={{ fontSize: 14, color: "#4A5F5A", lineHeight: 1.6, marginBottom: 10 }}>{selectedItem.description || 'No description available.'}</p>
+              {selectedItem.admin_notes && getStatusCategory(selectedItem.status) === 'rejected' && 
                 <div style={{ background: "#FEE2E2", padding: "10px 14px", borderRadius: 8, border: "1px solid #FCA5A5", marginTop: 10 }}>
                   <p style={{ fontSize: 11, color: "#DC2626", margin: 0, fontWeight: 600 }}>📝 Admin Notes</p>
                   <p style={{ fontSize: 12, color: "#991B1B", margin: "4px 0 0" }}>{selectedItem.admin_notes}</p>

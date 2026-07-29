@@ -486,7 +486,7 @@ const Reviews = () => {
                                 <option value="wildlife">Wildlife</option>
                                 <option value="temple">Temple</option>
                                 <option value="waterfalls">Waterfalls</option>
-                                <option value="nature">Nature</option>
+                                <option value="natures">Natures</option>
                                 <option value="fort">Fort/Palace</option>
                                 <option value="museum">Museum</option>
                                 <option value="camping">Camping</option>

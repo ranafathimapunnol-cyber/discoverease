@@ -1,10 +1,9 @@
-// pages/Login.jsx - COMPLETE FIXED VERSION (Session-Based)
+// pages/Login.jsx - COMPLETE FIXED VERSION (No reCAPTCHA)
 
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
-import ReCAPTCHA from 'react-google-recaptcha';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -19,9 +18,6 @@ const Login = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
-  const [captchaValue, setCaptchaValue] = useState(null);
-  const [captchaError, setCaptchaError] = useState('');
 
   useEffect(() => {
     const errorMsg = searchParams.get('error');
@@ -48,18 +44,12 @@ const Login = () => {
     }
   }, [isLoggedIn, navigate]);
 
-  // ✅ FIXED: Login handler - Session Based (NO TOKEN)
+  // ✅ FIXED: Login handler - No reCAPTCHA
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
     setLoading(true);
-
-    if (!captchaValue) {
-      setError('Please complete the CAPTCHA verification');
-      setLoading(false);
-      return;
-    }
 
     try {
       console.log('📤 Sending login request for:', email);
@@ -159,7 +149,6 @@ const Login = () => {
           background: linear-gradient(135deg, #FDF9EF 0%, #F3ECD8 45%, #EAF3EE 100%);
         }
 
-        /* Soft blurred color blobs floating behind the glass */
         .gl-blob {
           position: absolute;
           border-radius: 50%;
@@ -178,7 +167,6 @@ const Login = () => {
           pointer-events: none;
         }
 
-        /* ---------- GLASS CARD ---------- */
         .gl-card {
           position: relative;
           z-index: 1;
@@ -301,30 +289,6 @@ const Login = () => {
         .gl-forgot { color: #A9781E; font-size: 12.5px; text-decoration: none; font-weight: 500; }
         .gl-forgot:hover { text-decoration: underline; }
 
-        /* CAPTCHA — glass checkpoint, right above submit */
-        .gl-checkpoint { margin-bottom: 16px; }
-        .gl-checkpoint-label {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-family: 'IBM Plex Mono', monospace;
-          font-size: 10px;
-          letter-spacing: 1.5px;
-          text-transform: uppercase;
-          color: #6B5B36;
-          margin-bottom: 9px;
-        }
-        .gl-checkpoint-inner {
-          display: flex;
-          justify-content: center;
-          padding: 12px;
-          background: rgba(255,255,255,0.35);
-          backdrop-filter: blur(10px);
-          border: 1px dashed rgba(199,154,62,0.5);
-          border-radius: 14px;
-        }
-        .gl-captcha-err { color: #B4472A; font-size: 11.5px; margin: 7px 0 0; text-align: center; }
-
         .gl-submit {
           width: 100%;
           padding: 13.5px;
@@ -345,12 +309,6 @@ const Login = () => {
           filter: brightness(1.06);
         }
         .gl-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .gl-submit:focus-visible,
-        .gl-google-btn:focus-visible,
-        .gl-field-input:focus-visible {
-          outline: 2px solid #C79A3E;
-          outline-offset: 2px;
-        }
 
         .gl-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 15px; }
         .gl-divider-line { flex: 1; height: 1px; background: rgba(199,154,62,0.25); }
@@ -499,32 +457,6 @@ const Login = () => {
               Remember me
             </label>
             <Link to="/forgot-password" className="gl-forgot">Forgot password?</Link>
-          </div>
-
-          {/* CAPTCHA sits right above the submit button */}
-          <div className="gl-checkpoint">
-            <p className="gl-checkpoint-label">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                <rect x="4" y="10" width="16" height="10" rx="2" stroke="#6B5B36" strokeWidth="1.5" />
-                <path d="M8 10V7a4 4 0 018 0v3" stroke="#6B5B36" strokeWidth="1.5" />
-              </svg>
-              Security check
-            </p>
-            <div className="gl-checkpoint-inner">
-              <ReCAPTCHA
-                sitekey={import.meta.env.VITE_RECAPTCHA_SITE_KEY || '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI'}
-                onChange={(value) => {
-                  setCaptchaValue(value);
-                  setCaptchaError('');
-                }}
-                onExpired={() => {
-                  setCaptchaValue(null);
-                  setCaptchaError('CAPTCHA expired. Please try again.');
-                }}
-                onErrored={() => setCaptchaError('reCAPTCHA error occurred')}
-              />
-            </div>
-            {captchaError && <p className="gl-captcha-err">{captchaError}</p>}
           </div>
 
           <button type="submit" className="gl-submit" disabled={loading}>

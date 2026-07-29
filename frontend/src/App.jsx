@@ -1,4 +1,4 @@
-// App.jsx - FIXED VERSION
+// App.jsx - COMPLETE WITH ALL AI INTEGRATION
 
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
@@ -24,12 +24,12 @@ import Reviews from './pages/Reviews';
 import './index.css';
 
 // ============================================
-// PROTECTED ROUTE COMPONENT - FIXED
+// PROTECTED ROUTE COMPONENT
 // ============================================
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     const { isLoggedIn, role, loading } = useAuth();
 
-    // ✅ Show loading spinner while checking auth
+    // Show loading spinner while checking auth
     if (loading) {
         return (
             <div
@@ -59,16 +59,15 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
         );
     }
 
-    // ✅ Not logged in - redirect to login
+    // Not logged in - redirect to login
     if (!isLoggedIn) {
         return <Navigate to="/login" replace />;
     }
 
-    // ✅ Check if user has required role
+    // Check if user has required role
     if (allowedRoles.length > 0) {
         const userRole = role || 'tourister';
         const hasAccess = allowedRoles.some(r => {
-            // Handle role variations
             if (r === 'staff' && ['staff', 'staff_admin', 'admin'].includes(userRole)) {
                 return true;
             }
@@ -79,7 +78,6 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
         });
 
         if (!hasAccess) {
-            // Redirect to appropriate dashboard
             const redirectMap = {
                 'tourister': '/',
                 'guide': '/guide-dashboard',
@@ -157,7 +155,6 @@ function App() {
                     {/* ========================================== */}
                     {/* PUBLIC ROUTES - No login required          */}
                     {/* ========================================== */}
-                    {/* ✅ Login and Register remain public */}
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/verify-email" element={<VerifyEmail />} />
@@ -168,7 +165,7 @@ function App() {
                     {/* PROTECTED ROUTES - Login required          */}
                     {/* ========================================== */}
                     
-                    {/* ✅ HOME - Now restricted to tourister only */}
+                    {/* Home - Tourister only */}
                     <Route
                         path="/"
                         element={
@@ -178,7 +175,7 @@ function App() {
                         }
                     />
                     
-                    {/* ✅ Tourister Routes */}
+                    {/* Tourister Routes */}
                     <Route
                         path="/categories"
                         element={
@@ -206,6 +203,7 @@ function App() {
                         }
                     />
                     
+                    {/* 🔥 AI TRIP PLANNER WITH AI CHAT */}
                     <Route
                         path="/ai-trip-planner"
                         element={
@@ -274,7 +272,7 @@ function App() {
                         }
                     />
 
-                    {/* Staff Dashboard - Also accessible by staff_admin and admin */}
+                    {/* Staff Dashboard */}
                     <Route
                         path="/staff-dashboard"
                         element={

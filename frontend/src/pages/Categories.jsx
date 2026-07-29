@@ -1,9 +1,13 @@
-// pages/Categories.jsx - COMPLETE FIXED VERSION
+
+
+// pages/Categories.jsx - COMPLETE FULLY FIXED VERSION
+// Shows categories with implemented suggestions count
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthAPI } from '../services/api';
+import api from '../services/api';
 
 export default function Categories() {
   const navigate = useNavigate();
@@ -20,10 +24,13 @@ export default function Categories() {
   const [categoryTypeFilter, setCategoryTypeFilter] = useState("all");
   const [stats, setStats] = useState({ total: 0, places: 0, districts: 14 });
   const [error, setError] = useState(null);
+  const [suggestionsByCategory, setSuggestionsByCategory] = useState({});
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   
   const districtRef = useRef(null);
   const categoryRef = useRef(null);
   const dataLoadedRef = useRef(false);
+  const suggestionsFetchedRef = useRef(false);
 
   // ✅ Redirect if not logged in
   useEffect(() => {
@@ -53,6 +60,81 @@ export default function Categories() {
     };
   }, []);
 
+  // ✅ Fetch ALL implemented suggestions in ONE API call
+  const fetchAllImplementedSuggestions = async () => {
+    if (!isLoggedIn || suggestionsFetchedRef.current) return;
+    suggestionsFetchedRef.current = true;
+    setSuggestionsLoading(true);
+    
+    try {
+      console.log('📊 Fetching ALL implemented suggestions...');
+      
+      // ✅ ONE API call to get all implemented suggestions
+      const response = await api.get('/suggestions/implemented/', {
+        params: {
+          limit: 200 // Get all implemented suggestions
+        }
+      });
+      
+      let allSuggestions = [];
+      if (response.data?.data && Array.isArray(response.data.data)) {
+        allSuggestions = response.data.data;
+      } else if (response.data?.results?.data && Array.isArray(response.data.results.data)) {
+        allSuggestions = response.data.results.data;
+      } else if (response.data?.results && Array.isArray(response.data.results)) {
+        allSuggestions = response.data.results;
+      } else if (Array.isArray(response.data)) {
+        allSuggestions = response.data;
+      }
+      
+      console.log(`📊 Found ${allSuggestions.length} total implemented suggestions`);
+      
+      // ✅ Group suggestions by category
+      const groupedByCategory = {};
+      const categoryKeys = categories.map(cat => cat.key);
+      
+      allSuggestions.forEach(s => {
+        const category = s.category || 'uncategorized';
+        if (!groupedByCategory[category]) {
+          groupedByCategory[category] = [];
+        }
+        groupedByCategory[category].push(s);
+      });
+      
+      // ✅ Only keep categories that exist in our categories list
+      const filteredGrouped = {};
+      categoryKeys.forEach(key => {
+        if (groupedByCategory[key]) {
+          filteredGrouped[key] = groupedByCategory[key];
+        } else {
+          filteredGrouped[key] = [];
+        }
+      });
+      
+      setSuggestionsByCategory(filteredGrouped);
+      
+      // ✅ Update categories with suggestion counts
+      setCategories(prev => prev.map(cat => ({
+        ...cat,
+        suggestionCount: filteredGrouped[cat.key]?.length || 0,
+        suggestions: filteredGrouped[cat.key] || []
+      })));
+      
+      setFilteredCategories(prev => prev.map(cat => ({
+        ...cat,
+        suggestionCount: filteredGrouped[cat.key]?.length || 0,
+        suggestions: filteredGrouped[cat.key] || []
+      })));
+      
+      console.log('📊 Suggestions grouped by category:', Object.keys(filteredGrouped).filter(k => filteredGrouped[k].length > 0));
+      
+    } catch (error) {
+      console.error('❌ Error fetching implemented suggestions:', error);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
   // ✅ Fetch categories
   useEffect(() => {
     const fetchCategories = async () => {
@@ -73,20 +155,25 @@ export default function Categories() {
         if (response && response.success && response.data && response.data.length > 0) {
           console.log('✅ Found', response.data.length, 'categories');
           
-          const formattedCategories = response.data.map(cat => ({
-            key: cat.key,
-            label: cat.title || cat.key.charAt(0).toUpperCase() + cat.key.slice(1),
-            count: cat.count || 0,
-            countLabel: `${cat.count || 0} places`,
-            url: cat.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
-            description: cat.description || `Explore ${cat.title || cat.key} in Kerala`,
-            type: cat.type || 'Nature & Outdoor',
-            icon: cat.icon,
-            places: cat.places || [],
-            districts: (cat.places || [])
-              .map(p => p.location || p.district || '')
-              .filter(d => d && d.length > 0)
-          }));
+          const formattedCategories = response.data.map(cat => {
+            const categoryKey = cat.key;
+            return {
+              key: categoryKey,
+              label: cat.title || cat.key.charAt(0).toUpperCase() + cat.key.slice(1),
+              count: cat.count || 0,
+              countLabel: `${cat.count || 0} places`,
+              url: cat.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+              description: cat.description || `Explore ${cat.title || cat.key} in Kerala`,
+              type: cat.type || 'Nature & Outdoor',
+              icon: cat.icon,
+              places: cat.places || [],
+              districts: (cat.places || [])
+                .map(p => p.location || p.district || '')
+                .filter(d => d && d.length > 0),
+              suggestions: [],
+              suggestionCount: 0
+            };
+          });
           
           console.log('✅ Formatted', formattedCategories.length, 'categories');
           
@@ -101,6 +188,9 @@ export default function Categories() {
           });
           
           dataLoadedRef.current = true;
+          
+          // ✅ Fetch ALL implemented suggestions in ONE API call
+          await fetchAllImplementedSuggestions();
           
           try {
             localStorage.setItem('categories_data', JSON.stringify(formattedCategories));
@@ -153,11 +243,11 @@ export default function Categories() {
   }, [isLoggedIn]);
 
   const fallbackCategories = [
-    { key: "beaches", label: "Beaches", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80", description: "Kerala's stunning coastline", type: "Nature & Outdoor", districts: [] },
-    { key: "backwaters", label: "Backwaters", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80", description: "Serene canals and lagoons", type: "Nature & Outdoor", districts: [] },
-    { key: "waterfall", label: "Waterfalls", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80", description: "Spectacular cascades", type: "Nature & Outdoor", districts: [] },
-    { key: "hillstations", label: "Hill Stations", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80", description: "Misty mountains and tea gardens", type: "Nature & Outdoor", districts: [] },
-    { key: "wildlife", label: "Wildlife Sanctuaries", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80", description: "National parks and reserves", type: "Nature & Outdoor", districts: [] },
+    { key: "beaches", label: "Beaches", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&q=80", description: "Kerala's stunning coastline", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
+    { key: "backwaters", label: "Backwaters", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80", description: "Serene canals and lagoons", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
+    { key: "waterfall", label: "Waterfalls", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80", description: "Spectacular cascades", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
+    { key: "hillstations", label: "Hill Stations", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80", description: "Misty mountains and tea gardens", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
+    { key: "wildlife", label: "Wildlife Sanctuaries", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80", description: "National parks and reserves", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
   ];
 
   // ✅ Filter categories
@@ -244,7 +334,7 @@ export default function Categories() {
     "Wellness & Relaxation"
   ];
 
-  // ✅ BOTTOM NAVIGATION COMPONENT (FIXED)
+  // ✅ BOTTOM NAVIGATION COMPONENT
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -415,6 +505,13 @@ export default function Categories() {
           background: linear-gradient(to top, rgba(7,46,42,0.9) 0%, rgba(7,46,42,0.15) 55%, transparent 100%);
         }
         .cat-card .content { position: absolute; bottom: 0; left: 0; right: 0; padding: 10px 12px; }
+        .suggestion-count {
+          position: absolute; top: 8px; right: 8px;
+          background: rgba(199,154,62,0.9); color: #fff;
+          padding: 2px 8px; border-radius: 999px;
+          font-size: 8px; font-family: 'IBM Plex Mono', monospace;
+          letter-spacing: 0.05em;
+        }
         .insights-btn {
           display: flex; align-items: center; gap: 10px;
           padding: 10px 20px 10px 18px; border-radius: 999px;
@@ -567,37 +664,49 @@ export default function Categories() {
           {selectedDistrict !== "All Districts" && ` in ${selectedDistrict}`}
           {categoryTypeFilter !== "all" && ` • ${categoryTypeFilter}`}
           {searchTerm && ` matching "${searchTerm}"`}
+          {suggestionsLoading && ` 🔄 Loading insights...`}
         </p>
         <div className="cat-grid">
-          {filteredCategories.map((cat) => (
-            <div 
-              key={cat.key} 
-              className="cat-card" 
-              onClick={() => handleCategoryClick(cat.key)}
-              style={{ cursor: 'pointer' }}
-            >
-              <img src={cat.url} alt={cat.label} className="cat-card-img" loading="lazy" />
-              <div className="overlay" />
-              <div className="content">
-                <div className="cat-font-display" style={{ fontSize: "clamp(15px, 1.2vw, 18px)", fontWeight: 500, color: "#fff", marginBottom: 2 }}>
-                  {cat.label}
-                </div>
-                <div className="cat-font-mono" style={{ fontSize: 9, letterSpacing: 0.5, color: "rgba(237,226,196,0.7)" }}>
-                  {cat.countLabel || `${cat.count || 0} places`}
-                </div>
-                {cat.type && (
-                  <div style={{ fontSize: 8, letterSpacing: 0.5, color: "rgba(237,226,196,0.5)", marginTop: 2, textTransform: "uppercase" }}>
-                    {cat.type}
+          {filteredCategories.map((cat) => {
+            const suggestionCount = cat.suggestionCount || 0;
+            const hasSuggestions = suggestionCount > 0;
+            
+            return (
+              <div 
+                key={cat.key} 
+                className="cat-card" 
+                onClick={() => handleCategoryClick(cat.key)}
+                style={{ cursor: 'pointer' }}
+              >
+                <img src={cat.url} alt={cat.label} className="cat-card-img" loading="lazy" />
+                <div className="overlay" />
+                {hasSuggestions && (
+                  <div className="suggestion-count">
+                    💡 {suggestionCount}
                   </div>
                 )}
+                <div className="content">
+                  <div className="cat-font-display" style={{ fontSize: "clamp(15px, 1.2vw, 18px)", fontWeight: 500, color: "#fff", marginBottom: 2 }}>
+                    {cat.label}
+                  </div>
+                  <div className="cat-font-mono" style={{ fontSize: 9, letterSpacing: 0.5, color: "rgba(237,226,196,0.7)" }}>
+                    {cat.countLabel || `${cat.count || 0} places`}
+                    {hasSuggestions && ` • ${suggestionCount} insights`}
+                  </div>
+                  {cat.type && (
+                    <div style={{ fontSize: 8, letterSpacing: 0.5, color: "rgba(237,226,196,0.5)", marginTop: 2, textTransform: "uppercase" }}>
+                      {cat.type}
+                    </div>
+                  )}
+                </div>
+                <div style={{ position: "absolute", top: 10, right: 10, width: 24, height: 24, borderRadius: "50%", border: "1px solid rgba(228,199,123,0.6)", background: "rgba(7,46,42,0.4)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#E4C77B" strokeWidth="2.5">
+                    <line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>
+                  </svg>
+                </div>
               </div>
-              <div style={{ position: "absolute", top: 10, right: 10, width: 24, height: 24, borderRadius: "50%", border: "1px solid rgba(228,199,123,0.6)", background: "rgba(7,46,42,0.4)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#E4C77B" strokeWidth="2.5">
-                  <line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>
-                </svg>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {filteredCategories.length === 0 && (
             <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "32px 0", color: "#8A9A95" }}>
               <p className="cat-font-mono" style={{ fontSize: 12 }}>No categories match your filters</p>

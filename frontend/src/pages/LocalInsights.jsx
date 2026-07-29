@@ -1,4 +1,5 @@
-// pages/LocalInsights.jsx - FIXED VERSION with place as heading and email below
+// pages/LocalInsights.jsx - COMPLETE FULLY FIXED VERSION
+// Shows implemented suggestions with category mapping
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -10,42 +11,213 @@ import api from '../services/api';
 // ============================================
 const getImageUrl = (item) => {
   if (!item) return null;
-  
-  const imageField = item.image_url || item.image || item.profile_image || item.photo || item.avatar;
-  if (!imageField || typeof imageField !== 'string') return null;
-  
-  const cleanedUrl = imageField.trim();
-  if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
-    return cleanedUrl;
+
+  const possibleFields = [
+    'image', 'image_url', 'primary_image', 'images', 'images_data',
+    'profile_image', 'photo', 'avatar'
+  ];
+
+  for (const field of possibleFields) {
+    const value = item[field];
+    if (!value) continue;
+
+    if (typeof value === 'string') {
+      if (value.startsWith('http://') || value.startsWith('https://')) {
+        return value;
+      }
+      if (value.startsWith('/media/') || value.startsWith('/uploads/')) {
+        const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+        const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+        const mediaBase = cleanBase.replace('/api', '');
+        return `${mediaBase}${value}`;
+      }
+      if (value.startsWith('data:image')) {
+        return value;
+      }
+      if (!value.startsWith('http') && !value.startsWith('data:')) {
+        const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+        const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+        const mediaBase = cleanBase.replace('/api', '');
+        return `${mediaBase}/media/${value}`;
+      }
+      return value;
+    }
+
+    if (Array.isArray(value) && value.length > 0) {
+      const firstItem = value[0];
+      if (typeof firstItem === 'string') {
+        if (firstItem.startsWith('http://') || firstItem.startsWith('https://')) {
+          return firstItem;
+        }
+        if (firstItem.startsWith('/media/') || firstItem.startsWith('/uploads/')) {
+          const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+          const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+          const mediaBase = cleanBase.replace('/api', '');
+          return `${mediaBase}${firstItem}`;
+        }
+        return firstItem;
+      }
+      if (typeof firstItem === 'object' && firstItem.image_url) {
+        return firstItem.image_url;
+      }
+      if (typeof firstItem === 'object' && firstItem.image) {
+        if (typeof firstItem.image === 'string') {
+          if (firstItem.image.startsWith('http://') || firstItem.image.startsWith('https://')) {
+            return firstItem.image;
+          }
+          if (firstItem.image.startsWith('/media/') || firstItem.image.startsWith('/uploads/')) {
+            const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+            const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+            const mediaBase = cleanBase.replace('/api', '');
+            return `${mediaBase}${firstItem.image}`;
+          }
+          return firstItem.image;
+        }
+      }
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      if (value.image_url) return value.image_url;
+      if (value.image) {
+        if (typeof value.image === 'string') {
+          if (value.image.startsWith('http://') || value.image.startsWith('https://')) {
+            return value.image;
+          }
+          if (value.image.startsWith('/media/') || value.image.startsWith('/uploads/')) {
+            const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
+            const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+            const mediaBase = cleanBase.replace('/api', '');
+            return `${mediaBase}${value.image}`;
+          }
+          return value.image;
+        }
+      }
+    }
   }
-  if (cleanedUrl.startsWith('/media/') || cleanedUrl.startsWith('/uploads/')) {
-    const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
-    const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
-    const mediaBase = cleanBase.replace('/api', '');
-    return `${mediaBase}${cleanedUrl}`;
-  }
-  if (cleanedUrl.startsWith('data:image')) {
-    return cleanedUrl;
-  }
+
   return null;
 };
 
 // ============================================
-// GET TYPE BADGE AND LABEL
+// GET TYPE INFO
 // ============================================
 const getTypeInfo = (item) => {
-  if (!item) return { label: '💡 Insight', emoji: '💡', type: 'insight' };
-  
+  if (!item) return { label: 'Insight', type: 'insight' };
+
   const type = item.suggestion_type || item.type || item._type || '';
   const lowerType = type.toLowerCase().trim();
-  
-  if (lowerType === 'review') {
-    return { label: '⭐ Review', emoji: '⭐', type: 'review' };
+
+  if (lowerType === 'review' || lowerType === 'reviews') {
+    return { label: 'Review', type: 'review' };
   }
-  if (lowerType === 'hidden_gem' || lowerType === 'hidden gem') {
-    return { label: '💎 Hidden Gem', emoji: '💎', type: 'hidden_gem' };
+  if (lowerType === 'hidden_gem' || lowerType === 'hidden gem' || lowerType === 'hidden_gems' || lowerType === 'new') {
+    return { label: 'Hidden Gem', type: 'hidden_gem' };
   }
-  return { label: '💡 Local Insight', emoji: '💡', type: 'insight' };
+  if (lowerType === 'local_insight' || lowerType === 'local insight' || lowerType === 'insight' || lowerType === 'insights') {
+    return { label: 'Local Insight', type: 'insight' };
+  }
+  return { label: 'Local Insight', type: 'insight' };
+};
+
+// ============================================
+// LINE ICONS
+// ============================================
+const Icon = {
+  Back: (p) => (
+    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+    </svg>
+  ),
+  Refresh: (p) => (
+    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
+  ),
+  Star: (p) => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" {...p}>
+      <path d="M12 2.5l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.9-6.3 3.9 1.7-7-5.4-4.7 7.1-.6z" />
+    </svg>
+  ),
+  Pin: (p) => (
+    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2" {...p}>
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  ),
+  Tag: (p) => (
+    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2" {...p}>
+      <path d="M20.59 13.41L11 3.83A2 2 0 0 0 9.59 3.24L4 3a1 1 0 0 0-1 1l.24 5.59a2 2 0 0 0 .59 1.41l9.58 9.59a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.83z" />
+      <circle cx="7.5" cy="7.5" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  Mail: (p) => (
+    <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2" {...p}>
+      <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v11A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6.5l8 6.2 8-6.2" />
+    </svg>
+  ),
+  Gem: (p) => (
+    <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8" {...p}>
+      <path strokeLinejoin="round" d="M4 9l4-6h8l4 6-10 12z" />
+      <path strokeLinejoin="round" d="M4 9h16M8.5 3l1.7 6-2.6 0M15.5 3l-1.7 6 2.6 0M9.5 9l2.5 12 2.5-12" />
+    </svg>
+  ),
+  Bulb: (p) => (
+    <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 21h4M8 14a4 4 0 1 1 8 0c0 1.5-.8 2.3-1.5 3-.5.5-.5 1-.5 1h-4s0-.5-.5-1c-.7-.7-1.5-1.5-1.5-3z" />
+      <path strokeLinecap="round" d="M12 2v1.5M4.5 6L5.6 7M19.5 6L18.4 7" />
+    </svg>
+  ),
+  Sparkle: (p) => (
+    <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.6" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18" />
+      <circle cx="12" cy="12" r="2.3" />
+    </svg>
+  ),
+  Plus: (p) => (
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.4" {...p}>
+      <path strokeLinecap="round" d="M12 4v16M4 12h16" />
+    </svg>
+  ),
+  Camera: (p) => (
+    <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.8" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8a2 2 0 0 1 2-2h1.2l.9-1.5A1.5 1.5 0 0 1 9.4 4h5.2a1.5 1.5 0 0 1 1.3.75L16.8 6H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+      <circle cx="12" cy="13" r="3.3" />
+    </svg>
+  ),
+  Send: (p) => (
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4z" />
+    </svg>
+  ),
+  Check: (p) => (
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.4" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20 6L9 17l-5-5" />
+    </svg>
+  ),
+  Alert: (p) => (
+    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2" {...p}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4M12 17h.01M10.3 3.9L2.5 17a1.6 1.6 0 0 0 1.4 2.4h16.2a1.6 1.6 0 0 0 1.4-2.4L13.7 3.9a1.6 1.6 0 0 0-2.8 0z" />
+    </svg>
+  ),
+  Calendar: (p) => (
+    <svg width="11" height="11" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" {...p}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path strokeLinecap="round" d="M8 3v4M16 3v4M3 10h18" />
+    </svg>
+  ),
+  Compass: (p) => (
+    <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.6" {...p}>
+      <circle cx="12" cy="12" r="9" />
+      <path strokeLinejoin="round" d="M14.5 9.5L13 13l-3.5 1.5L11 11z" />
+    </svg>
+  ),
+};
+
+const TYPE_STYLE = {
+  review: { icon: Icon.Star, bg: 'rgba(255,152,0,0.12)', fg: '#B4700C' },
+  hidden_gem: { icon: Icon.Gem, bg: 'rgba(199,154,62,0.15)', fg: '#93701F' },
+  insight: { icon: Icon.Bulb, bg: 'rgba(14,92,83,0.13)', fg: '#0E5C53' },
 };
 
 const LocalInsights = () => {
@@ -60,6 +232,16 @@ const LocalInsights = () => {
     const [activeCategory, setActiveCategory] = useState('all');
     const [selectedInsight, setSelectedInsight] = useState(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
+
+    // ✅ Dynamic categories state
+    const [availableCategories, setAvailableCategories] = useState([
+        'beach', 'hill', 'backwater', 'heritage', 'wildlife', 'temple',
+        'waterfalls', 'natures', 'fort', 'museum', 'camping', 'islands',
+        'sacred', 'off-road', 'parks', 'other'
+    ]);
+    const [customCategory, setCustomCategory] = useState('');
+    const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
+
     const [formData, setFormData] = useState({
         name: '',
         description: '',
@@ -80,15 +262,13 @@ const LocalInsights = () => {
         categories: 0
     });
 
-    const [page, setPage] = useState(1);
+    // ✅ Pagination states
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(12);
     const [totalItems, setTotalItems] = useState(0);
-    const [hasMore, setHasMore] = useState(true);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-    const observerRef = useRef(null);
-    const lastElementRef = useRef(null);
-    const fetchCalled = useRef(false);
     const isMounted = useRef(true);
+    const initialFetchDone = useRef(false);
 
     // Auth check
     useEffect(() => {
@@ -109,15 +289,30 @@ const LocalInsights = () => {
         isMounted.current = true;
         return () => {
             isMounted.current = false;
-            if (observerRef.current) {
-                observerRef.current.disconnect();
-            }
         };
     }, []);
 
-    // ============================================
-    // CLEAR CACHE FUNCTION
-    // ============================================
+    // ✅ Extract categories from insights
+    useEffect(() => {
+        if (insights.length > 0) {
+            const categories = insights
+                .map(i => i.category)
+                .filter(Boolean)
+                .filter(c => c !== 'other' && c !== 'general' && c.trim() !== '');
+
+            setAvailableCategories(prev => {
+                const newCategories = [...prev];
+                categories.forEach(cat => {
+                    if (!newCategories.includes(cat) && cat.trim() !== '') {
+                        newCategories.push(cat);
+                    }
+                });
+                return newCategories.sort();
+            });
+        }
+    }, [insights]);
+
+    // Clear cache
     const clearCache = () => {
         try {
             localStorage.removeItem('local_insights');
@@ -127,22 +322,17 @@ const LocalInsights = () => {
         }
     };
 
-    // ============================================
-    // FORCE REFRESH
-    // ============================================
+    // Force refresh
     const forceRefresh = useCallback(() => {
         clearCache();
-        fetchCalled.current = false;
-        setPage(1);
+        setCurrentPage(1);
         setInsights([]);
         setTotalItems(0);
-        setHasMore(true);
+        initialFetchDone.current = false;
         fetchInsights(true, 1);
     }, []);
 
-    // ============================================
-    // HANDLE IMAGE CHANGE
-    // ============================================
+    // Handle image change
     const handleImageChange = async (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -175,12 +365,10 @@ const LocalInsights = () => {
         if (fileInput) fileInput.value = '';
     };
 
-    // ============================================
-    // FETCH INSIGHTS - ALL IMPLEMENTED SUGGESTIONS
-    // ============================================
+    // ✅ FETCH INSIGHTS
     const fetchInsights = useCallback(async (isRefresh = false, pageNum = 1) => {
-        console.log('🔍 Fetching ALL implemented suggestions...', { isRefresh, pageNum });
-        
+        console.log('🔍 Fetching implemented suggestions...', { isRefresh, pageNum });
+
         if (!isLoggedIn) {
             console.log('⚠️ User not logged in');
             setLoading(false);
@@ -189,74 +377,64 @@ const LocalInsights = () => {
 
         if (isRefresh) {
             setRefreshing(true);
-            setPage(1);
-            setInsights([]);
-            setHasMore(true);
+            setCurrentPage(1);
             clearCache();
         }
 
-        if (!isRefresh && pageNum > 1) {
-            setIsLoadingMore(true);
+        if (isRefresh || pageNum === 1) {
+            setLoading(true);
         }
 
         try {
-            // ✅ Fetch ALL suggestions with implemented status
-            const response = await api.get('/suggestions/', {
+            const response = await api.get('/suggestions/implemented/', {
                 params: {
-                    status: 'implemented',
-                    page: pageNum,
-                    page_size: 20
+                    limit: itemsPerPage,
+                    offset: (pageNum - 1) * itemsPerPage
                 }
             });
-            
-            console.log('📊 API Response:', response.data);
+
+            console.log('📊 Full API Response:', response.data);
 
             let allItems = [];
             let totalCount = 0;
 
-            // Parse response - handle nested results structure
-            if (response.data?.results?.data && Array.isArray(response.data.results.data)) {
-                allItems = response.data.results.data;
-                totalCount = response.data.results.count || allItems.length;
-            } else if (response.data?.data && Array.isArray(response.data.data)) {
-                allItems = response.data.data;
-                totalCount = response.data.count || allItems.length;
-            } else if (response.data?.results && Array.isArray(response.data.results)) {
-                allItems = response.data.results;
-                totalCount = response.data.count || allItems.length;
-            } else if (Array.isArray(response.data)) {
-                allItems = response.data;
+            const data = response.data;
+
+            // ✅ Extract data from nested structure
+            if (data && data.results) {
+                if (data.results.data && Array.isArray(data.results.data)) {
+                    allItems = data.results.data;
+                    totalCount = data.results.count || data.count || allItems.length;
+                    console.log(`✅ Found ${allItems.length} items in results.data`);
+                } else if (data.results.results && Array.isArray(data.results.results)) {
+                    allItems = data.results.results;
+                    totalCount = data.results.count || data.count || allItems.length;
+                } else if (Array.isArray(data.results)) {
+                    allItems = data.results;
+                    totalCount = data.count || allItems.length;
+                } else {
+                    for (const key of Object.keys(data.results)) {
+                        if (Array.isArray(data.results[key])) {
+                            allItems = data.results[key];
+                            totalCount = data.results.count || data.count || allItems.length;
+                            break;
+                        }
+                    }
+                }
+            } else if (data.data && Array.isArray(data.data)) {
+                allItems = data.data;
+                totalCount = data.count || allItems.length;
+            } else if (Array.isArray(data)) {
+                allItems = data;
                 totalCount = allItems.length;
             }
 
-            console.log(`📊 Total items from API: ${allItems.length}`);
+            console.log(`📊 Total items from API: ${allItems.length}, Total count: ${totalCount}`);
 
-            // ✅ Log what types we found
-            const typeCounts = {};
-            allItems.forEach(item => {
-                const type = item.suggestion_type || 'unknown';
-                typeCounts[type] = (typeCounts[type] || 0) + 1;
-            });
-            console.log('📊 Type counts:', typeCounts);
-
-            // ✅ Only use localStorage if API returned NO items
-            if (allItems.length === 0 && pageNum === 1) {
-                console.log('🔄 No items from API, checking localStorage...');
-                try {
-                    const localInsights = JSON.parse(localStorage.getItem('local_insights') || '[]');
-                    if (localInsights.length > 0 && !isRefresh) {
-                        console.log(`✅ Found ${localInsights.length} items in localStorage (cached)`);
-                        allItems = localInsights;
-                        totalCount = localInsights.length;
-                    }
-                } catch (e) {
-                    console.log('⚠️ localStorage read failed:', e.message);
-                }
-            }
-
-            // ✅ Format all items with their correct types
             const formattedItems = allItems.map(s => {
                 const typeInfo = getTypeInfo(s);
+                const imageUrl = getImageUrl(s);
+
                 return {
                     id: s.id || `item-${Date.now()}-${Math.random()}`,
                     author: s.author || s.user_email || s.username || s.user?.email || 'Anonymous Traveler',
@@ -269,20 +447,23 @@ const LocalInsights = () => {
                     type: s.suggestion_type || s.type || 'local_insight',
                     status: s.status || 'implemented',
                     created_at: s.created_at || new Date().toISOString(),
-                    image: getImageUrl(s) || null,
+                    image: imageUrl,
                     description: s.description || s.review_text || s.tip || s.content || '',
                     rating: s.rating || null,
                     user_email: s.user_email || s.user?.email,
                     username: s.username || s.user?.username,
                     suggestion_type: s.suggestion_type || s.type || 'local_insight',
-                    // ✅ Type info for display
                     typeLabel: typeInfo.label,
-                    typeEmoji: typeInfo.emoji,
                     typeDisplay: typeInfo.type,
+                    admin_notes: s.admin_notes || '',
+                    processed_by: s.processed_by || '',
+                    processed_at: s.processed_at || '',
+                    implemented_at: s.implemented_at || '',
+                    implemented_by: s.implemented_by || '',
+                    _raw: s
                 };
             });
 
-            // ✅ Update state
             if (isMounted.current) {
                 if (isRefresh || pageNum === 1) {
                     setInsights(formattedItems);
@@ -295,19 +476,17 @@ const LocalInsights = () => {
                 }
 
                 setTotalItems(totalCount || formattedItems.length);
-                setHasMore(formattedItems.length === 20 && formattedItems.length > 0);
 
                 const uniquePlaces = new Set(formattedItems.map(i => i.place).filter(Boolean));
                 const uniqueCategories = new Set(formattedItems.map(i => i.category).filter(Boolean));
-                
+
                 setStats({
-                    insights: formattedItems.length,
+                    insights: totalCount || formattedItems.length,
                     places: uniquePlaces.size,
                     categories: uniqueCategories.size
                 });
 
-                // ✅ Cache the insights
-                if (formattedItems.length > 0) {
+                if (formattedItems.length > 0 && (isRefresh || pageNum === 1)) {
                     try {
                         localStorage.setItem('local_insights', JSON.stringify(formattedItems));
                     } catch (e) {}
@@ -316,19 +495,19 @@ const LocalInsights = () => {
 
         } catch (error) {
             console.error('❌ Error fetching insights:', error);
-            
-            // ✅ Fallback to localStorage
+
             if (isMounted.current && insights.length === 0) {
                 try {
                     const localInsights = JSON.parse(localStorage.getItem('local_insights') || '[]');
                     if (localInsights.length > 0) {
                         setInsights(localInsights);
                         setTotalItems(localInsights.length);
-                        setHasMore(false);
+                        const uniquePlaces = new Set(localInsights.map(i => i.place).filter(Boolean));
+                        const uniqueCategories = new Set(localInsights.map(i => i.category).filter(Boolean));
                         setStats({
                             insights: localInsights.length,
-                            places: new Set(localInsights.map(i => i.place).filter(Boolean)).size,
-                            categories: new Set(localInsights.map(i => i.category).filter(Boolean)).size
+                            places: uniquePlaces.size,
+                            categories: uniqueCategories.size
                         });
                     }
                 } catch (localError) {
@@ -339,56 +518,51 @@ const LocalInsights = () => {
             if (isMounted.current) {
                 setLoading(false);
                 setRefreshing(false);
-                setIsLoadingMore(false);
             }
         }
-    }, [isLoggedIn, insights.length]);
+    }, [isLoggedIn, itemsPerPage, insights.length]);
 
-    // Load more
-    const loadMore = useCallback(() => {
-        if (!hasMore || isLoadingMore || refreshing || loading) return;
-        const nextPage = page + 1;
-        setPage(nextPage);
-        fetchInsights(false, nextPage);
-    }, [hasMore, isLoadingMore, refreshing, loading, page, fetchInsights]);
+    // ✅ Get paginated items based on category filter
+    const getFilteredItems = useCallback(() => {
+        let items = [...insights];
 
-    // Intersection Observer
-    useEffect(() => {
-        if (loading || refreshing || !hasMore) return;
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0].isIntersecting) {
-                    loadMore();
-                }
-            },
-            { threshold: 0.1, rootMargin: '100px' }
-        );
-
-        if (lastElementRef.current) {
-            observer.observe(lastElementRef.current);
+        if (activeCategory !== 'all') {
+            items = items.filter(item => item.category === activeCategory);
         }
 
-        observerRef.current = observer;
+        return items;
+    }, [insights, activeCategory]);
 
-        return () => {
-            if (observerRef.current) {
-                observerRef.current.disconnect();
-            }
-        };
-    }, [loading, refreshing, hasMore, loadMore]);
+    const getPaginatedItems = useCallback(() => {
+        const filtered = getFilteredItems();
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        return filtered.slice(startIndex, endIndex);
+    }, [getFilteredItems, currentPage, itemsPerPage]);
 
-    // Initial fetch
+    const getTotalPages = useCallback(() => {
+        const filtered = getFilteredItems();
+        return Math.ceil(filtered.length / itemsPerPage);
+    }, [getFilteredItems, itemsPerPage]);
+
+    const paginatedItems = getPaginatedItems();
+    const totalPages = getTotalPages();
+    const filteredCount = getFilteredItems().length;
+
+    // ✅ Initial fetch
     useEffect(() => {
-        if (isLoggedIn && !fetchCalled.current) {
-            fetchCalled.current = true;
-            setTimeout(() => {
-                fetchInsights(true, 1);
-            }, 300);
+        if (isLoggedIn && !initialFetchDone.current) {
+            initialFetchDone.current = true;
+            fetchInsights(true, 1);
         } else if (!isLoggedIn) {
             setLoading(false);
         }
     }, [isLoggedIn, fetchInsights]);
+
+    // Reset to page 1 when category changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [activeCategory]);
 
     // Handle refresh
     const handleRefresh = () => {
@@ -396,9 +570,7 @@ const LocalInsights = () => {
         forceRefresh();
     };
 
-    // ============================================
-    // HANDLE SUBMIT
-    // ============================================
+    // ✅ Handle submit suggestion
     const handleSubmitSuggestion = async (e) => {
         e.preventDefault();
         setSubmitError(null);
@@ -429,18 +601,22 @@ const LocalInsights = () => {
 
         try {
             const formDataObj = new FormData();
-            
+
             formDataObj.append('name', formData.name.trim());
             formDataObj.append('description', formData.description.trim());
-            formDataObj.append('category', formData.category || 'general');
+            
+            // ✅ Use the selected category or default to 'general'
+            const categoryValue = formData.category || 'general';
+            formDataObj.append('category', categoryValue);
+            
             formDataObj.append('location_info', formData.location_info || '');
             formDataObj.append('district', formData.district);
             formDataObj.append('suggestion_type', 'local_insight');
-            
+
             if (formData.rating > 0) {
                 formDataObj.append('rating', formData.rating.toString());
             }
-            
+
             if (imageFile) {
                 formDataObj.append('image', imageFile);
             }
@@ -450,18 +626,22 @@ const LocalInsights = () => {
                     'Content-Type': 'multipart/form-data',
                 },
             });
-            
+
             console.log('📊 Suggestion response:', response.data);
-            
+
             if (response.data && response.data.success !== false) {
+                if (formData.category && !availableCategories.includes(formData.category) && formData.category !== 'general' && formData.category !== 'other') {
+                    setAvailableCategories(prev => [...prev, formData.category].sort());
+                }
+
                 setSubmitSuccess(true);
                 alert('✅ Your local insight has been sent to the guides!');
                 setShowSuggestionModal(false);
                 resetForm();
-                
+
                 clearCache();
-                setPage(1);
-                fetchCalled.current = true;
+                setCurrentPage(1);
+                initialFetchDone.current = false;
                 fetchInsights(true, 1);
             } else {
                 const errorMsg = response.data?.message || response.data?.error || 'Failed to submit insight.';
@@ -470,7 +650,7 @@ const LocalInsights = () => {
             }
         } catch (error) {
             console.error('❌ Error submitting insight:', error);
-            
+
             let errorMsg = 'Failed to submit insight. Please try again.';
             if (error.response?.data) {
                 const data = error.response.data;
@@ -515,6 +695,8 @@ const LocalInsights = () => {
         setImageFile(null);
         setSubmitError(null);
         setSubmitSuccess(false);
+        setShowCustomCategoryInput(false);
+        setCustomCategory('');
         const fileInput = document.getElementById('image-upload-input');
         if (fileInput) fileInput.value = '';
     };
@@ -538,10 +720,7 @@ const LocalInsights = () => {
         }
     };
 
-    const categories = ['all', ...Array.from(new Set(insights.map(i => i.category).filter(Boolean)))];
-    const filteredInsights = activeCategory === 'all'
-        ? insights
-        : insights.filter(i => i.category === activeCategory);
+    const categories = ['all', ...availableCategories];
 
     const ZariDivider = () => (
         <svg width="100%" height="10" viewBox="0 0 400 10" preserveAspectRatio="none" style={{ display: 'block' }}>
@@ -632,31 +811,111 @@ const LocalInsights = () => {
                 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
                 .li-font-display { font-family: 'Fraunces', serif; }
                 .li-font-mono { font-family: 'IBM Plex Mono', monospace; }
-                .insight-card { transition: all 0.3s ease; cursor: pointer; }
-                .insight-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-                .type-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 8px; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid rgba(199,154,62,0.2); }
-                .category-badge { display: inline-block; padding: 2px 12px; border-radius: 999px; font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; background: rgba(199,154,62,0.15); color: #0E5C53; }
-                .category-chip { padding: 6px 16px; border-radius: 999px; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; transition: all 0.25s ease; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
-                .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-                .modal-content { background: #FBF6EA; border-radius: 12px; padding: 32px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; border: 1px solid rgba(199,154,62,0.3); }
-                .modal-content-detail { background: #FBF6EA; border-radius: 12px; padding: 32px; max-width: 600px; width: 100%; max-height: 90vh; overflow-y: auto; border: 1px solid rgba(199,154,62,0.3); }
+
                 .refresh-btn { transition: transform 0.3s ease; }
                 .refresh-btn:hover { transform: rotate(180deg); }
                 .action-btn { transition: all 0.3s ease; }
-                .action-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+                .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.16); }
                 .spinning { animation: spin 0.8s linear infinite; }
                 @keyframes spin { to { transform: rotate(360deg); } }
+                @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+                .modal-overlay { position: fixed; inset: 0; background: rgba(5,20,18,0.55); backdrop-filter: blur(4px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+                .modal-content, .modal-content-detail { background: #FBF6EA; border-radius: 14px; padding: 32px; max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; border: 1px solid rgba(199,154,62,0.3); box-shadow: 0 24px 60px rgba(0,0,0,0.35); animation: fadeUp 0.25s ease; }
+                .modal-content-detail { max-width: 600px; padding: 0; }
+
+                .category-chip { padding: 7px 18px; border-radius: 999px; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; transition: all 0.25s ease; font-family: 'IBM Plex Mono', monospace; white-space: nowrap; }
+
+                .pagination-btn { transition: all 0.2s ease; }
+                .pagination-btn:hover:not(:disabled) { background: #C79A3E; color: #fff; border-color: #C79A3E; }
+                .pagination-btn.active { background: #C79A3E; color: #fff; }
+
+                .custom-category-input { display: flex; gap: 8px; align-items: center; width: 100%; }
+                .custom-category-input input { flex: 1; padding: 10px 14px; border: 1px solid rgba(199,154,62,0.3); border-radius: 6px; font-size: 13px; background: #fff; }
+                .custom-category-input input:focus { outline: none; border-color: #C79A3E; }
+                .custom-category-input button { padding: 8px 16px; border-radius: 6px; border: 1px solid #0E5C53; background: #0E5C53; color: #fff; font-size: 12px; cursor: pointer; white-space: nowrap; transition: all 0.2s ease; }
+                .custom-category-input button:hover { background: #0B3A34; }
+                .custom-category-input .cancel-btn { border: 1px solid #ccc; background: transparent; color: #666; }
+                .custom-category-input .cancel-btn:hover { background: #f5f5f5; }
+
+                .insight-card {
+                    background: #fff;
+                    border-radius: 14px;
+                    border: 1px solid rgba(199,154,62,0.18);
+                    overflow: hidden;
+                    cursor: pointer;
+                    transition: transform 0.28s cubic-bezier(.2,.8,.2,1), box-shadow 0.28s ease, border-color 0.28s ease;
+                    display: flex;
+                    flex-direction: column;
+                    animation: fadeUp 0.35s ease both;
+                }
+                .insight-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 16px 32px rgba(7,46,42,0.14);
+                    border-color: rgba(199,154,62,0.45);
+                }
+                .insight-card__media { position: relative; width: 100%; aspect-ratio: 4/3; background: linear-gradient(135deg, #EFE7CF, #E4D9B8); overflow: hidden; }
+                .insight-card__media img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.5s ease; }
+                .insight-card:hover .insight-card__media img { transform: scale(1.06); }
+                .insight-card__fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: rgba(11,36,34,0.25); }
+                .insight-card__type {
+                    position: absolute; top: 10px; left: 10px;
+                    display: flex; align-items: center; gap: 5px;
+                    padding: 4px 10px; border-radius: 999px;
+                    font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+                    backdrop-filter: blur(6px);
+                }
+                .insight-card__rating {
+                    position: absolute; bottom: 10px; right: 10px;
+                    display: flex; align-items: center; gap: 3px;
+                    background: rgba(7,46,42,0.82); color: #E4C77B;
+                    padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+                }
+                .insight-card__body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+                .insight-card__place { font-size: 16.5px; font-weight: 500; font-style: italic; color: #0B2422; line-height: 1.25; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .insight-card__district { display: flex; align-items: center; gap: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.03em; color: #0E5C53; }
+                .insight-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; margin-top: auto; border-top: 1px dashed rgba(199,154,62,0.3); }
+                .insight-card__author { display: flex; align-items: center; gap: 6px; min-width: 0; }
+                .insight-card__avatar { width: 20px; height: 20px; border-radius: 50%; background: #0E5C53; color: #EDE2C4; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+                .insight-card__mail { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #8A9A95; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .insight-card__category { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; letter-spacing: 0.03em; color: #93701F; flex-shrink: 0; }
+
+                .detail-hero { position: relative; width: 100%; aspect-ratio: 16/9; background: linear-gradient(135deg, #EFE7CF, #E4D9B8); }
+                .detail-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+                .detail-hero__overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(7,46,42,0.85), rgba(7,46,42,0) 55%); }
+                .detail-hero__title { position: absolute; left: 28px; right: 28px; bottom: 18px; color: #fff; }
+                .detail-close { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border-radius: 50%; background: rgba(7,46,42,0.6); color: #fff; border: none; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); transition: background 0.2s ease; }
+                .detail-close:hover { background: rgba(7,46,42,0.85); }
+                .detail-body { padding: 26px 30px 30px; }
+                .pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
+                .author-strip { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #FBF6EA; border: 1px solid rgba(199,154,62,0.18); border-radius: 10px; }
+                .author-strip__avatar { width: 38px; height: 38px; border-radius: 50%; background: #0E5C53; color: #EDE2C4; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; flex-shrink: 0; }
+                .author-strip__mail { display: flex; align-items: center; gap: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5C6E69; }
+
+                .stat-block { display: flex; flex-direction: column; }
+                .stat-block__num { font-family: 'Fraunces', serif; font-size: 21px; color: #E4C77B; line-height: 1; }
+                .stat-block__label { font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 1.6px; text-transform: uppercase; color: rgba(237,226,196,0.6); margin-top: 4px; }
+                .stat-divider { width: 1px; align-self: stretch; background: rgba(228,199,123,0.2); }
+
+                .field-label { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; color: #0B2422; margin-bottom: 5px; text-transform: uppercase; font-family: 'IBM Plex Mono', monospace; }
+                .field-input { width: 100%; padding: 11px 14px; border: 1px solid rgba(199,154,62,0.32); border-radius: 7px; font-size: 13.5px; background: #fff; transition: border-color 0.2s ease, box-shadow 0.2s ease; font-family: inherit; }
+                .field-input:focus { outline: none; border-color: #0E5C53; box-shadow: 0 0 0 3px rgba(14,92,83,0.1); }
+
+                .empty-state { text-align: center; padding: 64px 24px; color: #5C6E69; background: #fff; border-radius: 14px; border: 1px solid rgba(199,154,62,0.18); }
+
+                @media (max-width: 640px) {
+                    .detail-body { padding: 20px; }
+                    .detail-hero__title { left: 18px; right: 18px; }
+                }
             `}</style>
 
             {/* HEADER */}
-            <div style={{ background: "#072E2A", padding: "40px 20px 30px", position: "relative", overflow: "hidden" }}>
+            <div style={{ background: "#072E2A", padding: "40px 20px 32px", position: "relative", overflow: "hidden" }}>
                 <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 90% 0%, rgba(199,154,62,0.15), transparent 55%)" }} />
-                <div style={{ maxWidth: 860, margin: "0 auto", position: "relative" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
-                        <Link to="/" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid rgba(199,154,62,0.5)", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
-                            <svg width="16" height="16" fill="none" stroke="#E4C77B" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-                            </svg>
+                <div style={{ maxWidth: 900, margin: "0 auto", position: "relative" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+                        <Link to="/" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid rgba(199,154,62,0.5)", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", color: "#E4C77B" }}>
+                            <Icon.Back />
                         </Link>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                             <button
@@ -679,11 +938,9 @@ const LocalInsights = () => {
                                 title="Refresh insights"
                             >
                                 {(refreshing || loading) ? (
-                                    <div className="spinning" style={{ width: 16, height: 16, border: "2px solid #E4C77B", borderTop: "2px solid transparent", borderRadius: "50%" }} />
+                                    <div className="spinning" style={{ width: 15, height: 15, border: "2px solid #E4C77B", borderTop: "2px solid transparent", borderRadius: "50%" }} />
                                 ) : (
-                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                    </svg>
+                                    <Icon.Refresh />
                                 )}
                             </button>
                             <Link to="/" className="li-font-mono" style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: "#E4C77B", textDecoration: "none" }}>
@@ -692,19 +949,24 @@ const LocalInsights = () => {
                         </div>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                        <div>
-                            <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#E4C77B", marginBottom: 8 }}>
-                                Field notes from the ground
-                            </p>
-                            <h1 className="li-font-display" style={{ fontStyle: "italic", fontSize: 34, fontWeight: 500, color: "#fff", margin: 0, lineHeight: 1.05 }}>
-                                Local Insights
-                            </h1>
-                            <p style={{ fontSize: 12, color: "rgba(237,226,196,0.6)", marginTop: 4 }}>
-                                🌟 All implemented suggestions from travelers
-                            </p>
+                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                            <div style={{ width: 46, height: 46, borderRadius: "50%", border: "1px solid rgba(228,199,123,0.5)", display: "flex", alignItems: "center", justifyContent: "center", color: "#E4C77B", flexShrink: 0, marginTop: 4 }}>
+                                <Icon.Compass />
+                            </div>
+                            <div>
+                                <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#E4C77B", marginBottom: 8 }}>
+                                    Field notes from the ground
+                                </p>
+                                <h1 className="li-font-display" style={{ fontStyle: "italic", fontSize: 36, fontWeight: 500, color: "#fff", margin: 0, lineHeight: 1.05 }}>
+                                    Local Insights
+                                </h1>
+                                <p style={{ fontSize: 12.5, color: "rgba(237,226,196,0.65)", marginTop: 6 }}>
+                                    Real tips, hidden gems, and honest reviews from travelers on the ground
+                                </p>
+                            </div>
                         </div>
-                        
+
                         <button
                             onClick={() => navigate('/reviews')}
                             className="action-btn"
@@ -712,9 +974,9 @@ const LocalInsights = () => {
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 8,
-                                padding: "10px 22px",
+                                padding: "11px 24px",
                                 borderRadius: 999,
-                                border: "2px solid rgba(228,199,123,0.6)",
+                                border: "1.5px solid rgba(228,199,123,0.6)",
                                 background: "rgba(228,199,123,0.12)",
                                 color: "#E4C77B",
                                 fontSize: 12,
@@ -722,33 +984,28 @@ const LocalInsights = () => {
                                 textTransform: "uppercase",
                                 cursor: "pointer",
                                 fontFamily: "'IBM Plex Mono', monospace",
-                                transition: "all 0.3s ease",
                                 backdropFilter: "blur(4px)",
                             }}
                         >
-                            <span style={{ fontSize: 16 }}>⭐</span>
+                            <Icon.Star />
                             Write Review
                         </button>
                     </div>
 
-                    <p style={{ fontSize: 13, color: "rgba(237,226,196,0.75)", maxWidth: 460, lineHeight: 1.5, marginTop: 10 }}>
-                        Discover implemented suggestions from travelers across Kerala.
-                        {stats.insights > 0 && ` Currently showing ${stats.insights} items.`}
-                        {(refreshing) && ` 🔄 Refreshing...`}
-                    </p>
-
-                    <div style={{ display: "flex", gap: 22, marginTop: 24 }}>
-                        <div>
-                            <div className="li-font-display" style={{ fontSize: 20, color: "#E4C77B" }}>{stats.insights}</div>
-                            <div className="li-font-mono" style={{ fontSize: 9, letterSpacing: 1.5, textTransform: "uppercase", color: "rgba(237,226,196,0.6)" }}>items</div>
+                    <div style={{ display: "flex", gap: 24, marginTop: 28, alignItems: "stretch" }}>
+                        <div className="stat-block">
+                            <div className="stat-block__num">{stats.insights}</div>
+                            <div className="stat-block__label">Items</div>
                         </div>
-                        <div>
-                            <div className="li-font-display" style={{ fontSize: 20, color: "#E4C77B" }}>{stats.places}</div>
-                            <div className="li-font-mono" style={{ fontSize: 9, letterSpacing: 1.5, textTransform: "uppercase", color: "rgba(237,226,196,0.6)" }}>places</div>
+                        <div className="stat-divider" />
+                        <div className="stat-block">
+                            <div className="stat-block__num">{stats.places}</div>
+                            <div className="stat-block__label">Places</div>
                         </div>
-                        <div>
-                            <div className="li-font-display" style={{ fontSize: 20, color: "#E4C77B" }}>{stats.categories}</div>
-                            <div className="li-font-mono" style={{ fontSize: 9, letterSpacing: 1.5, textTransform: "uppercase", color: "rgba(237,226,196,0.6)" }}>categories</div>
+                        <div className="stat-divider" />
+                        <div className="stat-block">
+                            <div className="stat-block__num">{stats.categories}</div>
+                            <div className="stat-block__label">Categories</div>
                         </div>
                     </div>
                 </div>
@@ -758,9 +1015,8 @@ const LocalInsights = () => {
             </div>
 
             {/* MAIN CONTENT */}
-            <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 20px 0" }}>
-                
-                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+            <div style={{ maxWidth: 900, margin: "0 auto", padding: "30px 20px 0" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginBottom: 22 }}>
                     <button
                         onClick={() => setShowSuggestionModal(true)}
                         className="action-btn"
@@ -768,7 +1024,7 @@ const LocalInsights = () => {
                             display: "flex",
                             alignItems: "center",
                             gap: 8,
-                            padding: "10px 22px",
+                            padding: "11px 24px",
                             borderRadius: 999,
                             border: "2px solid #072E2A",
                             background: "#072E2A",
@@ -778,241 +1034,306 @@ const LocalInsights = () => {
                             textTransform: "uppercase",
                             cursor: "pointer",
                             fontFamily: "'IBM Plex Mono', monospace",
-                            transition: "all 0.3s ease",
                         }}
                     >
-                        <span style={{ fontSize: 16 }}>+</span>
+                        <Icon.Plus />
                         Suggest
                     </button>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
                     <p className="li-font-mono" style={{ fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#0E5C53", margin: 0 }}>
-                        Implemented Suggestions ({filteredInsights.length})
+                        Implemented Suggestions ({filteredCount})
                     </p>
                     <p style={{ fontSize: 11, color: "#8A9A95", margin: 0 }}>
                         {totalItems} total items
                     </p>
                 </div>
 
-                <div style={{ marginBottom: 20 }}>
+                <div style={{ marginBottom: 22 }}>
                     <ZariDivider />
                 </div>
 
                 {/* Category Filter */}
                 {insights.length > 0 && !loading && (
-                    <div style={{ display: "flex", gap: 8, marginBottom: 20, overflowX: "auto", paddingBottom: 8, scrollbarWidth: "thin", WebkitOverflowScrolling: "touch" }}>
+                    <div style={{ display: "flex", gap: 22, marginBottom: 24, overflowX: "auto", paddingBottom: 10, scrollbarWidth: "thin", WebkitOverflowScrolling: "touch", borderBottom: "1px solid rgba(199,154,62,0.2)" }}>
                         {categories.map((cat) => (
                             <button
                                 key={cat}
-                                className="category-chip"
                                 onClick={() => setActiveCategory(cat)}
+                                className="li-font-mono"
                                 style={{
-                                    border: activeCategory === cat ? '2px solid #0E5C53' : '1px solid rgba(199,154,62,0.35)',
-                                    background: activeCategory === cat ? '#0E5C53' : 'transparent',
-                                    color: activeCategory === cat ? '#fff' : '#5C6E69',
-                                    padding: "6px 18px",
-                                    borderRadius: 999,
-                                    fontSize: 11,
-                                    letterSpacing: "0.05em",
+                                    background: "none",
+                                    border: "none",
+                                    borderBottom: activeCategory === cat ? "2px solid #0E5C53" : "2px solid transparent",
+                                    marginBottom: -11,
+                                    paddingBottom: 10,
+                                    color: activeCategory === cat ? "#0E5C53" : "#8A9A95",
+                                    fontSize: 11.5,
+                                    letterSpacing: "0.06em",
                                     textTransform: "uppercase",
                                     cursor: "pointer",
-                                    transition: "all 0.25s ease",
-                                    fontFamily: "'IBM Plex Mono', monospace",
                                     whiteSpace: "nowrap",
+                                    fontWeight: activeCategory === cat ? 600 : 400,
+                                    transition: "color 0.2s ease",
                                 }}
                             >
-                                {cat === 'all' ? 'All' : cat}
+                                {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
                             </button>
                         ))}
                     </div>
                 )}
 
-                {/* Insights List */}
+                {/* ✅ GRID */}
                 {loading ? (
                     <div style={{ textAlign: "center", padding: "60px 0" }}>
                         <div style={{ display: "inline-block", width: 30, height: 30, border: "2px solid #C79A3E", borderTop: "2px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                         <p style={{ marginTop: 12, color: "#5C6E69", fontSize: 13 }}>Loading...</p>
                     </div>
+                ) : insights.length === 0 ? (
+                    <div className="empty-state">
+                        <div style={{ width: 48, height: 48, borderRadius: "50%", border: "1px solid rgba(199,154,62,0.4)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", color: "#C79A3E" }}>
+                            <Icon.Bulb />
+                        </div>
+                        <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>
+                            No implemented suggestions yet
+                        </p>
+                        <p style={{ fontSize: 13, marginTop: 8 }}>
+                            Check back later or suggest a new destination!
+                        </p>
+                        <button
+                            onClick={() => setShowSuggestionModal(true)}
+                            style={{
+                                marginTop: 18,
+                                padding: "10px 24px",
+                                borderRadius: 999,
+                                border: "1px solid #072E2A",
+                                background: "#072E2A",
+                                color: "#E4C77B",
+                                fontSize: 11,
+                                cursor: "pointer",
+                                fontFamily: "'IBM Plex Mono', monospace",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                            }}
+                        >
+                            <Icon.Plus /> Suggest a Destination
+                        </button>
+                    </div>
                 ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
-                        {filteredInsights.length === 0 ? (
-                            <div style={{ textAlign: "center", padding: "60px 20px", color: "#5C6E69", background: "#fff", borderRadius: 8, border: "1px solid rgba(199,154,62,0.15)" }}>
-                                <p style={{ fontSize: 16, fontWeight: 500, margin: 0 }}>
-                                    No implemented suggestions yet
-                                </p>
-                                <p style={{ fontSize: 13, marginTop: 8 }}>
-                                    Check back later or suggest a new destination!
-                                </p>
-                                <button
-                                    onClick={() => setShowSuggestionModal(true)}
-                                    style={{
-                                        marginTop: 16,
-                                        padding: "10px 24px",
-                                        borderRadius: 999,
-                                        border: "1px solid #072E2A",
-                                        background: "#072E2A",
-                                        color: "#E4C77B",
-                                        fontSize: 11,
-                                        cursor: "pointer",
-                                        fontFamily: "'IBM Plex Mono', monospace"
-                                    }}
-                                >
-                                    + Suggest a Destination
-                                </button>
-                            </div>
-                        ) : (
-                            <>
-                                {filteredInsights.map((insight, index) => {
-                                    // Get type info for display
-                                    const typeEmoji = insight.typeEmoji || '💡';
-                                    const typeLabel = insight.typeLabel || '💡 Insight';
-                                    
-                                    return (
-                                        <div
-                                            key={insight.id}
-                                            ref={index === filteredInsights.length - 1 ? lastElementRef : null}
-                                            className="insight-card"
-                                            onClick={() => openDetailModal(insight)}
-                                            style={{
-                                                background: "#fff",
-                                                borderRadius: 8,
-                                                padding: "20px 24px",
-                                                border: "1px solid rgba(199,154,62,0.25)",
-                                                position: 'relative',
-                                                transition: "all 0.3s ease",
-                                                cursor: "pointer"
-                                            }}
-                                        >
-                                            <div style={{ display: "flex", gap: 6, position: 'absolute', top: 14, right: 16 }}>
-                                                <span className="type-badge" style={{ 
-                                                    background: insight.typeDisplay === 'review' ? 'rgba(255,152,0,0.15)' : 
-                                                               insight.typeDisplay === 'hidden_gem' ? 'rgba(199,154,62,0.15)' : 
-                                                               'rgba(14,92,83,0.15)',
-                                                    color: insight.typeDisplay === 'review' ? '#FF9800' : 
-                                                           insight.typeDisplay === 'hidden_gem' ? '#C79A3E' : 
-                                                           '#0E5C53',
-                                                    borderColor: insight.typeDisplay === 'review' ? 'rgba(255,152,0,0.3)' : 
-                                                                insight.typeDisplay === 'hidden_gem' ? 'rgba(199,154,62,0.3)' : 
-                                                                'rgba(14,92,83,0.3)',
-                                                }}>
-                                                    {typeEmoji} {typeLabel}
+                    <>
+                        <div style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
+                            gap: 18
+                        }}>
+                            {paginatedItems.map((insight, idx) => {
+                                const hasImage = insight.image && insight.image.length > 0;
+                                const t = TYPE_STYLE[insight.typeDisplay] || TYPE_STYLE.insight;
+                                const TypeIcon = t.icon;
+                                const authorLabel = insight.author || 'Anonymous Traveler';
+                                const mailLabel = insight.email || insight.user_email || '';
+
+                                return (
+                                    <div
+                                        key={insight.id}
+                                        className="insight-card"
+                                        style={{ animationDelay: `${Math.min(idx, 8) * 40}ms` }}
+                                        onClick={() => openDetailModal(insight)}
+                                    >
+                                        <div className="insight-card__media">
+                                            {hasImage ? (
+                                                <img
+                                                    src={insight.image}
+                                                    alt={insight.place}
+                                                    onError={(e) => {
+                                                        e.target.style.display = 'none';
+                                                        const parent = e.target.parentElement;
+                                                        const fallback = parent.querySelector('.insight-card__fallback');
+                                                        if (fallback) fallback.style.display = 'flex';
+                                                    }}
+                                                />
+                                            ) : null}
+                                            <div className="insight-card__fallback" style={{ display: hasImage ? 'none' : 'flex' }}>
+                                                <TypeIcon width="34" height="34" />
+                                            </div>
+                                            <span className="insight-card__type" style={{ background: t.bg, color: t.fg }}>
+                                                <TypeIcon />
+                                                {insight.typeLabel}
+                                            </span>
+                                            {insight.rating ? (
+                                                <span className="insight-card__rating">
+                                                    <Icon.Star /> {insight.rating}
                                                 </span>
-                                            </div>
+                                            ) : null}
+                                        </div>
 
-                                            <div style={{ display: "flex", gap: 16, marginBottom: 8 }}>
-                                                {insight.image && (
-                                                    <div style={{ flexShrink: 0 }}>
-                                                        <img 
-                                                            src={insight.image} 
-                                                            alt={insight.place} 
-                                                            style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover', border: '1px solid rgba(199,154,62,0.15)' }} 
-                                                        />
-                                                    </div>
-                                                )}
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    {/* ✅ PLACE NAME AS HEADING */}
-                                                    <h3 style={{ 
-                                                        fontWeight: 600, 
-                                                        fontSize: 18, 
-                                                        color: "#0B2422", 
-                                                        margin: "0 0 4px 0",
-                                                        fontFamily: "'Fraunces', serif",
-                                                        fontStyle: "italic",
-                                                        letterSpacing: "-0.3px",
-                                                    }}>
-                                                        {insight.place || 'Unknown Place'}
-                                                    </h3>
-                                                    
-                                                    {/* ✅ EMAIL IN GREY BELOW */}
-                                                    <p style={{ 
-                                                        fontSize: 12, 
-                                                        color: "#8A9A95", 
-                                                        margin: 0,
-                                                        fontFamily: "'IBM Plex Mono', monospace",
-                                                        letterSpacing: "0.3px",
-                                                    }}>
-                                                        {insight.email || insight.author || 'Anonymous'}
-                                                    </p>
-                                                </div>
-                                            </div>
+                                        <div className="insight-card__body">
+                                            <p className="li-font-display insight-card__place">{insight.place || 'Unknown Place'}</p>
 
-                                            {/* Description/Tip */}
-                                            <p style={{ 
-                                                fontSize: 13, 
-                                                color: "#4A5F5A", 
-                                                margin: "0 0 10px 0", 
-                                                lineHeight: 1.6,
-                                                paddingLeft: insight.image ? 0 : 0,
-                                            }}>
-                                                {insight.tip || insight.description}
-                                            </p>
-
-                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                                                {insight.category && insight.category !== 'other' && (
-                                                    <span className="category-badge">{insight.category}</span>
-                                                )}
-                                                {insight.rating && (
-                                                    <span className="category-badge" style={{ background: 'rgba(255,152,0,0.15)', color: '#FF9800' }}>
-                                                        {'★'.repeat(Math.round(insight.rating))} {insight.rating}/5
-                                                    </span>
-                                                )}
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                                                 {insight.district && insight.district !== 'Unknown' && (
-                                                    <span className="category-badge" style={{ background: 'rgba(199,154,62,0.25)' }}>
-                                                        📍 {insight.district}
+                                                    <span className="insight-card__district">
+                                                        <Icon.Pin /> {insight.district}
                                                     </span>
                                                 )}
-                                                <span className="category-badge" style={{ background: 'rgba(45,143,110,0.15)', color: '#2D8F6E' }}>
-                                                    ✅ Implemented
-                                                </span>
+                                                {insight.category && insight.category !== 'other' && insight.category !== 'general' && (
+                                                    <span className="insight-card__category">
+                                                        <Icon.Tag /> {insight.category}
+                                                    </span>
+                                                )}
                                             </div>
 
-                                            <div style={{ marginTop: 10, fontSize: 11, color: "#C79A3E", display: "flex", alignItems: "center", gap: 4 }}>
-                                                <span>👆 Click to view details</span>
+                                            <div className="insight-card__meta">
+                                                <div className="insight-card__author">
+                                                    <div className="insight-card__avatar">{authorLabel?.[0]?.toUpperCase() || 'U'}</div>
+                                                    {mailLabel ? (
+                                                        <span className="insight-card__mail" title={mailLabel}>
+                                                            {mailLabel}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="insight-card__mail" style={{ fontStyle: 'italic' }}>{authorLabel}</span>
+                                                    )}
+                                                </div>
+                                                <Icon.Mail style={{ color: '#C79A3E', flexShrink: 0 }} />
                                             </div>
                                         </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* ✅ Pagination */}
+                        {totalPages > 1 && (
+                            <div style={{
+                                display: "flex",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                gap: 6,
+                                marginTop: 28,
+                                paddingTop: 18,
+                                borderTop: "1px solid rgba(199,154,62,0.15)",
+                                flexWrap: "wrap"
+                            }}>
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                    disabled={currentPage === 1}
+                                    className="pagination-btn"
+                                    style={{
+                                        padding: "8px 16px",
+                                        borderRadius: 6,
+                                        border: "1px solid rgba(199,154,62,0.25)",
+                                        background: "transparent",
+                                        color: currentPage === 1 ? "#ccc" : "#0B2422",
+                                        cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                                        fontSize: 12,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                        opacity: currentPage === 1 ? 0.5 : 1,
+                                    }}
+                                >
+                                    <Icon.Back width="12" height="12" /> Prev
+                                </button>
+
+                                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                                    let pageNum;
+                                    if (totalPages <= 5) {
+                                        pageNum = i + 1;
+                                    } else if (currentPage <= 3) {
+                                        pageNum = i + 1;
+                                    } else if (currentPage >= totalPages - 2) {
+                                        pageNum = totalPages - 4 + i;
+                                    } else {
+                                        pageNum = currentPage - 2 + i;
+                                    }
+
+                                    return (
+                                        <button
+                                            key={pageNum}
+                                            onClick={() => setCurrentPage(pageNum)}
+                                            className={`pagination-btn ${currentPage === pageNum ? 'active' : ''}`}
+                                            style={{
+                                                padding: "8px 14px",
+                                                borderRadius: 6,
+                                                border: currentPage === pageNum ? "1px solid #C79A3E" : "1px solid rgba(199,154,62,0.25)",
+                                                background: currentPage === pageNum ? "#C79A3E" : "transparent",
+                                                color: currentPage === pageNum ? "#fff" : "#0B2422",
+                                                cursor: "pointer",
+                                                fontSize: 12,
+                                                fontWeight: currentPage === pageNum ? 600 : 400,
+                                                minWidth: 36,
+                                            }}
+                                        >
+                                            {pageNum}
+                                        </button>
                                     );
                                 })}
-                                
-                                {isLoadingMore && (
-                                    <div style={{ textAlign: "center", padding: "20px" }}>
-                                        <div style={{ display: "inline-block", width: 24, height: 24, border: "2px solid #C79A3E", borderTop: "2px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                                        <p style={{ marginTop: 8, color: "#8A9A95", fontSize: 12 }}>Loading more...</p>
-                                    </div>
-                                )}
-                                
-                                {!hasMore && filteredInsights.length > 0 && (
-                                    <div style={{ textAlign: "center", padding: "20px", color: "#8A9A95", fontSize: 12 }}>
-                                        <p>✨ You've seen all {totalItems} items</p>
-                                    </div>
-                                )}
-                            </>
+
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                    disabled={currentPage === totalPages}
+                                    className="pagination-btn"
+                                    style={{
+                                        padding: "8px 16px",
+                                        borderRadius: 6,
+                                        border: "1px solid rgba(199,154,62,0.25)",
+                                        background: "transparent",
+                                        color: currentPage === totalPages ? "#ccc" : "#0B2422",
+                                        cursor: currentPage === totalPages ? "not-allowed" : "pointer",
+                                        fontSize: 12,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                        opacity: currentPage === totalPages ? 0.5 : 1,
+                                    }}
+                                >
+                                    Next <Icon.Back width="12" height="12" style={{ transform: 'rotate(180deg)' }} />
+                                </button>
+                            </div>
                         )}
-                    </div>
+
+                        {/* Page info */}
+                        {filteredCount > 0 && (
+                            <div style={{
+                                textAlign: "center",
+                                marginTop: 14,
+                                fontSize: 12,
+                                color: "#8A9A95",
+                                fontFamily: "'IBM Plex Mono', monospace"
+                            }}>
+                                Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredCount)} of {filteredCount} items
+                                {totalItems !== filteredCount && ` (filtered from ${totalItems} total)`}
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {/* CTA Section */}
                 {!loading && !refreshing && (
-                    <div style={{ marginTop: 32, borderRadius: 8, border: "2px dashed rgba(199,154,62,0.4)", padding: "40px 24px", textAlign: "center", background: "radial-gradient(circle at top right, rgba(199,154,62,0.05), transparent 60%)" }}>
-                        <div style={{ width: 56, height: 56, borderRadius: "50%", border: "1px solid #C79A3E", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 14px" }}>✨</div>
-                        <h3 className="li-font-display" style={{ fontSize: 22, color: "#0B2422", margin: "0 0 6px" }}>Know a hidden gem?</h3>
-                        <p style={{ fontSize: 14, color: "#5C6E69", margin: "0 0 20px", maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
+                    <div style={{ marginTop: 36, borderRadius: 14, border: "2px dashed rgba(199,154,62,0.4)", padding: "42px 24px", textAlign: "center", background: "radial-gradient(circle at top right, rgba(199,154,62,0.06), transparent 60%)" }}>
+                        <div style={{ width: 56, height: 56, borderRadius: "50%", border: "1px solid #C79A3E", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", color: "#C79A3E" }}>
+                            <Icon.Sparkle />
+                        </div>
+                        <h3 className="li-font-display" style={{ fontSize: 23, fontStyle: "italic", color: "#0B2422", margin: "0 0 6px" }}>Know a hidden gem?</h3>
+                        <p style={{ fontSize: 14, color: "#5C6E69", margin: "0 0 22px", maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
                             Suggest a destination or write a review to help fellow travelers!
                         </p>
                         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                             <button
                                 onClick={() => setShowSuggestionModal(true)}
-                                className="li-font-mono"
-                                style={{ padding: "12px 32px", borderRadius: 999, border: "1px solid #0B2422", background: "#0B2422", color: "#fff", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.3s ease" }}
+                                className="li-font-mono action-btn"
+                                style={{ padding: "13px 32px", borderRadius: 999, border: "1px solid #0B2422", background: "#0B2422", color: "#fff", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
                             >
-                                ✨ Suggest
+                                <Icon.Sparkle width="14" height="14" /> Suggest
                             </button>
                             <button
                                 onClick={() => navigate('/reviews')}
-                                className="li-font-mono"
-                                style={{ padding: "12px 32px", borderRadius: 999, border: "1px solid #0E5C53", background: "transparent", color: "#0E5C53", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.3s ease" }}
+                                className="li-font-mono action-btn"
+                                style={{ padding: "13px 32px", borderRadius: 999, border: "1px solid #0E5C53", background: "transparent", color: "#0E5C53", fontSize: 11, letterSpacing: "0.15em", textTransform: "uppercase", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
                             >
-                                ⭐ Write a Review
+                                <Icon.Star width="13" height="13" /> Write a Review
                             </button>
                         </div>
                     </div>
@@ -1023,44 +1344,44 @@ const LocalInsights = () => {
             {showSuggestionModal && (
                 <div className="modal-overlay" onClick={() => setShowSuggestionModal(false)}>
                     <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                            <h2 className="li-font-display" style={{ fontSize: 24, color: "#0B2422", margin: 0 }}>Suggest a Destination</h2>
-                            <button onClick={() => setShowSuggestionModal(false)} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#5C6E69" }}>×</button>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <h2 className="li-font-display" style={{ fontSize: 25, fontStyle: "italic", color: "#0B2422", margin: 0 }}>Suggest a Destination</h2>
+                            <button onClick={() => setShowSuggestionModal(false)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#5C6E69", lineHeight: 1 }}>×</button>
                         </div>
-                        <p style={{ fontSize: 13, color: "#5C6E69", marginBottom: 20 }}>
+                        <p style={{ fontSize: 13, color: "#5C6E69", marginBottom: 22 }}>
                             Share a hidden gem with our local guides. They'll review and add it to our collection.
                         </p>
 
                         {submitError && (
-                            <div style={{ background: "#FEE2E2", color: "#DC2626", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, border: "1px solid #FCA5A5" }}>
-                                ❌ {submitError}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#FEE2E2", color: "#DC2626", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, border: "1px solid #FCA5A5" }}>
+                                <Icon.Alert /> {submitError}
                             </div>
                         )}
 
                         {submitSuccess && (
-                            <div style={{ background: "#DCFCE7", color: "#16A34A", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, border: "1px solid #86EFAC" }}>
-                                ✅ Your suggestion has been submitted successfully!
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#DCFCE7", color: "#16A34A", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13, border: "1px solid #86EFAC" }}>
+                                <Icon.Check /> Your suggestion has been submitted successfully!
                             </div>
                         )}
 
                         <form onSubmit={handleSubmitSuggestion} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                             <div>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Place Name *</label>
+                                <label className="field-label">Place Name *</label>
                                 <input
                                     type="text"
                                     required
                                     placeholder="e.g., Ranipuram, Kottayam"
-                                    style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff" }}
+                                    className="field-input"
                                     value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 />
                             </div>
 
                             <div>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>District *</label>
+                                <label className="field-label">District *</label>
                                 <select
                                     required
-                                    style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff" }}
+                                    className="field-input"
                                     value={formData.district}
                                     onChange={(e) => setFormData({ ...formData, district: e.target.value })}
                                 >
@@ -1084,66 +1405,118 @@ const LocalInsights = () => {
                             </div>
 
                             <div>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Category</label>
-                                <select
-                                    style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff" }}
-                                    value={formData.category}
-                                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                >
-                                    <option value="">Select category</option>
-                                    <option value="beach">Beach</option>
-                                    <option value="hill">Hill Station</option>
-                                    <option value="backwater">Backwater</option>
-                                    <option value="heritage">Heritage</option>
-                                    <option value="wildlife">Wildlife</option>
-                                    <option value="temple">Temple</option>
-                                    <option value="waterfalls">Waterfalls</option>
-                                    <option value="nature">Nature</option>
-                                    <option value="fort">Fort/Palace</option>
-                                    <option value="museum">Museum</option>
-                                    <option value="camping">Camping</option>
-                                    <option value="islands">Islands</option>
-                                    <option value="sacred">Sacred Site</option>
-                                    <option value="off-road">Off Road</option>
-                                    <option value="parks">Parks</option>
-                                    <option value="other">Other</option>
-                                </select>
+                                <label className="field-label">Category</label>
+                                {!showCustomCategoryInput ? (
+                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                        <select
+                                            className="field-input"
+                                            value={formData.category}
+                                            onChange={(e) => {
+                                                if (e.target.value === '__custom__') {
+                                                    setShowCustomCategoryInput(true);
+                                                    setCustomCategory('');
+                                                } else {
+                                                    setFormData({ ...formData, category: e.target.value });
+                                                }
+                                            }}
+                                        >
+                                            <option value="">Select category</option>
+                                            {availableCategories
+                                                .filter(c => c && c.trim() !== '')
+                                                .sort()
+                                                .map((cat) => (
+                                                    <option key={cat} value={cat}>
+                                                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                                                    </option>
+                                                ))
+                                            }
+                                            <option value="__custom__">+ Add new category...</option>
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <div className="custom-category-input">
+                                        <input
+                                            type="text"
+                                            placeholder="Enter new category name..."
+                                            value={customCategory}
+                                            onChange={(e) => {
+                                                setCustomCategory(e.target.value);
+                                                setFormData({ ...formData, category: e.target.value });
+                                            }}
+                                            autoFocus
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (customCategory.trim()) {
+                                                    const newCategory = customCategory.trim().toLowerCase();
+                                                    setAvailableCategories(prev => {
+                                                        if (!prev.includes(newCategory)) {
+                                                            return [...prev, newCategory].sort();
+                                                        }
+                                                        return prev;
+                                                    });
+                                                    setFormData({ ...formData, category: newCategory });
+                                                    setShowCustomCategoryInput(false);
+                                                    setCustomCategory('');
+                                                }
+                                            }}
+                                        >
+                                            Add
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="cancel-btn"
+                                            onClick={() => {
+                                                setShowCustomCategoryInput(false);
+                                                setCustomCategory('');
+                                                setFormData({ ...formData, category: '' });
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                )}
+                                <p style={{ fontSize: 11, color: "#8A9A95", marginTop: 4 }}>
+                                    {availableCategories.length} categories available. Add your own!
+                                </p>
                             </div>
 
                             <div>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Location Info</label>
+                                <label className="field-label">Location Info</label>
                                 <input
                                     type="text"
                                     placeholder="e.g., District, nearby landmarks, how to reach"
-                                    style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff" }}
+                                    className="field-input"
                                     value={formData.location_info}
                                     onChange={(e) => setFormData({ ...formData, location_info: e.target.value })}
                                 />
                             </div>
 
                             <div>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Description *</label>
+                                <label className="field-label">Description *</label>
                                 <textarea
                                     required
                                     rows="4"
                                     placeholder="Describe this place in detail... What makes it special? Any tips for travelers?"
-                                    style={{ width: "100%", padding: "10px 14px", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 4, fontSize: 13, background: "#fff", resize: "vertical" }}
+                                    className="field-input"
+                                    style={{ resize: "vertical" }}
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                 />
                             </div>
 
                             <div>
-                                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#0B2422", marginBottom: 4 }}>Upload Photo</label>
+                                <label className="field-label">Upload Photo</label>
                                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                    <label style={{ cursor: "pointer", background: "#FBF6EA", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 8, padding: "10px 16px", transition: "all 0.3s ease", fontSize: 13, color: "#0B2422" }}>
-                                        <span>📷 Choose Image</span>
-                                        <input 
+                                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", background: "#FBF6EA", border: "1px solid rgba(199,154,62,0.3)", borderRadius: 8, padding: "10px 16px", fontSize: 13, color: "#0B2422" }}>
+                                        <Icon.Camera /> Choose Image
+                                        <input
                                             id="image-upload-input"
-                                            type="file" 
-                                            accept="image/*" 
-                                            onChange={handleImageChange} 
-                                            style={{ display: "none" }} 
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={handleImageChange}
+                                            style={{ display: "none" }}
                                         />
                                     </label>
                                     {imagePreview && (
@@ -1158,14 +1531,16 @@ const LocalInsights = () => {
                                 )}
                             </div>
 
-                            <div style={{ background: "#f0f7f5", padding: "14px", borderRadius: 8, fontSize: 12, color: "#0E5C53", lineHeight: 1.5 }}>
-                                💡 Your suggestion will be sent to our local guides for review. Once implemented, it will appear for all travelers to see.
+                            <div style={{ display: "flex", gap: 8, background: "#f0f7f5", padding: "14px", borderRadius: 8, fontSize: 12, color: "#0E5C53", lineHeight: 1.5 }}>
+                                <Icon.Bulb style={{ flexShrink: 0, marginTop: 1 }} />
+                                <span>Your suggestion will be sent to our local guides for review. Once implemented, it will appear for all travelers to see.</span>
                             </div>
 
                             <button
                                 type="submit"
                                 disabled={submitting}
                                 style={{
+                                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                                     padding: "14px 28px",
                                     borderRadius: 999,
                                     border: "none",
@@ -1177,10 +1552,9 @@ const LocalInsights = () => {
                                     cursor: submitting ? "not-allowed" : "pointer",
                                     opacity: submitting ? 0.6 : 1,
                                     fontFamily: "'IBM Plex Mono', monospace",
-                                    transition: "all 0.3s ease"
                                 }}
                             >
-                                {submitting ? 'Submitting...' : '📤 Submit Suggestion'}
+                                <Icon.Send /> {submitting ? 'Submitting...' : 'Submit Suggestion'}
                             </button>
                         </form>
                     </div>
@@ -1191,120 +1565,114 @@ const LocalInsights = () => {
             {showDetailModal && selectedInsight && (
                 <div className="modal-overlay" onClick={closeDetailModal}>
                     <div className="modal-content-detail" onClick={(e) => e.stopPropagation()}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                            <h2 className="li-font-display" style={{ fontSize: 24, color: "#0B2422", margin: 0 }}>{selectedInsight.place}</h2>
-                            <button onClick={closeDetailModal} style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#5C6E69" }}>×</button>
+                        <div className="detail-hero">
+                            {selectedInsight.image ? (
+                                <img
+                                    src={selectedInsight.image}
+                                    alt={selectedInsight.place}
+                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                />
+                            ) : null}
+                            <div className="detail-hero__overlay" />
+                            <button className="detail-close" onClick={closeDetailModal}>×</button>
+                            <div className="detail-hero__title">
+                                <h2 className="li-font-display" style={{ fontSize: 26, fontStyle: "italic", margin: 0 }}>{selectedInsight.place}</h2>
+                            </div>
                         </div>
 
-                        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-                            <span className="type-badge" style={{ 
-                                background: selectedInsight.typeDisplay === 'review' ? 'rgba(255,152,0,0.15)' : 
-                                           selectedInsight.typeDisplay === 'hidden_gem' ? 'rgba(199,154,62,0.15)' : 
-                                           'rgba(14,92,83,0.15)',
-                                color: selectedInsight.typeDisplay === 'review' ? '#FF9800' : 
-                                       selectedInsight.typeDisplay === 'hidden_gem' ? '#C79A3E' : 
-                                       '#0E5C53',
-                            }}>
-                                {selectedInsight.typeEmoji || '💡'} {selectedInsight.typeLabel || 'Insight'}
-                            </span>
-                            {selectedInsight.category && <span className="category-badge">{selectedInsight.category}</span>}
-                            {selectedInsight.district && <span className="category-badge" style={{ background: "rgba(199,154,62,0.25)" }}>📍 {selectedInsight.district}</span>}
-                            {selectedInsight.rating && (
-                                <span className="category-badge" style={{ background: 'rgba(255,152,0,0.15)', color: '#FF9800' }}>
-                                    {'★'.repeat(Math.round(selectedInsight.rating))} {selectedInsight.rating}/5
-                                </span>
+                        <div className="detail-body">
+                            <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+                                {(() => {
+                                    const t = TYPE_STYLE[selectedInsight.typeDisplay] || TYPE_STYLE.insight;
+                                    const TypeIcon = t.icon;
+                                    return (
+                                        <span className="pill" style={{ background: t.bg, color: t.fg }}>
+                                            <TypeIcon /> {selectedInsight.typeLabel || 'Insight'}
+                                        </span>
+                                    );
+                                })()}
+                                {selectedInsight.category && selectedInsight.category !== 'other' && selectedInsight.category !== 'general' && (
+                                    <span className="pill" style={{ background: 'rgba(14,92,83,0.13)', color: '#0E5C53' }}>
+                                        <Icon.Tag /> {selectedInsight.category}
+                                    </span>
+                                )}
+                                {selectedInsight.district && selectedInsight.district !== 'Unknown' && (
+                                    <span className="pill" style={{ background: "rgba(199,154,62,0.2)", color: "#8A6A1F" }}>
+                                        <Icon.Pin /> {selectedInsight.district}
+                                    </span>
+                                )}
+                                {selectedInsight.rating && (
+                                    <span className="pill" style={{ background: 'rgba(255,152,0,0.14)', color: '#B4700C' }}>
+                                        <Icon.Star /> {selectedInsight.rating}/5
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="author-strip" style={{ marginBottom: 18 }}>
+                                <div className="author-strip__avatar">
+                                    {selectedInsight.author?.[0]?.toUpperCase() || 'U'}
+                                </div>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                    <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>
+                                        {selectedInsight.author || 'Anonymous Traveler'}
+                                    </p>
+                                    <p className="author-strip__mail" style={{ margin: "2px 0 0" }}>
+                                        <Icon.Mail /> {selectedInsight.email || 'No email provided'}
+                                    </p>
+                                </div>
+                                <p className="li-font-mono" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#5C6E69", flexShrink: 0 }}>
+                                    <Icon.Calendar /> {selectedInsight.created_at ? new Date(selectedInsight.created_at).toLocaleDateString() : 'Recently'}
+                                </p>
+                            </div>
+
+                            {selectedInsight.location && (
+                                <div style={{ marginBottom: 14 }}>
+                                    <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#0B2422", margin: "0 0 5px", textTransform: "uppercase", letterSpacing: "0.03em" }}><Icon.Pin /> Location</h4>
+                                    <p style={{ fontSize: 13, color: "#5C6E69", margin: 0 }}>{selectedInsight.location}</p>
+                                </div>
                             )}
-                            <span className="category-badge" style={{ background: 'rgba(45,143,110,0.15)', color: '#2D8F6E' }}>
-                                ✅ Implemented
-                            </span>
-                        </div>
 
-                        {selectedInsight.image && (
-                            <div style={{ marginBottom: 16 }}>
-                                <img src={selectedInsight.image} alt={selectedInsight.place} style={{ width: '100%', maxHeight: 300, objectFit: 'cover', borderRadius: 8, border: '1px solid rgba(199,154,62,0.2)' }} />
-                            </div>
-                        )}
-
-                        {/* Author Email Section */}
-                        <div style={{ 
-                            display: "flex", 
-                            alignItems: "center", 
-                            gap: 12, 
-                            marginBottom: 16,
-                            padding: "12px 16px",
-                            background: "#FBF6EA",
-                            borderRadius: 8,
-                            border: "1px solid rgba(199,154,62,0.1)",
-                        }}>
-                            <div style={{ 
-                                width: 36, 
-                                height: 36, 
-                                borderRadius: "50%", 
-                                border: "1px solid #C79A3E", 
-                                display: "flex", 
-                                alignItems: "center", 
-                                justifyContent: "center", 
-                                fontSize: 14, 
-                                color: "#0E5C53", 
-                                background: "#FBF6EA",
-                                flexShrink: 0,
-                            }}>
-                                {selectedInsight.author?.[0]?.toUpperCase() || 'U'}
-                            </div>
-                            <div>
-                                <p style={{ fontWeight: 600, color: "#0B2422", margin: 0, fontSize: 14 }}>
-                                    {selectedInsight.author || 'Anonymous Traveler'}
-                                </p>
-                                <p className="li-font-mono" style={{ fontSize: 11, color: "#8A9A95", margin: 0 }}>
-                                    {selectedInsight.email || 'No email provided'}
+                            <div style={{ marginBottom: 14 }}>
+                                <h4 style={{ fontSize: 12.5, fontWeight: 600, color: "#0B2422", margin: "0 0 5px", textTransform: "uppercase", letterSpacing: "0.03em" }}>Description</h4>
+                                <p style={{ fontSize: 13.5, color: "#4A5F5A", lineHeight: 1.65, margin: 0 }}>
+                                    {selectedInsight.description || selectedInsight.tip || 'No description provided.'}
                                 </p>
                             </div>
-                            <p className="li-font-mono" style={{ fontSize: 10, color: "#5C6E69", marginLeft: "auto" }}>
-                                📅 {selectedInsight.created_at ? new Date(selectedInsight.created_at).toLocaleDateString() : 'Recently'}
-                            </p>
+
+                            {selectedInsight.tip && selectedInsight.tip !== selectedInsight.description && (
+                                <div style={{ marginBottom: 14, background: "#F0F7F5", padding: "14px 16px", borderRadius: 10, borderLeft: "3px solid #0E5C53" }}>
+                                    <h4 style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#0E5C53", margin: "0 0 5px", textTransform: "uppercase", letterSpacing: "0.03em" }}><Icon.Bulb /> Tips</h4>
+                                    <p style={{ fontSize: 13.5, color: "#4A5F5A", lineHeight: 1.65, margin: 0 }}>{selectedInsight.tip}</p>
+                                </div>
+                            )}
+
+                            {selectedInsight.admin_notes && (
+                                <div style={{ marginBottom: 6, background: "rgba(45,143,110,0.08)", padding: "12px 16px", borderRadius: 8, borderLeft: "3px solid #2D8F6E" }}>
+                                    <h4 className="li-font-mono" style={{ fontSize: 11.5, color: "#2D8F6E", fontWeight: 600, margin: "0 0 4px", textTransform: "uppercase" }}>Implementation Notes</h4>
+                                    <p style={{ fontSize: 13, color: "#3D5A57", margin: 0, lineHeight: 1.5 }}>{selectedInsight.admin_notes}</p>
+                                </div>
+                            )}
+
+                            <button
+                                onClick={closeDetailModal}
+                                className="li-font-mono"
+                                style={{
+                                    marginTop: 18,
+                                    padding: "12px 24px",
+                                    borderRadius: 999,
+                                    border: "1px solid #0B2422",
+                                    background: "transparent",
+                                    color: "#0B2422",
+                                    fontSize: 11,
+                                    letterSpacing: "0.15em",
+                                    textTransform: "uppercase",
+                                    cursor: "pointer",
+                                    width: "100%",
+                                }}
+                            >
+                                Close
+                            </button>
                         </div>
-
-                        {selectedInsight.location && (
-                            <div style={{ marginBottom: 12 }}>
-                                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>📍 Location</h4>
-                                <p style={{ fontSize: 13, color: "#5C6E69", margin: 0 }}>{selectedInsight.location}</p>
-                            </div>
-                        )}
-
-                        <div style={{ marginBottom: 12 }}>
-                            <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0B2422", margin: "0 0 4px" }}>📝 Description</h4>
-                            <p style={{ fontSize: 13, color: "#4A5F5A", lineHeight: 1.6, margin: 0 }}>
-                                {selectedInsight.description || selectedInsight.tip || 'No description provided.'}
-                            </p>
-                        </div>
-
-                        {selectedInsight.tip && selectedInsight.tip !== selectedInsight.description && (
-                            <div style={{ marginBottom: 12, background: "#F0F7F5", padding: "14px", borderRadius: 8 }}>
-                                <h4 style={{ fontSize: 13, fontWeight: 600, color: "#0E5C53", margin: "0 0 4px" }}>💡 Tips</h4>
-                                <p style={{ fontSize: 13, color: "#4A5F5A", lineHeight: 1.6, margin: 0 }}>{selectedInsight.tip}</p>
-                            </div>
-                        )}
-
-                        <button
-                            onClick={closeDetailModal}
-                            style={{
-                                marginTop: 16,
-                                padding: "12px 24px",
-                                borderRadius: 999,
-                                border: "1px solid #0B2422",
-                                background: "transparent",
-                                color: "#0B2422",
-                                fontSize: 11,
-                                letterSpacing: "0.15em",
-                                textTransform: "uppercase",
-                                cursor: "pointer",
-                                width: "100%",
-                                fontFamily: "'IBM Plex Mono', monospace",
-                                transition: "all 0.3s ease"
-                            }}
-                        >
-                            Close
-                        </button>
                     </div>
                 </div>
             )}

@@ -1,3 +1,5 @@
+// StaffDashboard.jsx - COMPLETE FIXED VERSION
+// Profile picture persistence fixed
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -44,6 +46,7 @@ import {
     Award,
     Shield,
     Upload,
+    Key,
 } from 'lucide-react';
 
 // ============================================
@@ -196,9 +199,6 @@ const SectionHead = ({ icon: Icon, title, count, right }) => (
     </div>
 );
 
-// ============================================
-// PAGINATION COMPONENT
-// ============================================
 const Pagination = ({ 
     currentPage, 
     totalPages, 
@@ -415,14 +415,13 @@ const StaffDashboard = () => {
     });
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [profilePicture, setProfilePicture] = useState(null);
+    const [profilePictureLoaded, setProfilePictureLoaded] = useState(false);
     const [uploading, setUploading] = useState(false);
     const fileInputRef = useRef(null);
 
-    // Stats
+    // Stats - REMOVED bookings and confirmed
     const [stats, setStats] = useState({
         totalGuides: 0,
-        totalBookings: 0,
-        confirmedBookings: 0,
         totalHiddenGems: 0,
         pendingHiddenGems: 0,
         approvedHiddenGems: 0,
@@ -475,7 +474,8 @@ const StaffDashboard = () => {
     const [editGuideForm, setEditGuideForm] = useState({
         full_name: '', email: '', phone: '', bio: '',
         experience_years: '0', languages: '', primary_district: '',
-        price_per_day: '0', price_per_hour: '0', is_verified: false
+        price_per_day: '0', price_per_hour: '0', is_verified: false,
+        new_password: '', confirm_password: '',
     });
     const [editGuideProfilePic, setEditGuideProfilePic] = useState(null);
     const [editGuidePicFile, setEditGuidePicFile] = useState(null);
@@ -493,21 +493,22 @@ const StaffDashboard = () => {
     const getImageUrl = (suggestion) => {
         if (!suggestion) return null;
         
-        const imageField = suggestion.image || suggestion.image_url || suggestion.profile_image || suggestion.photo || suggestion.avatar;
-        
-        if (!imageField || typeof imageField !== 'string') return null;
-        
-        const cleanedUrl = imageField.trim();
-        
-        if (cleanedUrl.startsWith('http://') || cleanedUrl.startsWith('https://')) {
-            return cleanedUrl;
+        if (suggestion.primary_image) {
+            return suggestion.primary_image;
+        }
+        if (suggestion.image_url) {
+            return suggestion.image_url;
+        }
+        if (suggestion.image) {
+            return suggestion.image;
         }
         
-        if (cleanedUrl.startsWith('/media/') || cleanedUrl.startsWith('/uploads/')) {
-            const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
-            const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
-            const mediaBase = cleanBase.replace('/api', '');
-            return `${mediaBase}${cleanedUrl}`;
+        if (suggestion.images_data && suggestion.images_data.length > 0) {
+            const primary = suggestion.images_data.find(img => img.is_primary);
+            if (primary) {
+                return primary.image || primary.image_url;
+            }
+            return suggestion.images_data[0].image || suggestion.images_data[0].image_url;
         }
         
         return null;
@@ -516,17 +517,14 @@ const StaffDashboard = () => {
     const getProfileImageUrl = (imageUrl) => {
         if (!imageUrl) return null;
         
-        // If it's already a full URL
         if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
             return imageUrl;
         }
         
-        // If it's a data URL (base64)
         if (imageUrl.startsWith('data:')) {
             return imageUrl;
         }
         
-        // If it's a relative path
         if (imageUrl.startsWith('/media/') || imageUrl.startsWith('/uploads/') || imageUrl.startsWith('/')) {
             const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
             const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
@@ -534,7 +532,6 @@ const StaffDashboard = () => {
             return `${mediaBase}${imageUrl}`;
         }
         
-        // If it's just a filename, assume it's in media
         if (!imageUrl.includes('/')) {
             const baseURL = api.defaults?.baseURL || 'http://localhost:8000';
             const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
@@ -546,18 +543,6 @@ const StaffDashboard = () => {
     };
 
     // ============================================
-    // NAV ITEMS
-    // ============================================
-    const navItems = [
-        { key: 'overview', label: 'Overview', icon: Compass },
-        { key: 'hidden-gems', label: 'Hidden Gems', icon: Sparkles, badge: stats.pendingHiddenGems },
-        { key: 'local-insights', label: 'Local Insights', icon: Lightbulb, badge: stats.pendingLocalInsights },
-        { key: 'reviews', label: 'Reviews', icon: Star, badge: stats.pendingReviews },
-        { key: 'guides', label: 'Guides', icon: Users },
-        { key: 'profile', label: 'Profile', icon: User },
-    ];
-
-    // ============================================
     // TOAST
     // ============================================
     const showToast = (message, type = 'info') => {
@@ -566,120 +551,143 @@ const StaffDashboard = () => {
     };
 
     // ============================================
-    // PROFILE PICTURE - FIXED
+    // DELETE SUGGESTION
     // ============================================
-    const loadProfilePicture = () => {
-        // First try to get from localStorage
-        const savedPicture = localStorage.getItem('staff_profile_picture');
-        if (savedPicture) {
-            setProfilePicture(savedPicture);
-            return;
-        }
+    const deleteSuggestion = async (id) => {
+        if (!window.confirm('Are you sure you want to permanently delete this?')) return;
         
-        // Then try from profile data
-        if (profile) {
-            const imageUrl = profile.profile_image || profile.image || profile.avatar || profile.profile_picture;
-            if (imageUrl) {
-                const fullUrl = getProfileImageUrl(imageUrl);
-                if (fullUrl) {
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('staff_profile_picture', fullUrl);
-                    return;
-                }
-            }
-        }
-        
-        // If user object has profile image
-        if (user) {
-            const imageUrl = user.profile_image || user.image || user.avatar || user.profile_picture;
-            if (imageUrl) {
-                const fullUrl = getProfileImageUrl(imageUrl);
-                if (fullUrl) {
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('staff_profile_picture', fullUrl);
-                    return;
-                }
-            }
-        }
-        
-        setProfilePicture(null);
-    };
-
-    const handleProfilePictureUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        if (file.size > 5 * 1024 * 1024) {
-            showToast('❌ File size must be less than 5MB');
-            return;
-        }
-        if (!file.type.startsWith('image/')) {
-            showToast('❌ Please upload an image file');
-            return;
-        }
-        
-        setUploading(true);
-        const formData = new FormData();
-        formData.append('profile_image', file);
+        setActionLoading(true);
+        setProcessingId(id);
         
         try {
-            const response = await api.post('/auth/update-profile-picture/', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
-            
-            if (response?.data?.success) {
-                const imageUrl = response.data.profile_image || response.data.image_url || response.data.url;
-                if (imageUrl) {
-                    const fullUrl = getProfileImageUrl(imageUrl);
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('staff_profile_picture', fullUrl);
-                    showToast('✅ Profile picture updated successfully!');
-                    await fetchAllData();
-                } else {
-                    showToast('✅ Profile picture updated!');
-                }
-                setUploading(false);
-                return;
-            }
-        } catch (error) {
-            console.log('Primary upload failed, trying fallback...');
-        }
-
-        // Fallback
-        try {
-            const formData2 = new FormData();
-            formData2.append('profile_image', file);
-            const response2 = await api.patch('/auth/update-profile/', formData2, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
-            
-            if (response2?.data?.success) {
-                const imageUrl = response2.data.profile_image || response2.data.image_url;
-                if (imageUrl) {
-                    const fullUrl = getProfileImageUrl(imageUrl);
-                    setProfilePicture(fullUrl);
-                    localStorage.setItem('staff_profile_picture', fullUrl);
-                    showToast('✅ Profile picture updated successfully!');
-                    await fetchAllData();
-                } else {
-                    showToast('✅ Profile picture updated!');
+            const response = await api.delete(`/suggestions/${id}/`);
+            if (response?.status === 204 || response?.data?.success) {
+                showToast('🗑️ Deleted successfully!');
+                await fetchAllData();
+                if (showSuggestionModal) {
+                    setShowSuggestionModal(false);
+                    setSelectedSuggestion(null);
                 }
             } else {
-                showToast(response2?.data?.error || '❌ Failed to upload profile picture');
+                showToast('⚠️ Could not delete. Please try again.');
             }
         } catch (error) {
-            console.error('Error uploading profile picture:', error);
-            showToast('❌ Failed to upload profile picture. Please try again.');
-        } finally {
-            setUploading(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
+            console.error('Delete failed:', error);
+            if (error.response?.status === 404) {
+                showToast('⚠️ Suggestion no longer exists. Refreshing...');
+                await fetchAllData();
+                if (showSuggestionModal) {
+                    setShowSuggestionModal(false);
+                    setSelectedSuggestion(null);
+                }
+            } else {
+                showToast('❌ Failed to delete suggestion');
             }
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
         }
     };
 
     // ============================================
-    // FETCH DATA - FIXED WITH PROFILE IMAGE
+    // PROCESS SUGGESTION
+    // ============================================
+    const processSuggestion = async (id, action, type = 'suggestion') => {
+        setActionLoading(true);
+        setProcessingId(id);
+
+        try {
+            if (action === 'delete') {
+                await deleteSuggestion(id);
+                setActionLoading(false);
+                setProcessingId(null);
+                return;
+            }
+
+            let notes = '';
+            if (action === 'reject') {
+                notes = prompt('Reason for rejection:');
+                if (notes === null) {
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+            } else if (action === 'implement') {
+                notes = `✅ Implemented by Staff: ${user?.email || 'Staff'}`;
+            } else if (action === 'approve') {
+                notes = `✅ Approved by Staff: ${user?.email || 'Staff'}`;
+            }
+
+            let endpoint = '';
+            if (action === 'implement') {
+                endpoint = 'staff-implement';
+            } else if (action === 'reject') {
+                endpoint = 'staff-reject';
+            } else if (action === 'approve') {
+                endpoint = 'staff-approve';
+            }
+
+            console.log(`📤 Processing suggestion ${id} with action ${action} on endpoint ${endpoint}`);
+
+            try {
+                const response = await api.post(`/suggestions/${id}/${endpoint}/`, {
+                    notes: notes
+                });
+
+                if (response?.data?.success) {
+                    showToast(`✅ ${type} ${action}ed successfully!`);
+                    await fetchAllData();
+                    if (showSuggestionModal) {
+                        setShowSuggestionModal(false);
+                        setSelectedSuggestion(null);
+                    }
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                } else {
+                    showToast(response?.data?.error || `❌ Failed to ${action} ${type}`);
+                }
+            } catch (error) {
+                console.error(`Process failed for ${endpoint}:`, error);
+                
+                if (error.response?.status === 404) {
+                    showToast(`❌ Suggestion no longer exists. Refreshing data...`);
+                    await fetchAllData();
+                    if (showSuggestionModal) {
+                        setShowSuggestionModal(false);
+                        setSelectedSuggestion(null);
+                    }
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+                
+                if (error.response?.status === 400 && error.response?.data?.error?.includes('No Suggestion matches')) {
+                    showToast(`❌ Suggestion no longer exists. Refreshing data...`);
+                    await fetchAllData();
+                    if (showSuggestionModal) {
+                        setShowSuggestionModal(false);
+                        setSelectedSuggestion(null);
+                    }
+                    setActionLoading(false);
+                    setProcessingId(null);
+                    return;
+                }
+                
+                const errorMsg = error.response?.data?.error || error.message || `Failed to ${action} ${type}`;
+                showToast(`❌ ${errorMsg}`);
+            }
+        } catch (error) {
+            console.error('Error processing suggestion:', error);
+            showToast(`❌ Failed to ${action} ${type}`);
+        } finally {
+            setActionLoading(false);
+            setProcessingId(null);
+        }
+    };
+
+    // ============================================
+    // FETCH ALL DATA - WITH PROFILE PICTURE PERSISTENCE
     // ============================================
     const fetchAllData = useCallback(async () => {
         if (dataFetchedRef.current) return;
@@ -690,17 +698,19 @@ const StaffDashboard = () => {
         try {
             // 1. Fetch all suggestions
             try {
-                const response = await api.get('/staff/suggestions/');
+                const response = await api.get('/suggestions/admin-suggestions/');
                 let items = [];
-                if (response?.data?.success) {
-                    items = response.data.suggestions || [];
-                } else if (Array.isArray(response?.data)) {
-                    items = response.data;
+                
+                if (response?.data?.results?.data) {
+                    items = response.data.results.data;
                 } else if (response?.data?.data) {
                     items = response.data.data;
-                } else if (response?.data?.results) {
+                } else if (response?.data?.results && Array.isArray(response.data.results)) {
                     items = response.data.results;
+                } else if (Array.isArray(response?.data)) {
+                    items = response.data;
                 }
+                
                 setAllSuggestions(items);
 
                 const gems = items.filter(s => 
@@ -760,16 +770,13 @@ const StaffDashboard = () => {
                 setGuides([]);
             }
 
-            // 3. Profile - FIXED with image loading
+            // 3. Profile - FIXED to properly load profile picture
             try {
                 const response = await api.get('/auth/me/');
-                console.log('📱 Profile response:', response.data);
-                
                 if (response?.data?.success) {
                     const userData = response.data.user;
                     setProfile(userData);
                     
-                    // Set profile form data
                     setProfileForm({
                         full_name: userData?.full_name || userData?.first_name || '',
                         email: userData?.email || '',
@@ -779,32 +786,72 @@ const StaffDashboard = () => {
                         position: userData?.position || 'Staff Member',
                     });
                     
-                    // ✅ Load profile picture
-                    const imageUrl = userData?.profile_image || userData?.image || userData?.avatar || userData?.profile_picture;
-                    console.log('📸 Profile image URL from API:', imageUrl);
+                    // ✅ FIX: Properly load profile picture
+                    let imageUrl = null;
+                    
+                    // Check all possible image fields
+                    if (userData?.profile_image) {
+                        imageUrl = userData.profile_image;
+                    } else if (userData?.profile_picture) {
+                        imageUrl = userData.profile_picture;
+                    } else if (userData?.image) {
+                        imageUrl = userData.image;
+                    } else if (userData?.avatar) {
+                        imageUrl = userData.avatar;
+                    } else if (userData?.profile_picture_upload) {
+                        imageUrl = userData.profile_picture_upload;
+                    }
+                    
+                    // Also check if there's a URL field in the response
+                    if (!imageUrl && response.data.profile_image) {
+                        imageUrl = response.data.profile_image;
+                    }
+                    if (!imageUrl && response.data.image_url) {
+                        imageUrl = response.data.image_url;
+                    }
+                    if (!imageUrl && response.data.url) {
+                        imageUrl = response.data.url;
+                    }
                     
                     if (imageUrl) {
                         const fullUrl = getProfileImageUrl(imageUrl);
-                        console.log('📸 Full profile image URL:', fullUrl);
                         if (fullUrl) {
+                            console.log('📸 Loading profile picture from:', fullUrl);
                             setProfilePicture(fullUrl);
-                            localStorage.setItem('staff_profile_picture', fullUrl);
+                            setProfilePictureLoaded(true);
+                            // Save to localStorage for persistence
+                            try {
+                                localStorage.setItem('staff_profile_picture', fullUrl);
+                            } catch (e) {
+                                // Ignore localStorage errors
+                            }
                         }
                     } else {
-                        // Check localStorage fallback
-                        const saved = localStorage.getItem('staff_profile_picture');
-                        if (saved) {
-                            console.log('📸 Using localStorage profile image:', saved);
-                            setProfilePicture(saved);
+                        // Try to load from localStorage as fallback
+                        try {
+                            const saved = localStorage.getItem('staff_profile_picture');
+                            if (saved) {
+                                console.log('📸 Loading profile picture from localStorage:', saved);
+                                setProfilePicture(saved);
+                                setProfilePictureLoaded(true);
+                            }
+                        } catch (e) {
+                            // Ignore localStorage errors
                         }
                     }
                 }
             } catch (error) {
                 console.error('Error fetching profile:', error);
-                // Try localStorage fallback
-                const saved = localStorage.getItem('staff_profile_picture');
-                if (saved) {
-                    setProfilePicture(saved);
+                // Try to load from localStorage as fallback
+                try {
+                    const saved = localStorage.getItem('staff_profile_picture');
+                    if (saved) {
+                        console.log('📸 Loading profile picture from localStorage (fallback):', saved);
+                        setProfilePicture(saved);
+                        setProfilePictureLoaded(true);
+                    }
+                } catch (e) {
+                    // Ignore localStorage errors
                 }
             }
 
@@ -816,8 +863,6 @@ const StaffDashboard = () => {
                     setStats(prev => ({
                         ...prev,
                         totalGuides: statsData.totalGuides || prev.totalGuides,
-                        totalBookings: statsData.totalBookings || prev.totalBookings,
-                        confirmedBookings: statsData.confirmedBookings || prev.confirmedBookings,
                     }));
                 }
             } catch (error) {
@@ -844,15 +889,7 @@ const StaffDashboard = () => {
             return;
         }
         fetchAllData();
-
-        const handleStorageChange = () => {
-            fetchAllData();
-        };
-        window.addEventListener('storage', handleStorageChange);
-        
-        return () => {
-            window.removeEventListener('storage', handleStorageChange);
-        };
+        return () => {};
     }, [user, navigate, fetchAllData]);
 
     // ============================================
@@ -883,128 +920,75 @@ const StaffDashboard = () => {
     };
 
     // ============================================
-    // ✅ PROCESS SUGGESTION
+    // PROFILE PICTURE - FIXED WITH PERSISTENCE
     // ============================================
-    const processSuggestion = async (id, action, type = 'suggestion') => {
-        setActionLoading(true);
-        setProcessingId(id);
-
+    const handleProfilePictureUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        if (file.size > 5 * 1024 * 1024) {
+            showToast('❌ File size must be less than 5MB');
+            return;
+        }
+        if (!file.type.startsWith('image/')) {
+            showToast('❌ Please upload an image file');
+            return;
+        }
+        
+        setUploading(true);
+        const formData = new FormData();
+        formData.append('profile_image', file);
+        formData.append('profile_picture', file); // Send both field names
+        formData.append('image', file);
+        
         try {
-            if (action === 'delete') {
-                if (!window.confirm('Are you sure you want to permanently delete this?')) {
-                    setActionLoading(false);
-                    setProcessingId(null);
-                    return;
-                }
-
-                try {
-                    const response = await api.post(`/staff/suggestions/${id}/process/`, {
-                        action: 'delete'
-                    });
-                    if (response?.data?.success) {
-                        showToast('🗑️ Deleted successfully!');
-                        await fetchAllData();
-                        if (showSuggestionModal) {
-                            setShowSuggestionModal(false);
-                            setSelectedSuggestion(null);
-                        }
-                        setActionLoading(false);
-                        setProcessingId(null);
-                        return;
+            const response = await api.post('/auth/upload-profile-picture/', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            
+            console.log('📤 Upload response:', response.data);
+            
+            if (response?.data?.success) {
+                const imageUrl = response.data.profile_image || 
+                               response.data.profile_picture || 
+                               response.data.image_url || 
+                               response.data.url || 
+                               response.data.image;
+                
+                if (imageUrl) {
+                    const fullUrl = getProfileImageUrl(imageUrl);
+                    console.log('📸 New profile picture URL:', fullUrl);
+                    setProfilePicture(fullUrl);
+                    setProfilePictureLoaded(true);
+                    
+                    // Save to localStorage for persistence
+                    try {
+                        localStorage.setItem('staff_profile_picture', fullUrl);
+                    } catch (e) {
+                        // Ignore localStorage errors
                     }
-                } catch (error) {
-                    console.error('Delete failed:', error);
-                }
-
-                showToast('⚠️ Could not delete. Please try again.');
-                setActionLoading(false);
-                setProcessingId(null);
-                return;
-            }
-
-            let notes = '';
-            if (action === 'reject') {
-                notes = prompt('Reason for rejection:');
-                if (notes === null) {
-                    setActionLoading(false);
-                    setProcessingId(null);
-                    return;
-                }
-            } else if (action === 'implement') {
-                notes = `✅ Implemented by Staff: ${user?.email || 'Staff'}`;
-            } else if (action === 'approve') {
-                notes = `✅ Approved by Staff: ${user?.email || 'Staff'}`;
-            }
-
-            try {
-                const response = await api.post(`/staff/suggestions/${id}/process/`, {
-                    action: action,
-                    notes: notes
-                });
-
-                if (response?.data?.success) {
-                    showToast(`✅ ${type} ${action}ed successfully!`);
+                    
+                    showToast('✅ Profile picture updated successfully!');
                     await fetchAllData();
-                    if (showSuggestionModal) {
-                        setShowSuggestionModal(false);
-                        setSelectedSuggestion(null);
-                    }
-                    setActionLoading(false);
-                    setProcessingId(null);
-                    return;
+                } else {
+                    showToast('✅ Profile picture uploaded but URL not returned');
                 }
-            } catch (error) {
-                console.error('Process failed:', error);
+            } else {
+                showToast(response?.data?.error || '❌ Failed to upload profile picture');
             }
-
-            showToast(`❌ Failed to ${action} ${type}`);
         } catch (error) {
-            console.error('Error processing suggestion:', error);
-            showToast(`❌ Failed to ${action} ${type}`);
+            console.error('Error uploading profile picture:', error);
+            showToast('❌ Failed to upload profile picture');
         } finally {
-            setActionLoading(false);
-            setProcessingId(null);
+            setUploading(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
     };
 
     // ============================================
-    // ✅ DELETE SUGGESTION (for guide-submitted)
-    // ============================================
-    const deleteSuggestion = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this suggestion?')) return;
-        setActionLoading(true);
-        setProcessingId(id);
-        try {
-            const response = await api.delete(`/staff/suggestions/${id}/delete/`);
-            if (response?.data?.success || response?.status === 204) {
-                showToast('🗑️ Suggestion deleted successfully!');
-                await fetchAllData();
-                setActionLoading(false);
-                setProcessingId(null);
-                return;
-            }
-        } catch (error) {
-            console.error('Delete suggestion error:', error);
-            try {
-                const response = await api.post(`/staff/suggestions/${id}/process/`, { action: 'delete' });
-                if (response?.data?.success) {
-                    showToast('🗑️ Suggestion deleted successfully!');
-                    await fetchAllData();
-                    setActionLoading(false);
-                    setProcessingId(null);
-                    return;
-                }
-            } catch (e2) {
-                console.error('Alternative delete failed:', e2);
-            }
-        }
-        showToast('❌ Failed to delete suggestion');
-        setActionLoading(false);
-        setProcessingId(null);
-    };
-
-    // ============================================
-    // ✅ ADD GUIDE
+    // ADD GUIDE
     // ============================================
     const handleAddGuide = async (e) => {
         e.preventDefault();
@@ -1075,7 +1059,7 @@ const StaffDashboard = () => {
     };
 
     // ============================================
-    // ✅ EDIT GUIDE - FIXED ENDPOINTS
+    // EDIT GUIDE - FIXED with profile pic upload
     // ============================================
     const openEditGuide = (guide) => {
         console.log('📝 Opening edit for guide:', guide);
@@ -1091,6 +1075,8 @@ const StaffDashboard = () => {
             price_per_day: guide.price_per_day?.toString() || '0',
             price_per_hour: guide.price_per_hour?.toString() || '0',
             is_verified: guide.is_verified || false,
+            new_password: '',
+            confirm_password: '',
         });
         const profilePic = guide.profile_image || guide.image || guide.avatar;
         if (profilePic) {
@@ -1121,13 +1107,19 @@ const StaffDashboard = () => {
         reader.readAsDataURL(file);
     };
 
-    const handleEditGuideProfilePicUpload = async (guideId) => {
-        if (!editGuidePicFile) return;
+    // FIXED: Upload guide profile pic with correct endpoint
+    const uploadGuideProfilePic = async (guideId) => {
+        if (!editGuidePicFile) return true;
         
         try {
             const formData = new FormData();
             formData.append('profile_image', editGuidePicFile);
+            formData.append('profile_picture', editGuidePicFile);
+            formData.append('image', editGuidePicFile);
             
+            console.log(`📤 Uploading profile pic for guide ${guideId}...`);
+            
+            // Use the correct endpoint: /staff/{pk}/upload-profile-pic/
             const response = await api.post(`/staff/${guideId}/upload-profile-pic/`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
@@ -1135,12 +1127,15 @@ const StaffDashboard = () => {
             if (response?.data?.success) {
                 showToast('✅ Profile picture updated!');
                 return true;
+            } else {
+                console.error('Upload failed:', response?.data);
+                return false;
             }
         } catch (error) {
             console.error('Error uploading guide profile pic:', error);
+            showToast('❌ Failed to upload profile picture');
+            return false;
         }
-        
-        return false;
     };
 
     const handleEditGuide = async (e) => {
@@ -1159,6 +1154,19 @@ const StaffDashboard = () => {
                 return;
             }
 
+            if (editGuideForm.new_password) {
+                if (editGuideForm.new_password.length < 6) {
+                    showToast('❌ New password must be at least 6 characters');
+                    setGuideLoading(false);
+                    return;
+                }
+                if (editGuideForm.new_password !== editGuideForm.confirm_password) {
+                    showToast('❌ Passwords do not match');
+                    setGuideLoading(false);
+                    return;
+                }
+            }
+
             const guideData = {
                 full_name: editGuideForm.full_name.trim(),
                 phone: editGuideForm.phone?.trim() || '',
@@ -1171,17 +1179,33 @@ const StaffDashboard = () => {
                 is_verified: editGuideForm.is_verified,
             };
 
-            console.log('📤 Updating guide with data:', guideData);
-            console.log('📤 Guide ID:', editingGuide.id);
-
-            // ✅ Use /update/ endpoint
+            console.log(`📤 Updating guide ${editingGuide.id} with data:`, guideData);
+            
+            // ✅ CORRECT ENDPOINT: /staff/{pk}/update/
             const response = await api.put(`/staff/${editingGuide.id}/update/`, guideData);
             
             if (response?.data?.success) {
-                // Handle profile picture if changed
+                // Then upload profile pic if changed
                 if (editGuidePicFile) {
-                    await handleEditGuideProfilePicUpload(editingGuide.id);
+                    await uploadGuideProfilePic(editingGuide.id);
                 }
+                
+                // Change password if provided
+                if (editGuideForm.new_password) {
+                    try {
+                        const pwdResponse = await api.post(`/auth/change-password/`, {
+                            new_password: editGuideForm.new_password,
+                            confirm_new_password: editGuideForm.confirm_password,
+                        });
+                        if (pwdResponse?.data?.success) {
+                            showToast('✅ Password updated successfully!');
+                        }
+                    } catch (pwdError) {
+                        console.error('Error changing password:', pwdError);
+                        showToast('⚠️ Guide updated but password change failed');
+                    }
+                }
+                
                 showToast('✅ Guide updated successfully!');
                 setShowEditGuideModal(false);
                 setEditingGuide(null);
@@ -1195,7 +1219,7 @@ const StaffDashboard = () => {
         } catch (error) {
             console.error('❌ Edit guide error:', error);
             
-            // Try fallback with PATCH
+            // Try PATCH as fallback
             try {
                 const guideData = {
                     full_name: editGuideForm.full_name.trim(),
@@ -1209,10 +1233,11 @@ const StaffDashboard = () => {
                     is_verified: editGuideForm.is_verified,
                 };
                 
+                console.log(`🔄 Trying PATCH as fallback...`);
                 const response = await api.patch(`/staff/${editingGuide.id}/update/`, guideData);
                 if (response?.data?.success) {
                     if (editGuidePicFile) {
-                        await handleEditGuideProfilePicUpload(editingGuide.id);
+                        await uploadGuideProfilePic(editingGuide.id);
                     }
                     showToast('✅ Guide updated successfully!');
                     setShowEditGuideModal(false);
@@ -1223,7 +1248,7 @@ const StaffDashboard = () => {
                     return;
                 }
             } catch (e2) {
-                console.error('Fallback edit failed:', e2);
+                console.error('PATCH fallback failed:', e2);
             }
             
             const errorMsg = error.response?.data?.error || error.response?.data?.message || 'Failed to update guide. Please try again.';
@@ -1234,30 +1259,43 @@ const StaffDashboard = () => {
     };
 
     // ============================================
-    // ✅ DELETE GUIDE
+    // DELETE GUIDE - FIXED: Use correct endpoint
     // ============================================
     const deleteGuide = async (id) => {
         if (!window.confirm('Are you sure you want to delete this guide? This action cannot be undone.')) return;
         
-        // Optimistically remove from UI
-        setGuides(prev => prev.filter(g => g.id !== id));
-        
+        setGuideLoading(true);
         try {
+            // ✅ CORRECT ENDPOINT: /staff/{pk}/delete/
+            console.log(`🗑️ Deleting guide ${id} with POST to /staff/${id}/delete/...`);
             const response = await api.post(`/staff/${id}/delete/`);
-            if (response?.data?.success || response?.status === 204) {
+            if (response?.data?.success) {
                 showToast('✅ Guide deleted successfully');
                 await fetchAllData();
+                setGuideLoading(false);
                 return;
             } else {
                 showToast(response?.data?.error || 'Failed to delete guide');
-                await fetchAllData();
             }
         } catch (error) {
             console.error('Delete guide error:', error);
             showToast(error.response?.data?.error || 'Failed to delete guide');
-            await fetchAllData();
+        } finally {
+            setGuideLoading(false);
         }
     };
+
+    // ============================================
+    // NAV ITEMS
+    // ============================================
+    const navItems = [
+        { key: 'overview', label: 'Overview', icon: Compass },
+        { key: 'hidden-gems', label: 'Hidden Gems', icon: Sparkles, badge: stats.pendingHiddenGems },
+        { key: 'local-insights', label: 'Local Insights', icon: Lightbulb, badge: stats.pendingLocalInsights },
+        { key: 'reviews', label: 'Reviews', icon: Star, badge: stats.pendingReviews },
+        { key: 'guides', label: 'Guides', icon: Users },
+        { key: 'profile', label: 'Profile', icon: User },
+    ];
 
     // ============================================
     // FILTERED DATA
@@ -1302,59 +1340,9 @@ const StaffDashboard = () => {
         setReviewsPage(1);
     }, [reviewsFilter]);
 
-    useEffect(() => {
-        setGuidesPage(1);
-    }, []);
-
     // ============================================
-    // GET STATUS COLOR & LABEL
+    // GET TYPE ICON
     // ============================================
-    const getStatusColor = (status) => {
-        const colors = {
-            'pending': { fg: C.warn, bg: C.warnBg },
-            'pending_guide': { fg: C.warn, bg: C.warnBg },
-            'pending_admin': { fg: C.warn, bg: C.warnBg },
-            'approved': { fg: C.success, bg: C.successBg },
-            'approved_by_guide': { fg: C.success, bg: C.successBg },
-            'approved_by_admin': { fg: C.success, bg: C.successBg },
-            'implemented': { fg: C.gold, bg: C.warnBg },
-            'rejected': { fg: C.danger, bg: C.dangerBg },
-            'rejected_by_guide': { fg: C.danger, bg: C.dangerBg },
-            'rejected_by_admin': { fg: C.danger, bg: C.dangerBg },
-            'staff_approved': { fg: C.success, bg: C.successBg },
-            'staff_rejected': { fg: C.danger, bg: C.dangerBg },
-        };
-        return colors[status] || { fg: C.sage, bg: '#EEEEEE' };
-    };
-
-    const getStatusLabel = (status) => {
-        const labels = {
-            'pending': '⏳ Pending',
-            'pending_guide': '⏳ Pending',
-            'pending_admin': '⏳ Pending',
-            'approved': '✅ Approved',
-            'approved_by_guide': '✅ Approved',
-            'approved_by_admin': '✅ Approved',
-            'implemented': '✨ Implemented',
-            'rejected': '❌ Rejected',
-            'rejected_by_guide': '❌ Rejected',
-            'rejected_by_admin': '❌ Rejected',
-            'staff_approved': '✅ Staff Approved',
-            'staff_rejected': '❌ Staff Rejected',
-        };
-        return labels[status] || status;
-    };
-
-    const getTypeBadge = (type) => {
-        const badges = {
-            'hidden_gem': '💎 Hidden Gem',
-            'local_insight': '💡 Local Insight',
-            'insight': '💡 Local Insight',
-            'review': '⭐ Review',
-        };
-        return badges[type] || type;
-    };
-
     const getTypeIcon = (type) => {
         const icons = {
             'hidden_gem': Sparkles,
@@ -1363,19 +1351,6 @@ const StaffDashboard = () => {
             'review': Star,
         };
         return icons[type] || Star;
-    };
-
-    // ============================================
-    // OPEN SUGGESTION DETAIL MODAL
-    // ============================================
-    const openSuggestionDetail = (suggestion) => {
-        console.log('🔍 Opening suggestion detail:', suggestion);
-        if (suggestion) {
-            setSelectedSuggestion(suggestion);
-            setShowSuggestionModal(true);
-        } else {
-            showToast('❌ No suggestion data to display');
-        }
     };
 
     // ============================================
@@ -1398,7 +1373,6 @@ const StaffDashboard = () => {
         const isPending = s.status === 'pending' || s.status === 'pending_guide' || s.status === 'pending_admin';
         const isApproved = s.status === 'approved' || s.status === 'approved_by_guide' || s.status === 'approved_by_admin' || s.status === 'staff_approved';
         const isGuideSubmitted = s.is_guide_submitted === true;
-        const isUserSubmitted = !isGuideSubmitted && s.user_email;
 
         return (
             <div
@@ -1407,7 +1381,6 @@ const StaffDashboard = () => {
                     display: 'flex', gap: 14, padding: 14, background: C.cream, borderRadius: RADIUS.md,
                     border: `1px solid ${isImplemented ? C.success : isPending ? C.warn : isGuideSubmitted ? C.info : C.line}`,
                     alignItems: 'flex-start', transition: 'all 0.2s ease',
-                    cursor: 'default',
                 }}
             >
                 <div style={{ 
@@ -1422,29 +1395,7 @@ const StaffDashboard = () => {
                             background: C.success, color: '#fff',
                             padding: '2px 6px', borderRadius: 999,
                             fontSize: 8, fontWeight: 600,
-                        }}>
-                            ✅
-                        </div>
-                    )}
-                    {isGuideSubmitted && !isImplemented && (
-                        <div style={{
-                            position: 'absolute', top: 4, right: 4,
-                            background: C.info, color: '#fff',
-                            padding: '2px 6px', borderRadius: 999,
-                            fontSize: 8, fontWeight: 600,
-                        }}>
-                            👤
-                        </div>
-                    )}
-                    {isUserSubmitted && !isImplemented && !isPending && (
-                        <div style={{
-                            position: 'absolute', top: 4, right: 4,
-                            background: C.goldSoft, color: C.gold,
-                            padding: '2px 6px', borderRadius: 999,
-                            fontSize: 8, fontWeight: 600,
-                        }}>
-                            ✅
-                        </div>
+                        }}>✅</div>
                     )}
                     {hasImage && imageUrl ? (
                         <img 
@@ -1452,7 +1403,6 @@ const StaffDashboard = () => {
                             alt={s.name || 'Suggestion'} 
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             onError={(e) => {
-                                console.error('❌ Image failed to load:', imageUrl);
                                 e.target.style.display = 'none';
                                 const parent = e.target.parentElement;
                                 if (parent) {
@@ -1489,51 +1439,32 @@ const StaffDashboard = () => {
                         {s.description || 'No description'}
                     </p>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                        {isPending && isUserSubmitted && (
+                        {isPending && (
                             <>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'approve', s.suggestion_type); }} 
-                                    disabled={actionLoading}
-                                    style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.success, color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
-                                >
+                                <button onClick={() => processSuggestion(s.id, 'approve', s.suggestion_type)} disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.success, color: '#fff', fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
                                     <Check size={11} /> Approve
                                 </button>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); processSuggestion(s.id, 'reject', s.suggestion_type); }} 
-                                    disabled={actionLoading}
-                                    style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
-                                >
+                                <button onClick={() => processSuggestion(s.id, 'reject', s.suggestion_type)} disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                                    <X size={11} /> Reject
+                                </button>
+                                <button onClick={() => processSuggestion(s.id, 'implement', s.suggestion_type)} disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.gold, color: C.ink, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                                    <CheckCircle size={11} /> Implement
+                                </button>
+                            </>
+                        )}
+                        {isApproved && !isImplemented && (
+                            <>
+                                <button onClick={() => processSuggestion(s.id, 'implement', s.suggestion_type)} disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: 'none', background: C.gold, color: C.ink, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                                    <CheckCircle size={11} /> Implement
+                                </button>
+                                <button onClick={() => processSuggestion(s.id, 'reject', s.suggestion_type)} disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: 'transparent', color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
                                     <X size={11} /> Reject
                                 </button>
                             </>
                         )}
-                        {isGuideSubmitted && !isImplemented && (
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); deleteSuggestion(s.id); }} 
-                                disabled={actionLoading}
-                                style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}
-                            >
-                                <Trash2 size={11} /> Delete
-                            </button>
-                        )}
-                        {isPending && isGuideSubmitted && (
+                        {isGuideSubmitted && !isImplemented && !isPending && !isApproved && (
                             <span style={{ fontSize: 11, color: C.info, padding: '4px 12px', background: C.infoBg, borderRadius: 999 }}>
                                 ⏳ Awaiting admin review
-                            </span>
-                        )}
-                        {isApproved && !isImplemented && !isGuideSubmitted && (
-                            <span style={{ fontSize: 11, color: C.success, padding: '4px 12px', background: C.successBg, borderRadius: 999 }}>
-                                ⏳ Awaiting implementation
-                            </span>
-                        )}
-                        {isGuideSubmitted && s.status === 'staff_approved' && (
-                            <span style={{ fontSize: 11, color: C.success, padding: '4px 12px', background: C.successBg, borderRadius: 999 }}>
-                                ✅ Staff Approved
-                            </span>
-                        )}
-                        {isGuideSubmitted && s.status === 'staff_rejected' && (
-                            <span style={{ fontSize: 11, color: C.danger, padding: '4px 12px', background: C.dangerBg, borderRadius: 999 }}>
-                                ❌ Staff Rejected
                             </span>
                         )}
                         {isImplemented && (
@@ -1541,15 +1472,14 @@ const StaffDashboard = () => {
                                 🎉 Implemented!
                             </span>
                         )}
-                        <button 
-                            onClick={(e) => { 
-                                e.stopPropagation(); 
-                                openSuggestionDetail(s);
-                            }}
-                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                        >
+                        <button onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid ${C.line}`, background: 'transparent', color: C.sage, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                             <Eye size={11} /> View
                         </button>
+                        {(isPending || isApproved) && (
+                            <button onClick={() => deleteSuggestion(s.id)} disabled={actionLoading} style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: actionLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: actionLoading && processingId === s.id ? 0.5 : 1 }}>
+                                <Trash2 size={11} /> Delete
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1557,7 +1487,7 @@ const StaffDashboard = () => {
     };
 
     // ============================================
-    // RENDER GUIDE CARD - WITH EDIT BUTTON
+    // RENDER GUIDE CARD
     // ============================================
     const renderGuideCard = (guide) => {
         const guideImageUrl = guide.profile_image || guide.image || guide.avatar;
@@ -1593,7 +1523,7 @@ const StaffDashboard = () => {
                             <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>{guide.full_name}</h4>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
                                 <span style={{ fontSize: 11, color: C.sage }}>{guide.email}</span>
-                                <span style={{ fontSize: 11, color: C.sage }}>· {guide.primary_district || 'N/A'}</span>
+                                <span style={{ fontSize: 11, color: C.sage }}>· {guide.primary_district || guide.district || 'N/A'}</span>
                                 {guide.rating > 0 && (
                                     <span style={{ fontSize: 11, color: C.gold }}>{'★'.repeat(Math.round(guide.rating))} {guide.rating}</span>
                                 )}
@@ -1616,7 +1546,8 @@ const StaffDashboard = () => {
                         </button>
                         <button 
                             onClick={() => deleteGuide(guide.id)}
-                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                            disabled={guideLoading}
+                            style={{ padding: '4px 12px', borderRadius: 999, border: `1px solid #EFCBB5`, background: C.dangerBg, color: C.danger, fontSize: 11, cursor: guideLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4, opacity: guideLoading ? 0.5 : 1 }}
                         >
                             <Trash2 size={11} /> Delete
                         </button>
@@ -1643,13 +1574,15 @@ const StaffDashboard = () => {
 
     const activeNavItem = navItems.find(n => n.key === activeTab);
 
+    // ============================================
+    // MAIN RENDER
+    // ============================================
     return (
         <div style={{ height: '100vh', background: C.cream, fontFamily: FONT.body, display: 'flex', overflow: 'hidden' }}>
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
                 @keyframes spin { to { transform: rotate(360deg); } }
                 .sd-nav-item:hover { background: ${C.goldSoft} !important; }
-                .sd-card:hover { border-color: ${C.gold} !important; box-shadow: 0 4px 14px rgba(7,46,42,0.08); transform: translateY(-1px); }
                 .sd-sidebar-scroll::-webkit-scrollbar { width: 4px; }
                 .sd-sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(199,154,62,0.3); border-radius: 4px; }
                 .sd-content-scroll::-webkit-scrollbar { width: 6px; }
@@ -1691,11 +1624,8 @@ const StaffDashboard = () => {
                                     alt="Profile" 
                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                     onError={(e) => {
-                                        console.error('❌ Profile image failed to load:', profilePicture);
                                         e.target.style.display = 'none';
                                         e.target.parentElement.textContent = profile?.full_name?.[0]?.toUpperCase() || user?.first_name?.[0]?.toUpperCase() || 'S';
-                                        e.target.parentElement.style.fontSize = '14px';
-                                        e.target.parentElement.style.fontWeight = '700';
                                     }}
                                 />
                             ) : (
@@ -1776,24 +1706,21 @@ const StaffDashboard = () => {
                                     {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
                                 </p>
                                 <h2 style={{ fontFamily: FONT.display, fontStyle: 'italic', fontSize: 26, color: C.inkSoft, margin: 0 }}>{activeNavItem?.label}</h2>
-                                <p style={{ fontSize: 13, color: C.sage, margin: '4px 0 0' }}></p>
                             </div>
                             <Btn variant="ghost" icon={RefreshCw} onClick={() => { dataFetchedRef.current = false; setRefreshing(true); fetchAllData().finally(() => setRefreshing(false)); }} disabled={refreshing} style={{ opacity: refreshing ? 0.6 : 1 }}>
                                 {refreshing ? 'Updating…' : 'Update'}
                             </Btn>
                         </div>
 
-                        {/* Stats - REMOVED "Pending" */}
+                        {/* Stats - REMOVED bookings and confirmed */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 26 }}>
                             <StatChip label="Total Guides" value={stats.totalGuides} icon={Users} tone="ink" />
                             <StatChip label="Hidden Gems" value={stats.totalHiddenGems} icon={Sparkles} tone="gold" />
                             <StatChip label="Local Insights" value={stats.totalLocalInsights} icon={Lightbulb} tone="gold" />
                             <StatChip label="Reviews" value={stats.totalReviews} icon={Star} tone="gold" />
-                            <StatChip label="Total Bookings" value={stats.totalBookings} icon={CalendarDays} tone="ink" />
-                            <StatChip label="Confirmed" value={stats.confirmedBookings} icon={CheckCircle} tone="success" />
                         </div>
 
-                        {/* Overview Tab - REMOVED Pending Suggestions */}
+                        {/* Overview Tab */}
                         {activeTab === 'overview' && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
                                 <Card style={{ padding: 20 }}>
@@ -1971,7 +1898,7 @@ const StaffDashboard = () => {
                             </Card>
                         )}
 
-                        {/* Profile Tab - FIXED with image error handling */}
+                        {/* Profile Tab */}
                         {activeTab === 'profile' && (
                             <Card style={{ padding: 24 }}>
                                 <SectionHead icon={User} title="Profile" right={
@@ -1998,11 +1925,8 @@ const StaffDashboard = () => {
                                                     alt="Profile" 
                                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                     onError={(e) => {
-                                                        console.error('❌ Profile image failed to load:', profilePicture);
                                                         e.target.style.display = 'none';
                                                         e.target.parentElement.textContent = profile?.full_name?.[0]?.toUpperCase() || user?.first_name?.[0]?.toUpperCase() || 'A';
-                                                        e.target.parentElement.style.fontSize = '26px';
-                                                        e.target.parentElement.style.fontWeight = 'bold';
                                                     }}
                                                 />
                                             ) : (
@@ -2122,144 +2046,149 @@ const StaffDashboard = () => {
                     <form onSubmit={handleAddGuide} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                     Full Name <span style={{ color: C.danger }}>*</span>
                                 </label>
                                 <input
                                     type="text"
+                                    placeholder="John Doe"
                                     value={guideForm.full_name}
                                     onChange={(e) => setGuideForm({ ...guideForm, full_name: e.target.value })}
                                     style={inputStyle}
                                     required
-                                    placeholder="John Doe"
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                     Email <span style={{ color: C.danger }}>*</span>
                                 </label>
                                 <input
                                     type="email"
+                                    placeholder="guide@example.com"
                                     value={guideForm.email}
                                     onChange={(e) => setGuideForm({ ...guideForm, email: e.target.value })}
                                     style={inputStyle}
                                     required
-                                    placeholder="guide@example.com"
                                 />
                             </div>
                         </div>
+
                         <div>
-                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                 Password <span style={{ color: C.danger }}>*</span>
                             </label>
                             <input
                                 type="text"
+                                placeholder="Enter a strong password (min 6 chars)"
                                 value={guideForm.password}
                                 onChange={(e) => setGuideForm({ ...guideForm, password: e.target.value })}
                                 style={inputStyle}
                                 required
-                                placeholder="Set a secure password (min 6 characters)"
+                                minLength={6}
                             />
                         </div>
+
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                     Phone
                                 </label>
                                 <input
-                                    type="text"
+                                    type="tel"
+                                    placeholder="+91 9876543210"
                                     value={guideForm.phone}
                                     onChange={(e) => setGuideForm({ ...guideForm, phone: e.target.value })}
                                     style={inputStyle}
-                                    placeholder="+91 9876543210"
-                                    maxLength="15"
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Experience (Years)
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                    Experience (years)
                                 </label>
                                 <input
                                     type="number"
+                                    placeholder="0"
                                     min="0"
+                                    max="50"
                                     value={guideForm.experience_years}
                                     onChange={(e) => setGuideForm({ ...guideForm, experience_years: e.target.value })}
                                     style={inputStyle}
-                                    placeholder="5"
                                 />
                             </div>
                         </div>
+
                         <div>
-                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                Bio
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                Languages
                             </label>
-                            <textarea
-                                rows="2"
-                                value={guideForm.bio}
-                                onChange={(e) => setGuideForm({ ...guideForm, bio: e.target.value })}
-                                style={{ ...inputStyle, resize: 'vertical' }}
-                                placeholder="Experienced tour guide with 5 years of experience..."
+                            <input
+                                type="text"
+                                placeholder="English, Malayalam, Hindi"
+                                value={guideForm.languages}
+                                onChange={(e) => setGuideForm({ ...guideForm, languages: e.target.value })}
+                                style={inputStyle}
                             />
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Languages
-                                </label>
-                                <input
-                                    type="text"
-                                    value={guideForm.languages}
-                                    onChange={(e) => setGuideForm({ ...guideForm, languages: e.target.value })}
-                                    style={inputStyle}
-                                    placeholder="English, Malayalam, Hindi"
-                                />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Primary District <span style={{ color: C.danger }}>*</span>
-                                </label>
-                                <select
-                                    value={guideForm.primary_district}
-                                    onChange={(e) => setGuideForm({ ...guideForm, primary_district: e.target.value })}
-                                    style={selectStyle}
-                                    required
-                                >
-                                    <option value="">Select District</option>
-                                    {KERALA_DISTRICTS.map(d => (
-                                        <option key={d.id} value={d.name}>{d.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+
+                        <div>
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                Primary District <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <select
+                                value={guideForm.primary_district}
+                                onChange={(e) => setGuideForm({ ...guideForm, primary_district: e.target.value })}
+                                style={selectStyle}
+                                required
+                            >
+                                <option value="">Select a district</option>
+                                {KERALA_DISTRICTS.map(d => (
+                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                ))}
+                            </select>
                         </div>
+
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Price/Day ($)
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                    Price / Day ($)
                                 </label>
                                 <input
                                     type="number"
+                                    placeholder="50"
                                     min="0"
                                     step="0.01"
                                     value={guideForm.price_per_day}
                                     onChange={(e) => setGuideForm({ ...guideForm, price_per_day: e.target.value })}
                                     style={inputStyle}
-                                    placeholder="50"
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Price/Hour ($)
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                    Price / Hour ($)
                                 </label>
                                 <input
                                     type="number"
+                                    placeholder="10"
                                     min="0"
                                     step="0.01"
                                     value={guideForm.price_per_hour}
                                     onChange={(e) => setGuideForm({ ...guideForm, price_per_hour: e.target.value })}
                                     style={inputStyle}
-                                    placeholder="15"
                                 />
                             </div>
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                Bio
+                            </label>
+                            <textarea
+                                placeholder="Professional background, specialties, etc."
+                                value={guideForm.bio}
+                                onChange={(e) => setGuideForm({ ...guideForm, bio: e.target.value })}
+                                rows={3}
+                                style={{ ...inputStyle, resize: 'vertical' }}
+                            />
                         </div>
                     </form>
                 </ModalShell>
@@ -2272,6 +2201,7 @@ const StaffDashboard = () => {
                     title="✏️ Edit Guide"
                     subtitle={`Updating ${editingGuide.full_name}'s profile`}
                     icon={User}
+                    maxWidth={640}
                     footer={
                         <>
                             <Btn variant="ghost" onClick={() => { setShowEditGuideModal(false); setEditingGuide(null); setEditGuidePicFile(null); }}>Cancel</Btn>
@@ -2283,36 +2213,31 @@ const StaffDashboard = () => {
                     }
                 >
                     <form onSubmit={handleEditGuide} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {/* Profile Picture Upload */}
+                        {/* Profile Picture Upload Section */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 12, background: C.cream, borderRadius: RADIUS.md, border: `1px solid ${C.line}` }}>
                             <div style={{ position: 'relative' }}>
-                                <div
-                                    style={{
-                                        width: 64, height: 64, borderRadius: '50%',
-                                        background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: 24, fontWeight: 'bold', color: C.ink, overflow: 'hidden',
-                                        border: `2px solid ${C.gold}66`,
-                                    }}
-                                >
+                                <div style={{
+                                    width: 64, height: 64, borderRadius: '50%',
+                                    background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 24, fontWeight: 'bold', color: C.ink,
+                                    overflow: 'hidden', border: `2px solid ${C.gold}66`,
+                                }}>
                                     {editGuideProfilePic ? (
                                         <img src={editGuideProfilePic} alt="Guide" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     ) : (
-                                        editGuideForm.full_name?.charAt(0)?.toUpperCase() || 'G'
+                                        editingGuide.full_name?.charAt(0)?.toUpperCase() || 'G'
                                     )}
                                 </div>
-                                <label
-                                    htmlFor="edit-guide-pic"
-                                    style={{
-                                        position: 'absolute', bottom: -2, right: -2,
-                                        width: 24, height: 24, borderRadius: '50%',
-                                        background: C.ink, color: C.goldLight,
-                                        border: `2px solid ${C.cream}`,
-                                        cursor: 'pointer',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: 12,
-                                    }}
-                                >
+                                <label htmlFor="edit-guide-pic" style={{
+                                    position: 'absolute', bottom: -2, right: -2,
+                                    width: 26, height: 26, borderRadius: '50%',
+                                    background: C.ink, color: C.goldLight,
+                                    border: `2px solid ${C.cream}`,
+                                    cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 12,
+                                }}>
                                     <Camera size={12} />
                                 </label>
                                 <input
@@ -2325,13 +2250,15 @@ const StaffDashboard = () => {
                             </div>
                             <div>
                                 <p style={{ fontSize: 12, color: C.sage, margin: 0 }}>Click the camera icon to update profile picture</p>
-                                {editGuidePicFile && <p style={{ fontSize: 11, color: C.success, margin: '4px 0 0' }}>✅ New image selected</p>}
+                                {editGuidePicFile && (
+                                    <p style={{ fontSize: 11, color: C.success, margin: '4px 0 0' }}>✅ New image selected</p>
+                                )}
                             </div>
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                     Full Name <span style={{ color: C.danger }}>*</span>
                                 </label>
                                 <input
@@ -2343,7 +2270,7 @@ const StaffDashboard = () => {
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                     Email
                                 </label>
                                 <input
@@ -2354,78 +2281,68 @@ const StaffDashboard = () => {
                                 />
                             </div>
                         </div>
+
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
                                     Phone
                                 </label>
                                 <input
-                                    type="text"
+                                    type="tel"
                                     value={editGuideForm.phone}
                                     onChange={(e) => setEditGuideForm({ ...editGuideForm, phone: e.target.value })}
                                     style={inputStyle}
-                                    placeholder="+91 9876543210"
-                                    maxLength="15"
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Experience (Years)
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                    Experience (years)
                                 </label>
                                 <input
                                     type="number"
                                     min="0"
+                                    max="50"
                                     value={editGuideForm.experience_years}
                                     onChange={(e) => setEditGuideForm({ ...editGuideForm, experience_years: e.target.value })}
                                     style={inputStyle}
                                 />
                             </div>
                         </div>
+
                         <div>
-                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                Bio
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                Languages
                             </label>
-                            <textarea
-                                rows="2"
-                                value={editGuideForm.bio}
-                                onChange={(e) => setEditGuideForm({ ...editGuideForm, bio: e.target.value })}
-                                style={{ ...inputStyle, resize: 'vertical' }}
+                            <input
+                                type="text"
+                                placeholder="English, Malayalam, Hindi"
+                                value={editGuideForm.languages}
+                                onChange={(e) => setEditGuideForm({ ...editGuideForm, languages: e.target.value })}
+                                style={inputStyle}
                             />
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Languages
-                                </label>
-                                <input
-                                    type="text"
-                                    value={editGuideForm.languages}
-                                    onChange={(e) => setEditGuideForm({ ...editGuideForm, languages: e.target.value })}
-                                    style={inputStyle}
-                                    placeholder="English, Malayalam, Hindi"
-                                />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Primary District <span style={{ color: C.danger }}>*</span>
-                                </label>
-                                <select
-                                    value={editGuideForm.primary_district}
-                                    onChange={(e) => setEditGuideForm({ ...editGuideForm, primary_district: e.target.value })}
-                                    style={selectStyle}
-                                    required
-                                >
-                                    <option value="">Select District</option>
-                                    {KERALA_DISTRICTS.map(d => (
-                                        <option key={d.id} value={d.name}>{d.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+
+                        <div>
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                Primary District <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <select
+                                value={editGuideForm.primary_district}
+                                onChange={(e) => setEditGuideForm({ ...editGuideForm, primary_district: e.target.value })}
+                                style={selectStyle}
+                                required
+                            >
+                                <option value="">Select a district</option>
+                                {KERALA_DISTRICTS.map(d => (
+                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                ))}
+                            </select>
                         </div>
+
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Price/Day ($)
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                    Price / Day ($)
                                 </label>
                                 <input
                                     type="number"
@@ -2437,8 +2354,8 @@ const StaffDashboard = () => {
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                    Price/Hour ($)
+                                <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                    Price / Hour ($)
                                 </label>
                                 <input
                                     type="number"
@@ -2450,8 +2367,62 @@ const StaffDashboard = () => {
                                 />
                             </div>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8, borderTop: `1px solid ${C.line}` }}>
-                            <label style={{ fontSize: 11, color: C.sageLight, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+
+                        {/* Password Change Section */}
+                        <div style={{
+                            borderTop: `2px solid ${C.line}`,
+                            paddingTop: 14,
+                            marginTop: 4,
+                            background: C.cream,
+                            padding: '12px 16px',
+                            borderRadius: RADIUS.sm,
+                        }}>
+                            <p style={{ fontSize: 11, color: C.sage, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Key size={14} /> Change Password (leave blank to keep current)
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div>
+                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                        New Password
+                                    </label>
+                                    <input
+                                        type="password"
+                                        placeholder="Min 6 characters"
+                                        value={editGuideForm.new_password}
+                                        onChange={(e) => setEditGuideForm({ ...editGuideForm, new_password: e.target.value })}
+                                        style={{ ...inputStyle, background: C.paper }}
+                                        minLength={6}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                        Confirm Password
+                                    </label>
+                                    <input
+                                        type="password"
+                                        placeholder="Confirm new password"
+                                        value={editGuideForm.confirm_password}
+                                        onChange={(e) => setEditGuideForm({ ...editGuideForm, confirm_password: e.target.value })}
+                                        style={{ ...inputStyle, background: C.paper }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono }}>
+                                Bio
+                            </label>
+                            <textarea
+                                value={editGuideForm.bio}
+                                onChange={(e) => setEditGuideForm({ ...editGuideForm, bio: e.target.value })}
+                                rows={3}
+                                style={{ ...inputStyle, resize: 'vertical' }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
+                            <label style={{ fontSize: 10.5, color: C.sageLight, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FONT.mono, cursor: 'pointer' }}>
                                 <input
                                     type="checkbox"
                                     checked={editGuideForm.is_verified}
@@ -2512,111 +2483,94 @@ const StaffDashboard = () => {
                     icon={getTypeIcon(selectedSuggestion.suggestion_type)}
                     footer={
                         <>
-                            {selectedSuggestion.status === 'pending' || selectedSuggestion.status === 'pending_guide' || selectedSuggestion.status === 'pending_admin' ? (
+                            {(selectedSuggestion.status === 'pending' || selectedSuggestion.status === 'pending_guide' || selectedSuggestion.status === 'pending_admin') && (
                                 <>
-                                    <Btn variant="success" icon={Check} onClick={() => processSuggestion(selectedSuggestion.id, 'approve', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Approve</Btn>
-                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Reject</Btn>
-                                    <Btn variant="primary" icon={CheckCircle} onClick={() => processSuggestion(selectedSuggestion.id, 'implement', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Implement</Btn>
+                                    <Btn variant="success" icon={Check} onClick={() => processSuggestion(selectedSuggestion.id, 'approve', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Approve
+                                    </Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Reject
+                                    </Btn>
+                                    <Btn variant="primary" icon={CheckCircle} onClick={() => processSuggestion(selectedSuggestion.id, 'implement', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Implement
+                                    </Btn>
                                 </>
-                            ) : (selectedSuggestion.status === 'approved' || selectedSuggestion.status === 'approved_by_guide' || selectedSuggestion.status === 'approved_by_admin' || selectedSuggestion.status === 'staff_approved') ? (
+                            )}
+                            {(selectedSuggestion.status === 'approved' || selectedSuggestion.status === 'approved_by_guide' || selectedSuggestion.status === 'approved_by_admin' || selectedSuggestion.status === 'staff_approved') && (
                                 <>
-                                    <Btn variant="primary" icon={CheckCircle} onClick={() => processSuggestion(selectedSuggestion.id, 'implement', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Implement</Btn>
-                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Reject</Btn>
+                                    <Btn variant="primary" icon={CheckCircle} onClick={() => processSuggestion(selectedSuggestion.id, 'implement', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Implement
+                                    </Btn>
+                                    <Btn variant="danger" icon={X} onClick={() => processSuggestion(selectedSuggestion.id, 'reject', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                        Reject
+                                    </Btn>
                                 </>
-                            ) : selectedSuggestion.status === 'implemented' ? (
+                            )}
+                            {selectedSuggestion.status === 'implemented' && (
                                 <span style={{ fontSize: 13, color: C.gold, fontWeight: 600, padding: '8px 16px' }}>✨ Implemented</span>
-                            ) : selectedSuggestion.status === 'rejected' || selectedSuggestion.status === 'rejected_by_guide' || selectedSuggestion.status === 'rejected_by_admin' || selectedSuggestion.status === 'staff_rejected' ? (
+                            )}
+                            {selectedSuggestion.status === 'rejected' && (
                                 <span style={{ fontSize: 13, color: C.danger, fontWeight: 600, padding: '8px 16px' }}>❌ Rejected</span>
-                            ) : null}
-                            <Btn variant="danger" icon={Trash2} onClick={() => processSuggestion(selectedSuggestion.id, 'delete', selectedSuggestion.suggestion_type)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>Delete</Btn>
+                            )}
+                            <Btn variant="danger" icon={Trash2} onClick={() => deleteSuggestion(selectedSuggestion.id)} disabled={actionLoading} style={{ opacity: actionLoading ? 0.5 : 1 }}>
+                                Delete
+                            </Btn>
                             <Btn variant="ghost" onClick={() => { setShowSuggestionModal(false); setSelectedSuggestion(null); }}>Close</Btn>
                         </>
                     }
                 >
-                    {(() => {
-                        const modalImageUrl = getImageUrl(selectedSuggestion);
-                        return modalImageUrl ? (
-                            <img 
-                                src={modalImageUrl} 
-                                alt={selectedSuggestion.name || 'Suggestion'} 
-                                style={{ 
-                                    width: '100%', maxHeight: 300, objectFit: 'cover', 
-                                    borderRadius: RADIUS.md, marginBottom: 16, 
-                                    border: `1px solid ${C.line}` 
-                                }}
-                                onError={(e) => { 
-                                    console.error('❌ Modal image failed to load:', modalImageUrl);
-                                    e.target.style.display = 'none'; 
-                                }}
-                            />
-                        ) : (
-                            <div style={{ 
-                                width: '100%', height: 150, 
-                                background: C.cream, 
-                                borderRadius: RADIUS.md, 
-                                marginBottom: 16,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: `1px solid ${C.line}`
-                            }}>
-                                <span style={{ fontSize: 48 }}>
-                                    {selectedSuggestion.suggestion_type === 'hidden_gem' ? '💎' : 
-                                     selectedSuggestion.suggestion_type === 'local_insight' ? '💡' : 
-                                     selectedSuggestion.suggestion_type === 'review' ? '⭐' : '📍'}
-                                </span>
-                            </div>
-                        );
-                    })()}
+                    {getImageUrl(selectedSuggestion) && (
+                        <img 
+                            src={getImageUrl(selectedSuggestion)} 
+                            alt={selectedSuggestion.name || 'Suggestion'} 
+                            style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: RADIUS.md, marginBottom: 16, border: `1px solid ${C.line}` }}
+                            onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                    )}
                     
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                         <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedSuggestion.district || 'N/A'}</span>
-                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>{getTypeBadge(selectedSuggestion.suggestion_type)}</span>
+                        <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>
+                            {selectedSuggestion.suggestion_type === 'hidden_gem' ? '💎 Hidden Gem' : 
+                             selectedSuggestion.suggestion_type === 'local_insight' ? '💡 Local Insight' :
+                             selectedSuggestion.suggestion_type === 'review' ? '⭐ Review' : '📍 Suggestion'}
+                        </span>
                         <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.cream, color: C.sage }}>{selectedSuggestion.user_email || 'Anonymous'}</span>
-                        {selectedSuggestion.rating && (
+                        {selectedSuggestion.rating > 0 && (
                             <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.goldSoft, color: C.gold }}>
                                 {'★'.repeat(Math.round(selectedSuggestion.rating))} {selectedSuggestion.rating}/5
                             </span>
                         )}
                         <StatusPill status={selectedSuggestion.status} />
-                        {selectedSuggestion.implemented_at && (
-                            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.successBg, color: C.success }}>
-                                Implemented: {new Date(selectedSuggestion.implemented_at).toLocaleDateString()}
-                            </span>
-                        )}
-                        {selectedSuggestion.is_guide_submitted && (
-                            <span style={{ fontSize: 12, padding: '3px 12px', borderRadius: 999, background: C.infoBg, color: C.info }}>
-                                👤 Submitted by Guide
-                            </span>
-                        )}
                     </div>
-                    <p style={{ fontSize: 14, color: C.sage, lineHeight: 1.6, marginBottom: 12 }}>{selectedSuggestion.description || 'No description'}</p>
+                    
+                    <p style={{ fontSize: 14, color: C.sage, lineHeight: 1.6, marginBottom: 12 }}>
+                        {selectedSuggestion.description || 'No description'}
+                    </p>
+                    
                     {selectedSuggestion.location_info && (
                         <div style={{ background: C.cream, padding: 12, borderRadius: RADIUS.sm, marginBottom: 8 }}>
                             <p style={{ fontSize: 11, color: C.info, margin: 0, fontWeight: 600 }}>📍 Location Info</p>
                             <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedSuggestion.location_info}</p>
                         </div>
                     )}
+                    
                     {selectedSuggestion.admin_notes && (
-                        <div style={{ background: C.cream, padding: 12, borderRadius: RADIUS.sm }}>
-                            <p style={{ fontSize: 11, color: C.gold, margin: 0, fontWeight: 600 }}>📝 Staff Notes</p>
+                        <div style={{ background: C.infoBg, padding: 12, borderRadius: RADIUS.sm }}>
+                            <p style={{ fontSize: 11, color: C.info, margin: 0, fontWeight: 600 }}>📋 Notes</p>
                             <p style={{ fontSize: 13, color: C.inkSoft, margin: '4px 0 0' }}>{selectedSuggestion.admin_notes}</p>
                         </div>
                     )}
-                    {selectedSuggestion.processed_by && (
-                        <div style={{ marginTop: 8, padding: 8, background: '#F0F7FF', borderRadius: RADIUS.sm }}>
-                            <p style={{ fontSize: 11, color: '#1E3A5F', margin: 0 }}>👤 Processed by: {selectedSuggestion.processed_by}</p>
-                            {selectedSuggestion.processed_at && (
-                                <p style={{ fontSize: 11, color: '#475569', margin: '4px 0 0' }}>
-                                    🕐 {new Date(selectedSuggestion.processed_at).toLocaleString()}
-                                </p>
-                            )}
+                    
+                    {selectedSuggestion.created_at && (
+                        <div style={{ marginTop: 12, fontSize: 10, color: C.sageLight, textAlign: 'right' }}>
+                            Submitted: {new Date(selectedSuggestion.created_at).toLocaleString()}
                         </div>
                     )}
                 </ModalShell>
             )}
 
-            {/* TOAST */}
+            {/* Toast */}
             {toast && (
                 <div style={{
                     position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',

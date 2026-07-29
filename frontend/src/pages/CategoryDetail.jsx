@@ -1,9 +1,11 @@
-// pages/CategoryDetail.jsx - COMPLETE FIXED VERSION (SHOWS PLACES)
+// pages/CategoryDetail.jsx - COMPLETE FULLY FIXED VERSION
+// Shows places + implemented suggestions for the category
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthAPI } from '../services/api';
+import api from '../services/api';
 
 // All 14 districts
 const districts = [
@@ -50,6 +52,8 @@ export default function CategoryDetail() {
   const [categoryInfo, setCategoryInfo] = useState(null);
   const [wishlistLoading, setWishlistLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [implementedSuggestions, setImplementedSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(true);
   
   const districtRef = useRef(null);
   const typeRef = useRef(null);
@@ -80,6 +84,94 @@ export default function CategoryDetail() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // ✅ Fetch implemented suggestions for this category
+  const fetchImplementedSuggestions = async () => {
+    if (!isLoggedIn) return;
+    
+    try {
+      console.log(`📊 Fetching implemented suggestions for category: ${categoryId}`);
+      
+      // Get implemented suggestions with this category
+      const response = await api.get('/suggestions/implemented/', {
+        params: {
+          category: categoryId,
+          limit: 100
+        }
+      });
+      
+      console.log('📊 Implemented suggestions response:', response.data);
+      
+      let items = [];
+      if (response.data?.data && Array.isArray(response.data.data)) {
+        items = response.data.data;
+      } else if (response.data?.results?.data && Array.isArray(response.data.results.data)) {
+        items = response.data.results.data;
+      } else if (response.data?.results && Array.isArray(response.data.results)) {
+        items = response.data.results;
+      }
+      
+      // ✅ Also fetch by district to catch more suggestions
+      const allResponse = await api.get('/suggestions/implemented/', {
+        params: {
+          limit: 200
+        }
+      });
+      
+      let allItems = [];
+      if (allResponse.data?.data && Array.isArray(allResponse.data.data)) {
+        allItems = allResponse.data.data;
+      } else if (allResponse.data?.results?.data && Array.isArray(allResponse.data.results.data)) {
+        allItems = allResponse.data.results.data;
+      } else if (allResponse.data?.results && Array.isArray(allResponse.data.results)) {
+        allItems = allResponse.data.results;
+      }
+      
+      // Filter extra items by category or district matching categoryId
+      const extraItems = allItems.filter(s => {
+        const suggestionCategory = (s.category || '').toLowerCase();
+        const suggestionDistrict = (s.district || '').toLowerCase();
+        const categoryLower = categoryId.toLowerCase();
+        return suggestionCategory === categoryLower ||
+               suggestionCategory.replace(/_/g, '') === categoryLower.replace(/_/g, '') ||
+               suggestionDistrict === categoryLower ||
+               suggestionDistrict.replace(/\s+/g, '') === categoryLower.replace(/\s+/g, '');
+      });
+      
+      // Merge and deduplicate
+      const allSuggestions = [...items];
+      extraItems.forEach(s => {
+        if (!allSuggestions.some(existing => existing.id === s.id)) {
+          allSuggestions.push(s);
+        }
+      });
+      
+      // Format suggestions as places
+      const formattedSuggestions = allSuggestions.map(s => ({
+        id: `suggestion-${s.id}`,
+        destination_id: s.id,
+        name: s.name || s.title || 'Unknown Place',
+        location: s.district || s.location_info || '',
+        description: s.description || s.review_text || '',
+        image: s.image_url || s.primary_image || s.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
+        type: s.suggestion_type === 'hidden_gem' ? 'hidden' : 'well-known',
+        hiddenGem: s.description || '',
+        district: s.district || '',
+        rating: s.rating || 0,
+        isSuggestion: true,
+        suggestion_type: s.suggestion_type,
+        implemented_at: s.implemented_at || s.created_at,
+        admin_notes: s.admin_notes || ''
+      }));
+      
+      setImplementedSuggestions(formattedSuggestions);
+      console.log(`✅ Found ${formattedSuggestions.length} implemented suggestions for this category`);
+      
+    } catch (error) {
+      console.error('❌ Error fetching implemented suggestions:', error);
+      setImplementedSuggestions([]);
+    }
+  };
 
   // ✅ Fetch wishlist from backend
   const fetchWishlist = async () => {
@@ -171,7 +263,7 @@ export default function CategoryDetail() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ✅ Fetch category details - FIXED
+  // ✅ Fetch category details and implemented suggestions
   useEffect(() => {
     const fetchCategoryDetails = async () => {
       if (!isLoggedIn) {
@@ -195,63 +287,29 @@ export default function CategoryDetail() {
         console.log('📊 Full API Response:', response);
         
         if (response && response.success && response.data && response.data.length > 0) {
-          console.log('📊 Total categories:', response.data.length);
-          console.log('📊 Category keys:', response.data.map(c => c.key));
-          
-          // ✅ Try multiple ways to find the category
+          // Find category
           let category = null;
-          
-          // 1. Direct match
           category = response.data.find(cat => cat.key === categoryId);
-          
-          // 2. Case-insensitive match
           if (!category) {
             category = response.data.find(cat => 
               cat.key.toLowerCase() === categoryId.toLowerCase()
             );
           }
-          
-          // 3. Match by title
           if (!category) {
             category = response.data.find(cat => 
               cat.title && cat.title.toLowerCase().replace(/\s+/g, '') === categoryId.toLowerCase().replace(/\s+/g, '')
             );
           }
           
-          // 4. Match by partial key
-          if (!category) {
-            category = response.data.find(cat => 
-              cat.key.includes(categoryId) || categoryId.includes(cat.key)
-            );
-          }
-          
-          // 5. Try using the categoryData from localStorage as fallback
-          if (!category) {
-            try {
-              const cached = localStorage.getItem('categories_data');
-              if (cached) {
-                const parsed = JSON.parse(cached);
-                category = parsed.find(cat => 
-                  cat.key === categoryId || 
-                  cat.key.toLowerCase() === categoryId.toLowerCase()
-                );
-                if (category) {
-                  console.log('📦 Found category in localStorage:', category);
-                }
-              }
-            } catch (e) {}
-          }
-          
           if (category) {
             console.log('✅ Found category:', category.key, category.title);
-            console.log('✅ Places count:', category.places?.length || 0);
             
             setCategoryInfo({
               title: category.title || categoryId,
               description: category.description || `Explore ${categoryId} in Kerala`
             });
             
-            // ✅ Format places with all required fields
+            // Format places
             const formattedPlaces = (category.places || []).map(place => ({
               id: place.id || Math.random(),
               destination_id: place.destination_id || null,
@@ -265,13 +323,10 @@ export default function CategoryDetail() {
               duration: place.duration || '',
               bestTime: place.best_time || '',
               district: place.district || place.location || '',
+              isSuggestion: false
             }));
             
-            console.log('✅ Formatted', formattedPlaces.length, 'places');
-            console.log('✅ First place:', formattedPlaces[0]);
-            
             setPlaces(formattedPlaces);
-            setFilteredPlaces(formattedPlaces);
             dataLoadedRef.current = true;
           } else {
             console.error('❌ Category not found:', categoryId);
@@ -281,7 +336,6 @@ export default function CategoryDetail() {
               description: 'Category not found'
             });
             setPlaces([]);
-            setFilteredPlaces([]);
           }
         } else {
           setError('No data received from server');
@@ -301,6 +355,7 @@ export default function CategoryDetail() {
 
     fetchCategoryDetails();
     fetchWishlist();
+    fetchImplementedSuggestions();
     
     return () => {
       if (abortControllerRef.current) {
@@ -310,15 +365,38 @@ export default function CategoryDetail() {
     };
   }, [categoryId, isLoggedIn]);
 
+  // ✅ Combine places and implemented suggestions
+  const getAllPlaces = () => {
+    const all = [...places];
+    
+    // Add implemented suggestions that are not already in places
+    if (showSuggestions) {
+      implementedSuggestions.forEach(suggestion => {
+        // Check if this suggestion already exists as a place
+        const exists = all.some(p => 
+          p.name.toLowerCase() === suggestion.name.toLowerCase() && 
+          p.district === suggestion.district
+        );
+        if (!exists) {
+          all.push(suggestion);
+        }
+      });
+    }
+    
+    return all;
+  };
+
   // ✅ Filter places
   useEffect(() => {
-    if (!places || places.length === 0) {
+    const allPlaces = getAllPlaces();
+    
+    if (!allPlaces || allPlaces.length === 0) {
       setFilteredPlaces([]);
       return;
     }
 
-    console.log('🔄 Filtering places. Total:', places.length);
-    let filtered = [...places];
+    console.log('🔄 Filtering places. Total:', allPlaces.length);
+    let filtered = [...allPlaces];
     
     // Filter by district
     if (selectedDistrict !== "All Districts") {
@@ -348,7 +426,7 @@ export default function CategoryDetail() {
     }
     
     setFilteredPlaces(filtered);
-  }, [selectedDistrict, selectedType, searchTerm, places]);
+  }, [selectedDistrict, selectedType, searchTerm, places, implementedSuggestions, showSuggestions]);
 
   const handleDistrictSelect = (district) => {
     setSelectedDistrict(district);
@@ -384,6 +462,7 @@ export default function CategoryDetail() {
   console.log('🎨 RENDER STATE:', {
     loading,
     placesLength: places.length,
+    suggestionsLength: implementedSuggestions.length,
     filteredLength: filteredPlaces.length,
     wishlistLength: wishlist.length,
     error: error,
@@ -490,7 +569,10 @@ export default function CategoryDetail() {
     );
   }
 
-  // ✅ RENDER - Full Design
+  // ✅ RENDER
+  const totalPlaces = filteredPlaces.length;
+  const suggestionCount = filteredPlaces.filter(p => p.isSuggestion).length;
+
   return (
     <div style={{ background: "#FBF6EA", minHeight: "100vh", paddingBottom: 100, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#0B2422" }}>
       <style>{`
@@ -645,6 +727,19 @@ export default function CategoryDetail() {
           padding: 0 40px;
         }
 
+        .suggestion-badge {
+          display: inline-block;
+          padding: 2px 10px;
+          border-radius: 999px;
+          font-size: 9px;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          background: rgba(45,143,110,0.15);
+          color: #2D8F6E;
+          border: 1px solid rgba(45,143,110,0.2);
+          margin-top: 4px;
+        }
+
         @media (min-width: 768px) {
           .cd-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 24px !important; }
           .cd-header-row { flex-direction: row !important; align-items: center !important; }
@@ -759,13 +854,34 @@ export default function CategoryDetail() {
             </div>
           </div>
           
-          <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ marginTop: 16, display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ background: "rgba(199,154,62,0.15)", color: "#E4C77B", padding: "4px 14px", borderRadius: 999, fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }}>
-              {filteredPlaces.length} places 
+              {totalPlaces} places 
+              {suggestionCount > 0 && ` (${suggestionCount} from suggestions)`}
               {selectedDistrict !== "All Districts" && ` in ${selectedDistrict}`}
               {selectedType !== "all" && ` (${selectedType === "hidden" ? "✨ Hidden Gems" : "⭐ Well Known"})`}
               {searchTerm.trim() !== '' && ` matching "${searchTerm}"`}
             </span>
+            
+            {/* Toggle suggestions visibility */}
+            {implementedSuggestions.length > 0 && (
+              <button
+                onClick={() => setShowSuggestions(!showSuggestions)}
+                style={{
+                  background: showSuggestions ? 'rgba(45,143,110,0.15)' : 'rgba(199,154,62,0.1)',
+                  border: showSuggestions ? '1px solid rgba(45,143,110,0.3)' : '1px solid rgba(199,154,62,0.2)',
+                  borderRadius: 999,
+                  padding: "4px 14px",
+                  fontSize: 11,
+                  color: showSuggestions ? '#2D8F6E' : '#C79A3E',
+                  cursor: 'pointer',
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {showSuggestions ? '✅ Showing suggestions' : '👁️ Show suggestions'}
+              </button>
+            )}
           </div>
         </div>
         <svg viewBox="0 0 1200 40" preserveAspectRatio="none" style={{ position: "absolute", bottom: -1, left: 0, width: "100%", height: 26 }}>
@@ -778,17 +894,17 @@ export default function CategoryDetail() {
         {filteredPlaces.length === 0 ? (
           <div style={{ textAlign: "center", padding: "60px 20px" }}>
             <p className="cd-font-display" style={{ fontSize: 24, color: "#072E2A", marginBottom: 8 }}>
-              {places.length === 0 ? 'No places found for this category' : 'No places match your filters'}
+              {places.length === 0 && implementedSuggestions.length === 0 ? 'No places found for this category' : 'No places match your filters'}
             </p>
             <p style={{ color: "#8A9A95", fontSize: 14 }}>
-              {places.length === 0 ? 'Try exploring other categories' : 'Try adjusting your filters'}
+              {places.length === 0 && implementedSuggestions.length === 0 ? 'Try exploring other categories' : 'Try adjusting your filters'}
             </p>
-            {places.length === 0 && (
+            {places.length === 0 && implementedSuggestions.length === 0 && (
               <Link to="/categories" style={{ display: "inline-block", marginTop: 16, padding: "10px 24px", background: "#C79A3E", color: "#fff", borderRadius: 999, textDecoration: "none", fontSize: 14 }}>
                 Browse Categories →
               </Link>
             )}
-            {places.length > 0 && (
+            {(places.length > 0 || implementedSuggestions.length > 0) && (
               <button
                 onClick={() => {
                   setSearchTerm('');
@@ -855,22 +971,34 @@ export default function CategoryDetail() {
                           📍 {place.location}
                         </p>
                       </div>
-                      {place.type && (
-                        <span style={{ 
-                          background: place.type === 'hidden' ? 'rgba(199,154,62,0.15)' : 'rgba(46,125,50,0.1)',
-                          color: place.type === 'hidden' ? '#C79A3E' : '#2E7D32',
-                          padding: "2px 10px",
-                          borderRadius: 999,
-                          fontSize: 10,
-                          fontWeight: 600,
-                          letterSpacing: 0.5,
-                          fontFamily: "'IBM Plex Mono', monospace",
-                          whiteSpace: "nowrap",
-                          border: place.type === 'hidden' ? '1px solid rgba(199,154,62,0.3)' : '1px solid rgba(46,125,50,0.2)'
-                        }}>
-                          {place.type === 'hidden' ? '✨ Hidden' : '⭐ Well Known'}
-                        </span>
-                      )}
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        {place.type && (
+                          <span style={{ 
+                            background: place.type === 'hidden' ? 'rgba(199,154,62,0.15)' : 'rgba(46,125,50,0.1)',
+                            color: place.type === 'hidden' ? '#C79A3E' : '#2E7D32',
+                            padding: "2px 10px",
+                            borderRadius: 999,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            letterSpacing: 0.5,
+                            fontFamily: "'IBM Plex Mono', monospace",
+                            whiteSpace: "nowrap",
+                            border: place.type === 'hidden' ? '1px solid rgba(199,154,62,0.3)' : '1px solid rgba(46,125,50,0.2)'
+                          }}>
+                            {place.type === 'hidden' ? '✨ Hidden' : '⭐ Well Known'}
+                          </span>
+                        )}
+                        {place.isSuggestion && (
+                          <span className="suggestion-badge">
+                            💡 Suggested
+                          </span>
+                        )}
+                        {place.rating > 0 && (
+                          <span style={{ fontSize: 12, color: '#FF9800' }}>
+                            {'★'.repeat(Math.round(place.rating))}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     
                     <p style={{ fontSize: 14, color: "#3D5A57", lineHeight: 1.6, marginTop: 10 }}>
@@ -897,6 +1025,14 @@ export default function CategoryDetail() {
                             <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.bestTime}</p>
                           </div>
                         )}
+                        {place.implemented_at && (
+                          <div>
+                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Added</span>
+                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>
+                              {new Date(place.implemented_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -913,6 +1049,23 @@ export default function CategoryDetail() {
                         </p>
                         <p style={{ fontSize: 14, color: "#3D5A57", margin: 0, lineHeight: 1.5 }}>
                           {place.hiddenGem}
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedPlace?.id === place.id && place.admin_notes && place.isSuggestion && (
+                      <div style={{ 
+                        marginTop: 10, 
+                        background: "rgba(45,143,110,0.08)", 
+                        padding: "10px 14px", 
+                        borderRadius: 6,
+                        borderLeft: "3px solid #2D8F6E"
+                      }}>
+                        <p style={{ fontSize: 11, color: "#2D8F6E", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", margin: "0 0 3px" }}>
+                          📝 Implementation Notes
+                        </p>
+                        <p style={{ fontSize: 13, color: "#3D5A57", margin: 0, lineHeight: 1.4 }}>
+                          {place.admin_notes}
                         </p>
                       </div>
                     )}
