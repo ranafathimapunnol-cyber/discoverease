@@ -19,7 +19,7 @@ class AiConfig(AppConfig):
         # Connect to post_migrate signal
         post_migrate.connect(initialize_vector_store, sender=self)
         
-        # Also run it now if not in migration
+        # This ensures data is indexed when the server starts (not just after migrations)
         import sys
         if 'migrate' not in sys.argv and 'makemigrations' not in sys.argv:
             try:
