@@ -1,5 +1,3 @@
-# api/views/ai_views.py - COMPLETE FIXED VERSION
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
@@ -7,20 +5,14 @@ import logging
 import re
 from typing import Dict, List, Optional
 import uuid
-from datetime import datetime
 from collections import defaultdict
 import time
+from difflib import SequenceMatcher
 
 # ============================================
-# FORCE IMPORT - No try/except
+# FORCE IMPORT
 # ============================================
 from destinations.models import Destination
-
-try:
-    from ai.vector_store import vector_store
-except ImportError:
-    vector_store = None
-    print("⚠️ vector_store not available")
 
 logger = logging.getLogger(__name__)
 
@@ -34,54 +26,29 @@ MAX_SESSIONS = 1000
 # ============================================
 _destinations_cache = None
 _cache_time = None
-CACHE_DURATION = 300  # 5 minutes
+CACHE_DURATION = 300
 
 # ============================================
 # CATEGORY EMOJI MAP
 # ============================================
 
 CATEGORY_EMOJI = {
-    'beach': '🏖️',
-    'hill': '⛰️',
-    'hill_station': '⛰️',
-    'backwater': '🚣',
-    'wildlife': '🐘',
-    'temple': '🛕',
-    'heritage': '🏛️',
-    'fort': '🏛️',
-    'palace': '🏛️',
-    'waterfall': '💧',
-    'waterfalls': '💧',
-    'nature': '🌿',
-    'adventure': '🎢',
-    'park': '🌳',
-    'parks': '🌳',
-    'garden': '🌳',
-    'gardens': '🌳',
-    'museum': '🏛️',
-    'museums': '🏛️',
-    'culture': '🎭',
-    'viewpoint': '👀',
-    'landmark': '📍',
-    'general': '📍',
-    'other': '📍',
-    'resort': '🏨',
-    'resorts': '🏨',
-    'ayurveda': '💆',
-    'spiritual': '🕉️',
-    'sacred': '🕉️',
-    'mosque': '🕌',
-    'church': '⛪',
-    'pilgrimage': '🕉️',
-    'water': '💧',
-    'lake': '🏞️',
-    'river': '🏞️',
-    'mountain': '⛰️',
-    'mountains': '⛰️',
+    'beach': '🏖️', 'hill': '⛰️', 'hill_station': '⛰️',
+    'backwater': '🚣', 'wildlife': '🐘', 'temple': '🛕',
+    'heritage': '🏛️', 'fort': '🏛️', 'palace': '🏛️',
+    'waterfall': '💧', 'waterfalls': '💧', 'nature': '🌿',
+    'adventure': '🎢', 'park': '🌳', 'garden': '🌳',
+    'museum': '🏛️', 'resort': '🏨', 'mosque': '🕌',
+    'church': '⛪', 'sacred': '🕉️', 'spiritual': '🕉️',
+    'pilgrimage': '🕉️', 'lake': '🏞️', 'river': '🏞️',
+    'mountain': '⛰️', 'trek': '⛰️', 'trekking': '⛰️',
+    'peak': '⛰️', 'sunset': '🌅', 'sunrise': '🌄',
+    'food': '🍛', 'shopping': '🛍️', 'transport': '🚌',
+    'boat': '⛵', 'houseboat': '⛵', 'safari': '🐘',
+    'birds': '🐦', 'flowers': '🌸', 'valley': '🏞️',
 }
 
 def get_category_emoji(category: str) -> str:
-    """Get emoji for category"""
     if not category:
         return '📍'
     category_lower = category.lower()
@@ -91,25 +58,142 @@ def get_category_emoji(category: str) -> str:
     return '📍'
 
 # ============================================
-# FETCH DATA FROM DATABASE
+# NAME MAPPINGS FOR COMMON SEARCHES
+# ============================================
+
+NAME_MAPPINGS = {
+    # Forts
+    'arakkal fort': 'Arakkal Museum',
+    'arakkal': 'Arakkal Museum',
+    'bekal fort': 'Bekal Fort',
+    'bekal': 'Bekal Fort',
+    'palakkad fort': 'Palakkad Fort',
+    'anjengo fort': 'Anjengo Fort',
+    'chandragiri fort': 'Chandragiri Fort',
+    'st angelo fort': 'St. Angelo Fort',
+    'fort kochi': 'Fort Kochi',
+    
+    # Beaches
+    'kappad': 'Kappad Beach',
+    'muzhappilangad': 'Muzhappilangad Drive-in Beach',
+    'kovalam': 'Kovalam Beach',
+    'varkala': 'Varkala Beach',
+    'marari': 'Marari Beach',
+    'cherai': 'Cherai Beach',
+    'beypore': 'Beypore Beach',
+    
+    # Hill Stations
+    'paithalmala': 'Paithalmala',
+    'ponmudi': 'Ponmudi',
+    'nelliyampathy': 'Nelliyampathy',
+    'munnar': 'Munnar',
+    'vagamon': 'Vagamon',
+    'wayanad': 'Wayanad Adventure Camp',
+    'idukki': 'Idukki Wildlife Sanctuary',
+    
+    # Waterfalls
+    'athirapally': 'Athirappilly Waterfall',
+    'athirapilly': 'Athirappilly Waterfall',
+    'athirappilly': 'Athirappilly Waterfall',
+    'meenmutty': 'Meenmutty Waterfalls',
+    'soochipara': 'Soochipara Waterfalls',
+    'thusharagiri': 'Thusharagiri Waterfalls',
+    'vazhachal': 'Vazhachal Waterfalls',
+    'palaruvi': 'Palaruvi Waterfalls',
+    'vellarimala': 'Vellarimala Waterfalls',
+    
+    # Temples
+    'sabarimala': 'Sabarimala Temple',
+    'guruvayur': 'Guruvayur Temple',
+    'padmanabhaswamy': 'Sree Padmanabhaswamy Temple',
+    'chottanikkara': 'Chottanikkara Bhagavathy Temple',
+    'vadakkumnathan': 'Vadakkumnathan Temple',
+    
+    # Mosques
+    'ponnani': 'Ponnani Juma Masjid',
+    'malik dinar': 'Malik Dinar Mosque',
+    'cheraman': 'Cheraman Juma Masjid',
+    'mishkal': 'Mishqal Mosque',
+    
+    # Parks & Gardens
+    'malampuzha gardens': 'Malampuzha Gardens',
+    'malampuzha': 'Malampuzha Gardens',
+    'pookode lake': 'Pookode Lake Garden',
+    'sarovaram': 'Sarovaram Bio-Park',
+    'active planet': 'Active Planet',
+    'activeplanet': 'Active Planet',
+    'wonderla': 'Wonderla Amusement Park',
+    'vismaya': 'Vismaya Amusement Park',
+    'silver storm': 'Silver Storm Water Theme Park',
+    'sadhoo merry': 'Sadhoo Merry Kingdom',
+    'dream land': 'Dream Land Fun and Adventure Park',
+    
+    # Backwaters
+    'alleppey': 'Alleppey Backwaters',
+    'alappuzha': 'Alleppey Backwaters',
+    'kumarakom': 'Kumarakom Backwaters',
+    'ashtamudi': 'Ashtamudi Lake',
+    'vembanad': 'Vembanad Lake',
+    'kuttanad': 'Kuttanad Backwaters',
+    'munroe island': 'Munroe Island',
+    
+    # Wildlife
+    'thekkady': 'Periyar Tiger Reserve',
+    'periyar': 'Periyar Tiger Reserve',
+    'silent valley': 'Silent Valley National Park',
+    'parambikulam': 'Parambikulam Tiger Reserve',
+    'eravikulam': 'Eravikulam National Park',
+    'thattekad': 'Thattekad Bird Sanctuary',
+    
+    # Other
+    'nellarchal': 'Vellarimala Waterfalls',
+    'nellarchal waterfalls': 'Vellarimala Waterfalls',
+    'kadalpalam': 'Kadalpalam Beach',
+    'queen walkway': "Queen's Walkway",
+    'queens walkway': "Queen's Walkway",
+    'vazhamala': 'Vazhamala',
+    'knowledge city': 'Markaz Knowledge City',
+    'knowledgecity': 'Markaz Knowledge City',
+    'knowledgciyt': 'Markaz Knowledge City',
+    'markaz': 'Markaz Knowledge City',
+}
+
+def get_mapped_name(query: str) -> Optional[str]:
+    query_lower = query.lower().strip()
+    for key, value in NAME_MAPPINGS.items():
+        if key in query_lower or query_lower == key:
+            return value
+    return None
+
+# ============================================
+# RELIGION/CATEGORY KEYWORDS
+# ============================================
+
+RELIGION_KEYWORDS = {
+    'mosque': ['mosque', 'masjid', 'juma', 'islam', 'muslim', 'muhammad', 'allah', 'dargah', 'jama'],
+    'church': ['church', 'basilica', 'cathedral', 'christian', 'jesus', 'saint', 'st.', 'catholic', 'syrian'],
+    'temple': ['temple', 'kovil', 'devaswom', 'hindu', 'shiva', 'vishnu', 'devi', 'bhagavathy', 'sree', 'guruvayur'],
+    'sacred': ['sacred', 'spiritual', 'pilgrimage', 'holy', 'divine', 'shrine', 'worship'],
+}
+
+def detect_religion(query_lower: str) -> Optional[str]:
+    for religion, keywords in RELIGION_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in query_lower:
+                return religion
+    return None
+
+# ============================================
+# FETCH DATA
 # ============================================
 
 def fetch_destinations_from_db() -> List[Dict]:
-    """Fetch all destinations from PostgreSQL database"""
     destinations = []
-    
     try:
-        # Get ALL destinations
         queryset = Destination.objects.all()
-        total = queryset.count()
-        print(f"📊 Found {total} destinations in database")
-        
-        if total == 0:
-            print("⚠️ Database is empty!")
-            return []
+        print(f"📊 Found {queryset.count()} destinations in database")
         
         for dest in queryset:
-            # Get category display name
             category_name = dest.category
             if hasattr(dest, 'get_category_display'):
                 try:
@@ -117,80 +201,1041 @@ def fetch_destinations_from_db() -> List[Dict]:
                 except:
                     category_name = dest.category
             
-            # Build location from available fields
-            location = ''
-            if dest.address:
-                location = dest.address
-            elif dest.district:
-                location = dest.district
-            
-            # Get description
             description = dest.long_description or dest.short_description or ''
             
-            # Fix common data quality issues
+            # Fix common name issues
             name = dest.name
-            # Fix truncated names
-            if name == 'Queen':
-                name = "Queen's Walkway"
-            elif name == 'Vatika Children':
-                name = "Vatika Children's Park"
-            elif name == 'Overbury':
-                name = "Overbury's Folly"
-            elif name == 'Jatayu Earth':
-                name = "Jatayu Earth's Center"
-            elif name == 'kadalpalam':
-                name = "Kadalpalam Beach"
-            elif name == 'Payyambalam Beach Children':
-                name = "Payyambalam Beach Children's Park"
-            elif name == 'Sadhoo Merry':
-                name = "Sadhoo Merry Kingdom"
-            elif name == 'VLand':
-                name = "VLand Water Theme Park"
-            elif name == 'Wonderla':
-                name = "Wonderla Amusement Park"
-            elif name == 'Silver Storm':
-                name = "Silver Storm Water Theme Park"
+            fixes = {
+                'Queen': "Queen's Walkway",
+                'Vatika Children': "Vatika Children's Park",
+                'Overbury': "Overbury's Folly",
+                'Jatayu Earth': "Jatayu Earth's Center",
+                'kadalpalam': "Kadalpalam Beach",
+                'Changkampuzha': "Changampuzha Park",
+                'Sadhoo Merry': "Sadhoo Merry Kingdom",
+                'VLand': "VLand Water Theme Park",
+                'Wonderla': "Wonderla Amusement Park",
+                'Silver Storm': "Silver Storm Water Theme Park",
+            }
+            for key, value in fixes.items():
+                if key in name:
+                    name = value
+                    break
             
             destinations.append({
                 'id': dest.id,
                 'name': name,
                 'district': dest.district or 'Unknown',
-                'location': location,
                 'description': description,
                 'category': category_name,
-                'category_title': category_name,
                 'type': 'hidden' if dest.status == 'hidden' else 'well-known',
                 'rating': float(dest.average_rating or 0),
                 'image': dest.featured_image or '',
-                'tags': [],
-                'latitude': float(dest.latitude) if dest.latitude else None,
-                'longitude': float(dest.longitude) if dest.longitude else None,
-                'status': dest.status,
             })
         
-        print(f"✅ Loaded {len(destinations)} destinations from database")
+        print(f"✅ Loaded {len(destinations)} destinations")
         
     except Exception as e:
         print(f"❌ Failed to fetch destinations: {e}")
-        import traceback
-        traceback.print_exc()
     
     return destinations
 
 def get_destinations() -> List[Dict]:
-    """Get destinations with caching"""
     global _destinations_cache, _cache_time
-    
     current_time = time.time()
     if _destinations_cache and _cache_time and (current_time - _cache_time) < CACHE_DURATION:
         return _destinations_cache
     
-    print("🔄 Refreshing destination cache...")
     _destinations_cache = fetch_destinations_from_db()
     _cache_time = current_time
-    print(f"📊 Cache updated with {len(_destinations_cache)} destinations")
-    
     return _destinations_cache
+
+# ============================================
+# SEARCH FUNCTIONS
+# ============================================
+
+def detect_destination_name(query_lower: str) -> Optional[str]:
+    """Detect if query mentions a specific destination name"""
+    destinations = get_destinations()
+    for dest in destinations:
+        name = dest.get('name', '').lower()
+        if name in query_lower or query_lower in name:
+            return dest.get('name')
+    return None
+
+def search_data(query: str, destinations: List[Dict], top_k: int = 10, district: str = None) -> List[Dict]:
+    if not destinations:
+        return []
+    
+    query_clean = query.lower().strip()
+    words = query_clean.split()
+    
+    scored = []
+    for dest in destinations:
+        name_lower = dest.get('name', '').lower()
+        district_lower = dest.get('district', '').lower()
+        category_lower = dest.get('category', '').lower()
+        desc_lower = dest.get('description', '').lower()
+        
+        # If district filter is applied, skip if not matching
+        if district and district.lower() != district_lower:
+            continue
+        
+        score = 0
+        
+        # Exact name match - highest priority
+        if query_clean == name_lower:
+            score += 100
+        elif name_lower.startswith(query_clean):
+            score += 80
+        elif query_clean in name_lower:
+            score += 50
+        
+        # District match (if no specific district filter)
+        if not district and query_clean in district_lower:
+            score += 30
+        
+        # Category match
+        if query_clean in category_lower:
+            score += 20
+        
+        # Description match
+        if query_clean in desc_lower:
+            score += 10
+        
+        # Word-by-word matching
+        for word in words:
+            if len(word) < 2:
+                continue
+            if word in name_lower:
+                score += 15
+            if word in district_lower:
+                score += 10
+            if word in category_lower:
+                score += 5
+            if word in desc_lower:
+                score += 2
+        
+        # Fuzzy matching for misspellings
+        if len(query_clean) > 3:
+            name_words = name_lower.split()
+            for nw in name_words:
+                if len(nw) > 3:
+                    similarity = SequenceMatcher(None, query_clean, nw).ratio()
+                    if similarity > 0.6:
+                        score += int(similarity * 30)
+        
+        if score > 0:
+            scored.append({**dest, 'score': min(score / 100, 1.0)})
+    
+    scored.sort(key=lambda x: x.get('score', 0), reverse=True)
+    
+    # Remove duplicates
+    seen = set()
+    unique = []
+    for item in scored:
+        name = item.get('name', '').lower()
+        if name and name not in seen:
+            seen.add(name)
+            unique.append(item)
+    
+    return unique[:top_k]
+
+def detect_district(query_lower: str) -> Optional[str]:
+    districts = [
+        'thiruvananthapuram', 'kollam', 'pathanamthitta', 'alappuzha',
+        'kottayam', 'idukki', 'ernakulam', 'thrissur', 'palakkad',
+        'malappuram', 'kozhikode', 'wayanad', 'kannur', 'kasargod', 'kasaragod'
+    ]
+    for d in districts:
+        if d in query_lower:
+            return d.title()
+    return None
+
+def detect_category(query_lower: str) -> Optional[str]:
+    categories = {
+        'beach': 'Beach', 'beaches': 'Beach',
+        'hill': 'Hill Station', 'hills': 'Hill Station',
+        'waterfall': 'Waterfall', 'waterfalls': 'Waterfall', 'falls': 'Waterfall',
+        'backwater': 'Backwater', 'backwaters': 'Backwater',
+        'wildlife': 'Wildlife', 'sanctuary': 'Wildlife',
+        'temple': 'Temple', 'temples': 'Temple',
+        'heritage': 'Heritage', 'fort': 'Heritage', 'forts': 'Heritage',
+        'park': 'Park', 'parks': 'Park', 'garden': 'Park',
+        'museum': 'Museum', 'museums': 'Museum',
+        'trek': 'Hill Station', 'trekking': 'Hill Station',
+        'mountain': 'Hill Station', 'mountains': 'Hill Station',
+        'mosque': 'Mosque', 'church': 'Church', 'sacred': 'Sacred',
+        'spiritual': 'Sacred', 'pilgrimage': 'Sacred',
+        'resort': 'Resort', 'resorts': 'Resort',
+        'adventure': 'Adventure', 'nature': 'Nature',
+        'viewpoint': 'Viewpoint', 'landmark': 'Landmark',
+    }
+    for key, value in categories.items():
+        if key in query_lower:
+            return value
+    return None
+
+def safe_truncate(text: str, max_len: int) -> str:
+    if not text:
+        return ''
+    if len(text) <= max_len:
+        return text
+    truncate_at = text[:max_len].rfind(' ')
+    if truncate_at > 0:
+        return text[:truncate_at] + '...'
+    return text[:max_len - 3] + '...'
+
+def clean_name(name: str) -> str:
+    if not name:
+        return ''
+    fixes = {
+        'Queen': "Queen's Walkway",
+        'Vatika Children': "Vatika Children's Park",
+        'Overbury': "Overbury's Folly",
+        'Jatayu Earth': "Jatayu Earth's Center",
+        'kadalpalam': "Kadalpalam Beach",
+        'Changkampuzha': "Changampuzha Park",
+        'Sadhoo Merry': "Sadhoo Merry Kingdom",
+        'VLand': "VLand Water Theme Park",
+        'Wonderla': "Wonderla Amusement Park",
+        'Silver Storm': "Silver Storm Water Theme Park",
+    }
+    for key, value in fixes.items():
+        if key in name:
+            return value
+    return name
+
+# ============================================
+# ITINERARY BUILDERS
+# ============================================
+
+def build_alleppey_backwater_itinerary(num_days: int, budget_text: str = "") -> str:
+    lines = [
+        f"🚣 {num_days}-Day Backwater Escape in Alleppey {budget_text}",
+        "",
+        "📅 Day-by-Day Plan:",
+        ""
+    ]
+    
+    if num_days >= 4:
+        lines.append("**Day 1:**")
+        lines.append("  • 🚗 Arrive in Alleppey (morning)")
+        lines.append("  • 🛳️ Check-in to houseboat (11 AM)")
+        lines.append("  • 🚣 Backwater cruise through Vembanad Lake")
+        lines.append("  • 🍛 Lunch on houseboat")
+        lines.append("  • 🏞️ Explore Kuttanad backwaters")
+        lines.append("  • 🌅 Sunset on the water")
+        lines.append("  • 🍛 Dinner on houseboat")
+        lines.append("")
+        lines.append("**Day 2:**")
+        lines.append("  • 🌄 Morning village walk (6 AM - 8 AM)")
+        lines.append("  • 🍛 Breakfast on houseboat")
+        lines.append("  • 🚣 Explore narrow canals")
+        lines.append("  • 🍛 Lunch on houseboat")
+        lines.append("  • 🏞️ Visit Kumarakom bird sanctuary")
+        lines.append("  • 🌅 Sunset boat ride")
+        lines.append("  • 🍛 Dinner on houseboat")
+        lines.append("")
+        lines.append("**Day 3:**")
+        lines.append("  • 🍛 Breakfast on houseboat")
+        lines.append("  • 🚗 Visit Alleppey Beach")
+        lines.append("  • 🍛 Lunch at local restaurant")
+        lines.append("  • 🏛️ Visit St. Mary's Forane Church")
+        lines.append("  • 🛍️ Explore local markets")
+        lines.append("  • 🌅 Sunset at the beach")
+        lines.append("  • 🍛 Dinner at beachside restaurant")
+        lines.append("")
+        lines.append("**Day 4:**")
+        lines.append("  • 🚣 Morning boat ride in canals")
+        lines.append("  • 🍛 Breakfast at hotel")
+        lines.append("  • 🚗 Departure (afternoon)")
+    elif num_days == 3:
+        lines.append("**Day 1:**")
+        lines.append("  • 🚗 Arrive in Alleppey")
+        lines.append("  • 🛳️ Check-in to houseboat")
+        lines.append("  • 🚣 Backwater cruise through Vembanad Lake")
+        lines.append("  • 🌅 Sunset on the water")
+        lines.append("")
+        lines.append("**Day 2:**")
+        lines.append("  • 🌄 Morning village walk")
+        lines.append("  • 🏞️ Explore Kuttanad backwaters")
+        lines.append("  • 🍛 Lunch on houseboat")
+        lines.append("  • 🚣 Evening boat ride through canals")
+        lines.append("  • 🌅 Sunset boat ride")
+        lines.append("")
+        lines.append("**Day 3:**")
+        lines.append("  • 🏖️ Visit Alleppey Beach")
+        lines.append("  • 🛍️ Explore local markets")
+        lines.append("  • 🚗 Departure")
+    else:
+        for day in range(1, num_days + 1):
+            lines.append(f"**Day {day}:**")
+            lines.append("  • 🚣 Backwater cruise")
+            lines.append("  • 🌿 Village exploration")
+            lines.append("  • 🌅 Sunset viewing")
+            lines.append("")
+    
+    lines.append("")
+    lines.append("💡 Tips:")
+    lines.append("• 🚣 Book houseboat in advance (especially in peak season)")
+    lines.append("• 📸 Carry camera for backwater views")
+    lines.append("• 🍛 Try local seafood and Kerala cuisine")
+    lines.append("• 🌅 Best time for photos: Golden hour (5:30 PM - 6:30 PM)")
+    lines.append("• 🧴 Carry sunscreen and mosquito repellent")
+    lines.append("• 📅 Best time: October to March")
+    if budget_text:
+        lines.append(f"• 💰 Budget: ₹2,000-₹4,000 per day per person (including houseboat)")
+    
+    return "\n".join(lines)
+
+def build_munnar_trekking_itinerary(num_days: int, budget_text: str = "") -> str:
+    lines = [
+        f"⛰️ Munnar Trekking Itinerary {budget_text}",
+        "",
+        "📅 Day-by-Day Plan:",
+        ""
+    ]
+    
+    if num_days >= 3:
+        lines.append("**Day 1:**")
+        lines.append("  • 🚗 Arrive in Munnar (morning)")
+        lines.append("  • 🏛️ Visit Tea Museum (10 AM - 12 PM)")
+        lines.append("  • 🍛 Lunch at local restaurant")
+        lines.append("  • 🌿 Walk through tea gardens (2 PM - 4 PM)")
+        lines.append("  • 🌅 Sunset at Tea Valley Viewpoint")
+        lines.append("  • 🍛 Local dinner")
+        lines.append("")
+        lines.append("**Day 2:**")
+        lines.append("  • 🥾 Trek to Top Station (start 6 AM)")
+        lines.append("  • 🌄 Panoramic views from Top Station")
+        lines.append("  • 🍽️ Lunch break")
+        lines.append("  • 🏞️ Visit Echo Point (2 PM - 3 PM)")
+        lines.append("  • 🌅 Sunset at Mattupetty Dam (5 PM - 6 PM)")
+        lines.append("  • 🍛 Dinner")
+        lines.append("")
+        lines.append("**Day 3:**")
+        lines.append("  • 🐘 Visit Eravikulam National Park (8 AM - 11 AM)")
+        lines.append("  • 🍛 Lunch")
+        lines.append("  • 🛍️ Explore local markets")
+        lines.append("  • 🚗 Departure (evening)")
+    else:
+        for day in range(1, num_days + 1):
+            lines.append(f"**Day {day}:**")
+            lines.append("  • 🥾 Morning trek")
+            lines.append("  • 🍛 Lunch")
+            lines.append("  • 🌿 Nature walk")
+            lines.append("  • 🌅 Sunset viewing")
+            lines.append("")
+    
+    lines.append("")
+    lines.append("💡 Tips:")
+    lines.append("• 🥾 Start treks early morning (6 AM)")
+    lines.append("• 💧 Carry 2L water per person")
+    lines.append("• 👟 Wear comfortable trekking shoes")
+    lines.append("• 🧥 Carry warm clothing (temperature drops)")
+    lines.append("• 🗺️ Hire a local guide for treks")
+    if budget_text:
+        lines.append(f"• 💰 Estimated cost: ₹1,500-₹2,500 per day")
+    
+    return "\n".join(lines)
+
+def build_varkala_sunset_itinerary(num_days: int, budget_text: str = "") -> str:
+    lines = [
+        f"🌅 Varkala Sunset Itinerary {budget_text}",
+        "",
+        "📅 Day-by-Day Plan:",
+        ""
+    ]
+    
+    if num_days >= 3:
+        lines.append("**Day 1:**")
+        lines.append("  • 🚗 Arrive in Varkala (morning)")
+        lines.append("  • 🏖️ Beach time at Papanasam Beach")
+        lines.append("  • 🍛 Lunch at cliff cafe")
+        lines.append("  • 🚶 Cliff walk (2 PM - 4 PM)")
+        lines.append("  • 🌅 Sunset at the cliff (5:30 PM - 6:30 PM)")
+        lines.append("  • 🍹 Dinner at cliff cafe with sunset views")
+        lines.append("")
+        lines.append("**Day 2:**")
+        lines.append("  • 🛕 Visit Janardhana Swamy Temple (8 AM - 10 AM)")
+        lines.append("  • 🏖️ Beach exploration")
+        lines.append("  • 🍛 Lunch at local restaurant")
+        lines.append("  • 🚶 Explore Varkala town")
+        lines.append("  • 🌅 Sunset at Papanasam Beach (5 PM - 6:30 PM)")
+        lines.append("  • 🍛 Local dinner")
+        lines.append("")
+        lines.append("**Day 3:**")
+        lines.append("  • 🏛️ Visit Sivagiri Mutt (8 AM - 10 AM)")
+        lines.append("  • 🛍️ Shopping at local markets")
+        lines.append("  • 🍛 Lunch")
+        lines.append("  • 🚗 Departure (evening)")
+    else:
+        for day in range(1, num_days + 1):
+            lines.append(f"**Day {day}:**")
+            lines.append("  • 🌅 Sunset viewing")
+            lines.append("  • 🏖️ Beach time")
+            lines.append("  • 🍛 Local cuisine")
+            lines.append("")
+    
+    lines.append("")
+    lines.append("💡 Tips:")
+    lines.append("• 🌅 Reach viewing spot 1 hour before sunset")
+    lines.append("• 📷 Best time for photos: 30 mins before sunset")
+    lines.append("• 🍹 Visit cliff cafes for sunset views")
+    lines.append("• 🏖️ Best beach: Papanasam Beach")
+    lines.append("• 📸 Must-visit: Cliff walk at sunset")
+    if budget_text:
+        lines.append(f"• 💰 Estimated cost: ₹1,500-₹2,500 per day")
+    
+    return "\n".join(lines)
+
+# ============================================
+# RESPONSE BUILDERS
+# ============================================
+
+def build_all_districts_answer(destinations: List[Dict]) -> str:
+    main_districts = [
+        'Alappuzha', 'Ernakulam', 'Idukki', 'Kannur', 'Kasaragod',
+        'Kollam', 'Kottayam', 'Kozhikode', 'Malappuram', 'Palakkad',
+        'Pathanamthitta', 'Thiruvananthapuram', 'Thrissur', 'Wayanad'
+    ]
+    
+    district_map = defaultdict(list)
+    for dest in destinations:
+        district = dest.get('district', 'Unknown')
+        if district in main_districts:
+            district_map[district].append(dest)
+    
+    lines = ["🗺️ Best places across all 14 districts of Kerala:", ""]
+    
+    for district in main_districts:
+        places = district_map.get(district, [])
+        if places:
+            sorted_places = sorted(places, key=lambda x: x.get('rating', 0), reverse=True)
+            top_names = [p['name'] for p in sorted_places[:3]]
+            if len(places) > 3:
+                lines.append(f"{district}: {', '.join(top_names)} and {len(places) - 3} more")
+            else:
+                lines.append(f"{district}: {', '.join(top_names)}")
+        else:
+            lines.append(f"{district}: No data available")
+    
+    lines.append("")
+    lines.append("💡 Tips:")
+    lines.append("• Best time to visit: October to March")
+    lines.append("• Each district has unique attractions")
+    lines.append("• Plan 2-3 days per district")
+    
+    return "\n".join(lines)
+
+def build_district_answer(district: str, destinations: List[Dict], category: str = None) -> str:
+    district_dests = [d for d in destinations if d.get('district', '').lower() == district.lower()]
+    
+    # Filter by category if specified
+    if category:
+        category_lower = category.lower()
+        district_dests = [d for d in district_dests if category_lower in d.get('category', '').lower() or category_lower in d.get('name', '').lower()]
+    
+    if not district_dests:
+        if category:
+            return f"📍 No {category} destinations found in {district} district."
+        return f"📍 No destinations found in {district} district."
+    
+    sorted_dests = sorted(district_dests, key=lambda x: x.get('rating', 0), reverse=True)
+    
+    title = f"📍 Top {category} destinations in {district} district:" if category else f"📍 Top destinations in {district} district:"
+    lines = [title, f"📊 Found {len(sorted_dests)} places", ""]
+    
+    for i, place in enumerate(sorted_dests[:10], 1):
+        emoji = get_category_emoji(place.get('category', ''))
+        name = place.get('name', 'Unknown')
+        desc = place.get('description', '')
+        rating = place.get('rating', 0)
+        
+        lines.append(f"{i}. {emoji} {name}")
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 120)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• 📲 Download maps for navigation")
+    lines.append("• 🍛 Try local Kerala cuisine")
+    lines.append("• 🌅 Visit early morning for best experience")
+    
+    return "\n".join(lines)
+
+def build_destination_detail(dest: Dict) -> str:
+    name = dest.get('name', 'Unknown')
+    district = dest.get('district', 'Unknown')
+    category = dest.get('category', '')
+    rating = dest.get('rating', 0)
+    desc = dest.get('description', '')
+    emoji = get_category_emoji(category)
+    
+    lines = [
+        f"📍 {name}",
+        f"📌 District: {district}",
+        f"🏷️ Category: {category}",
+    ]
+    if rating and rating > 0:
+        lines.append(f"⭐ Rating: {rating}/5")
+    lines.append("")
+    if desc:
+        lines.append(f"📝 {desc}")
+        lines.append("")
+    lines.append("💡 Tips:")
+    lines.append("• 📲 Download maps for navigation")
+    lines.append("• 🍛 Try local Kerala cuisine")
+    lines.append("• 🌅 Visit early morning for best experience")
+    
+    return "\n".join(lines)
+
+def build_itinerary_answer(query: str, destinations: List[Dict]) -> str:
+    query_lower = query.lower()
+    
+    # Detect duration
+    day_match = re.search(r'(\d+)\s*(day|days?)', query_lower)
+    num_days = min(int(day_match.group(1)), 5) if day_match else 3
+    
+    # Enhanced budget detection
+    budget_text = ""
+    budget_match = re.search(r'under\s*[₹]?\s*([\d,]+[kK]?)', query_lower)
+    if not budget_match:
+        budget_match = re.search(r'budget\s*[₹]?\s*([\d,]+[kK]?)', query_lower)
+    if budget_match:
+        budget_text = f"under ₹{budget_match.group(1)}"
+    
+    # Check for Alleppey specifically - force backwater itinerary
+    if 'alleppey' in query_lower or 'alappuzha' in query_lower:
+        return build_alleppey_backwater_itinerary(num_days, budget_text)
+    
+    # Check for Varkala specifically - force sunset itinerary
+    if 'varkala' in query_lower:
+        return build_varkala_sunset_itinerary(num_days, budget_text)
+    
+    # Check for Munnar trekking specifically
+    if 'munnar' in query_lower and ('trekking' in query_lower or 'trek' in query_lower):
+        return build_munnar_trekking_itinerary(num_days, budget_text)
+    
+    # Detect destination
+    dest_name = detect_destination_name(query_lower)
+    
+    # If no specific destination, try common names
+    common_dests = ['Munnar', 'Varkala', 'Alleppey', 'Kochi', 'Wayanad', 'Thrissur', 'Kannur', 'Idukki']
+    if not dest_name:
+        for d in common_dests:
+            if d.lower() in query_lower:
+                dest_name = d
+                break
+    
+    # Detect if it's a waterfall itinerary
+    is_waterfall = 'waterfall' in query_lower or 'falls' in query_lower
+    
+    # Detect if it's monsoon
+    is_monsoon = 'monsoon' in query_lower or 'rainy' in query_lower
+    
+    # Detect if it's backwater (but not already handled by Alleppey)
+    is_backwater = 'backwater' in query_lower or 'houseboat' in query_lower
+    
+    # Detect if it's family
+    is_family = 'family' in query_lower or 'kid' in query_lower or 'children' in query_lower
+    
+    # Detect if it's sunset (but not already handled by Varkala)
+    is_sunset = 'sunset' in query_lower or 'sun set' in query_lower
+    
+    # ============================================
+    # WATERFALL / MONSOON ITINERARY
+    # ============================================
+    if is_waterfall or is_monsoon:
+        waterfalls = [d for d in destinations if 'waterfall' in d.get('category', '').lower()]
+        waterfall_names = [w['name'] for w in waterfalls[:5]]
+        
+        lines = [
+            f"🌧️ {num_days}-Day Monsoon Waterfall Itinerary {budget_text}",
+            "",
+            "💧 Top Waterfalls to Visit:",
+        ]
+        for i, w in enumerate(waterfall_names[:5], 1):
+            lines.append(f"   {i}. {w}")
+        lines.append("")
+        lines.append("📅 Day-by-Day Plan:")
+        lines.append("")
+        
+        waterfall_places = ['Athirappilly Waterfall', 'Meenmutty Waterfall', 'Thusharagiri Waterfall', 'Vazhachal Waterfall', 'Soochipara Waterfall']
+        
+        for day in range(1, num_days + 1):
+            lines.append(f"**Day {day}:**")
+            if day == 1:
+                lines.append("  • 🌅 Morning: Drive to Thrissur")
+                if waterfall_places:
+                    lines.append(f"  • 💧 Afternoon: Visit {waterfall_places[0]}")
+                lines.append("  • 🌿 Evening: Nature walk and local dinner")
+            elif day == 2:
+                lines.append("  • 🌄 Morning: Drive to Wayanad")
+                if len(waterfall_places) > 1:
+                    lines.append(f"  • 💧 Afternoon: Visit {waterfall_places[1]}")
+                lines.append("  • 🌅 Evening: Sunset at Soochipara Waterfall")
+            else:
+                lines.append("  • 🌊 Morning: Visit more waterfalls")
+                lines.append("  • 🍽️ Afternoon: Local cuisine")
+                lines.append("  • 🚗 Evening: Departure")
+            lines.append("")
+        
+        lines.append("💡 Tips:")
+        lines.append("• 🧥 Carry raincoat and waterproof bags")
+        lines.append("• 👟 Wear waterproof footwear with good grip")
+        lines.append("• 📸 Protect camera from rain")
+        lines.append("• 🚗 Check road conditions before traveling")
+        
+        if budget_text:
+            lines.append(f"• 💰 Budget: ₹1,500-₹2,500 per day per person")
+        
+        return "\n".join(lines)
+    
+    # ============================================
+    # BACKWATER ITINERARY (generic)
+    # ============================================
+    if is_backwater:
+        return build_alleppey_backwater_itinerary(num_days, budget_text)
+    
+    # ============================================
+    # FAMILY ITINERARY
+    # ============================================
+    if is_family:
+        lines = [
+            f"👨‍👩‍👧‍👦 {num_days}-Day Family Itinerary in {dest_name or 'Kerala'} {budget_text}",
+            "",
+            "📅 Day-by-Day Plan:",
+            ""
+        ]
+        
+        if dest_name and 'kochi' in dest_name.lower():
+            lines.append("**Day 1:**")
+            lines.append("  • 🚗 Arrive in Kochi")
+            lines.append("  • 🏛️ Visit Fort Kochi (walking tour)")
+            lines.append("  • 🎣 See Chinese fishing nets")
+            lines.append("  • 🍛 Family dinner at local restaurant")
+            lines.append("")
+            lines.append("**Day 2:**")
+            lines.append("  • 🎢 Visit Wonderla Amusement Park")
+            lines.append("  • 🎠 Kids water park activities")
+            lines.append("  • 🍽️ Family lunch")
+            lines.append("  • 🌅 Evening at Marine Drive")
+            lines.append("")
+            if num_days >= 3:
+                lines.append("**Day 3:**")
+                lines.append("  • 🏛️ Visit Hill Palace Museum")
+                lines.append("  • 🛍️ Shopping at local markets")
+                lines.append("  • 🚗 Departure")
+        elif dest_name and 'munnar' in dest_name.lower():
+            lines.append("**Day 1:**")
+            lines.append("  • 🚗 Drive to Munnar")
+            lines.append("  • 🏛️ Visit Tea Museum")
+            lines.append("  • 🌿 Walk through tea gardens")
+            lines.append("  • 🌅 Sunset at Tea Valley Viewpoint")
+            lines.append("")
+            lines.append("**Day 2:**")
+            lines.append("  • 🐘 Visit Eravikulam National Park")
+            lines.append("  • 🍽️ Family lunch")
+            lines.append("  • 🏞️ Visit Mattupetty Dam")
+            lines.append("  • 🌅 Sunset view")
+            lines.append("")
+            if num_days >= 3:
+                lines.append("**Day 3:**")
+                lines.append("  • 🚗 Visit Top Station")
+                lines.append("  • 🛍️ Shopping at local markets")
+                lines.append("  • 🚗 Departure")
+        else:
+            lines.append("**Day 1:**")
+            lines.append("  • 🚗 Arrive and check-in to family-friendly accommodation")
+            lines.append("  • 🏛️ Visit kid-friendly attractions")
+            lines.append("  • 🍽️ Family dinner")
+            lines.append("")
+            lines.append("**Day 2:**")
+            lines.append("  • 🎢 Theme park or nature walk")
+            lines.append("  • 🍛 Lunch")
+            lines.append("  • 🎠 Kids activities")
+            lines.append("")
+            if num_days >= 3:
+                lines.append("**Day 3:**")
+                lines.append("  • 🏛️ Visit educational sites")
+                lines.append("  • 🛍️ Shopping")
+                lines.append("  • 🚗 Departure")
+        
+        lines.append("")
+        lines.append("💡 Tips:")
+        lines.append("• 👨‍👩‍👧‍👦 Book family-friendly accommodation")
+        lines.append("• 🧸 Carry activities for kids")
+        lines.append("• 🍽️ Look for kid-friendly restaurants")
+        lines.append("• 🩹 Carry first aid kit")
+        if budget_text:
+            lines.append(f"• 💰 Budget: ₹2,000-₹3,500 per day per family")
+        
+        return "\n".join(lines)
+    
+    # ============================================
+    # SUNSET ITINERARY (generic)
+    # ============================================
+    if is_sunset:
+        return build_varkala_sunset_itinerary(num_days, budget_text)
+    
+    # ============================================
+    # GENERIC ITINERARY
+    # ============================================
+    lines = [
+        f"🗺️ {num_days}-Day Itinerary for {dest_name or 'Kerala'} {budget_text}",
+        "",
+        "📅 Day-by-Day Plan:",
+        ""
+    ]
+    
+    for day in range(1, num_days + 1):
+        lines.append(f"**Day {day}:**")
+        if day == 1:
+            lines.append("  • 🚗 Arrive and check-in")
+            lines.append("  • 🏛️ Explore local attractions")
+            lines.append("  • 🌅 Sunset viewing")
+            lines.append("  • 🍛 Local dinner")
+        elif day == num_days:
+            lines.append("  • 🏛️ Visit key attractions")
+            lines.append("  • 🛍️ Shopping")
+            lines.append("  • 🚗 Departure")
+        else:
+            lines.append("  • 🌄 Morning exploration")
+            lines.append("  • 🍽️ Lunch")
+            lines.append("  • 🌿 Afternoon activities")
+            lines.append("  • 🌅 Sunset viewing")
+            lines.append("  • 🍛 Dinner")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• 📲 Book accommodations in advance")
+    lines.append("• 🍛 Try local Kerala cuisine")
+    lines.append("• 📲 Download maps for navigation")
+    if budget_text:
+        lines.append(f"• 💰 Budget: ₹1,500-₹2,500 per day per person")
+    
+    return "\n".join(lines)
+
+def build_hill_station_answer(query: str, destinations: List[Dict]) -> str:
+    hills = [d for d in destinations if 'hill' in d.get('category', '').lower() or 'mountain' in d.get('category', '').lower()]
+    
+    if not hills:
+        return "⛰️ No hill stations found in the database."
+    
+    query_lower = query.lower()
+    is_trekking = 'trekking' in query_lower
+    
+    # Check if specific destination mentioned
+    dest_name = detect_destination_name(query_lower)
+    
+    if dest_name:
+        specific_hills = [h for h in hills if dest_name.lower() in h.get('name', '').lower()]
+        if specific_hills:
+            hills = specific_hills
+    
+    if is_trekking:
+        trekking_hills = [h for h in hills if 'trek' in h.get('description', '').lower()]
+        if trekking_hills:
+            hills = trekking_hills
+    
+    max_results = 1 if 'one best' in query_lower else min(8, len(hills))
+    hills_sorted = sorted(hills, key=lambda x: x.get('rating', 0), reverse=True)
+    
+    if dest_name:
+        lines = [f"⛰️ {dest_name} - Trekking Guide:", ""]
+    elif 'one best' in query_lower:
+        lines = ["⭐ Top hill station recommendation:", ""]
+    elif is_trekking:
+        lines = ["⛰️ Best hill stations for trekking:", ""]
+    else:
+        lines = ["⛰️ Top hill stations in Kerala:", ""]
+    
+    for i, h in enumerate(hills_sorted[:max_results], 1):
+        name = h.get('name', 'Unknown')
+        district = h.get('district', 'Unknown')
+        desc = h.get('description', '')
+        rating = h.get('rating', 0)
+        
+        lines.append(f"{i}. {name} ({district})")
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 100)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• Best time to visit: September to May")
+    if is_trekking:
+        lines.append("• 🥾 Start your trek early morning")
+        lines.append("• 💧 Carry sufficient water (2L per person)")
+        lines.append("• 👟 Wear comfortable trekking shoes")
+        lines.append("• 🗺️ Hire a local guide for the best experience")
+    else:
+        lines.append("• 📲 Download maps for navigation")
+        lines.append("• 🍛 Try local Kerala cuisine")
+    
+    return "\n".join(lines)
+
+def build_general_answer(query: str, results: List[Dict]) -> str:
+    if not results:
+        return "🔍 No destinations found."
+    
+    lines = [f"🔍 Found {len(results)} matching destinations:", ""]
+    
+    for i, r in enumerate(results[:8], 1):
+        emoji = get_category_emoji(r.get('category', ''))
+        name = r.get('name', 'Unknown')
+        district = r.get('district', '')
+        desc = r.get('description', '')
+        rating = r.get('rating', 0)
+        
+        lines.append(f"{i}. {emoji} {name}" + (f" ({district})" if district else ""))
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 100)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• 📲 Download maps for navigation")
+    lines.append("• 🍛 Try local Kerala cuisine")
+    lines.append("• 🌅 Visit early morning for best experience")
+    
+    return "\n".join(lines)
+
+def build_backwater_answer(query: str, destinations: List[Dict]) -> str:
+    backwaters = [d for d in destinations if 'backwater' in d.get('category', '').lower() or 'lake' in d.get('category', '').lower()]
+    
+    if not backwaters:
+        return "🚣 No backwater destinations found."
+    
+    sorted_dests = sorted(backwaters, key=lambda x: x.get('rating', 0), reverse=True)
+    lines = ["🚣 Top backwater destinations:", ""]
+    
+    for i, b in enumerate(sorted_dests[:8], 1):
+        name = b.get('name', 'Unknown')
+        district = b.get('district', 'Unknown')
+        desc = b.get('description', '')
+        rating = b.get('rating', 0)
+        
+        lines.append(f"{i}. {name} ({district})")
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 100)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• Best time to visit: October to March")
+    lines.append("• 🚣 Book houseboats in advance")
+    lines.append("• 📸 Best photos: Golden hour")
+    
+    return "\n".join(lines)
+
+def build_waterfall_answer(query: str, destinations: List[Dict]) -> str:
+    waterfalls = [d for d in destinations if 'waterfall' in d.get('category', '').lower()]
+    
+    if not waterfalls:
+        return "💧 No waterfalls found."
+    
+    sorted_dests = sorted(waterfalls, key=lambda x: x.get('rating', 0), reverse=True)
+    lines = ["💧 Top waterfalls in Kerala:", ""]
+    
+    for i, w in enumerate(sorted_dests[:8], 1):
+        name = w.get('name', 'Unknown')
+        district = w.get('district', 'Unknown')
+        desc = w.get('description', '')
+        rating = w.get('rating', 0)
+        
+        lines.append(f"{i}. {name} ({district})")
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 100)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• Best time: Post-monsoon (September to February)")
+    lines.append("• 👟 Wear comfortable footwear")
+    lines.append("• 📸 Protect camera from water")
+    
+    return "\n".join(lines)
+
+def build_hidden_gems_answer(query: str, destinations: List[Dict]) -> str:
+    hidden = [d for d in destinations if d.get('type') == 'hidden' or 'hidden' in d.get('description', '').lower()]
+    
+    district = detect_district(query.lower())
+    if district:
+        hidden = [h for h in hidden if h.get('district', '').lower() == district.lower()]
+    
+    if not hidden:
+        return "💎 No hidden gems found.\n\n💡 Try searching for specific categories like 'beaches' or 'hill stations' instead."
+    
+    sorted_hidden = sorted(hidden, key=lambda x: x.get('rating', 0), reverse=True)
+    
+    lines = ["💎 Hidden Gems in Kerala:", ""]
+    
+    for i, gem in enumerate(sorted_hidden[:8], 1):
+        emoji = get_category_emoji(gem.get('category', ''))
+        name = gem.get('name', 'Unknown')
+        district = gem.get('district', 'Unknown')
+        desc = gem.get('description', '')
+        rating = gem.get('rating', 0)
+        
+        lines.append(f"{i}. {emoji} {name} ({district})")
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 100)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips for Hidden Gems:")
+    lines.append("• 🌅 Visit early morning for peaceful experience")
+    lines.append("• 🚗 Check local access and transportation")
+    lines.append("• 🎒 Carry snacks and water (limited facilities)")
+    lines.append("• 🙏 Respect local culture and privacy")
+    
+    return "\n".join(lines)
+
+def build_sacred_answer(query: str, destinations: List[Dict]) -> str:
+    query_lower = query.lower()
+    
+    religion = detect_religion(query_lower)
+    
+    sacred_places = []
+    sacred_keywords = ['temple', 'mosque', 'church', 'basilica', 'cathedral', 'masjid', 'dargah', 'shrine', 'sacred', 'holy', 'pilgrimage']
+    
+    for dest in destinations:
+        name_lower = dest.get('name', '').lower()
+        category_lower = dest.get('category', '').lower()
+        desc_lower = dest.get('description', '').lower()
+        
+        is_sacred = False
+        for keyword in sacred_keywords:
+            if keyword in name_lower or keyword in category_lower or keyword in desc_lower:
+                is_sacred = True
+                break
+        
+        if is_sacred:
+            if religion == 'mosque':
+                if 'mosque' in name_lower or 'masjid' in name_lower or 'juma' in name_lower:
+                    sacred_places.append(dest)
+            elif religion == 'church':
+                if 'church' in name_lower or 'basilica' in name_lower or 'cathedral' in name_lower:
+                    sacred_places.append(dest)
+            elif religion == 'temple':
+                if 'temple' in name_lower or 'kovil' in name_lower:
+                    sacred_places.append(dest)
+            else:
+                sacred_places.append(dest)
+    
+    if not sacred_places:
+        return "🕉️ No sacred places found.\n\n💡 Try searching for 'temples', 'mosques', or 'churches' instead."
+    
+    sorted_sacred = sorted(sacred_places, key=lambda x: x.get('rating', 0), reverse=True)
+    
+    title = "🕉️ Sacred Places in Kerala"
+    if religion == 'mosque':
+        title = "🕌 Mosques in Kerala"
+    elif religion == 'church':
+        title = "⛪ Churches in Kerala"
+    elif religion == 'temple':
+        title = "🛕 Temples in Kerala"
+    
+    lines = [title, ""]
+    
+    for i, place in enumerate(sorted_sacred[:10], 1):
+        emoji = get_category_emoji(place.get('category', ''))
+        name = place.get('name', 'Unknown')
+        district = place.get('district', 'Unknown')
+        desc = place.get('description', '')
+        rating = place.get('rating', 0)
+        
+        lines.append(f"{i}. {emoji} {name} ({district})")
+        if desc:
+            lines.append(f"   {safe_truncate(desc, 100)}")
+        if rating and rating > 0:
+            lines.append(f"   ⭐ {rating}/5")
+        lines.append("")
+    
+    lines.append("💡 Tips:")
+    lines.append("• 👘 Dress modestly when visiting sacred places")
+    lines.append("• 📸 Ask permission before taking photos")
+    lines.append("• 📅 Check timings before visiting")
+    lines.append("• 🙏 Respect local customs and traditions")
+    
+    return "\n".join(lines)
+
+def build_no_results_answer() -> str:
+    return """🔍 I couldn't find any destinations matching your query.
+
+💡 Try these examples:
+• "14 districts best places list"
+• "best places in Kannur"
+• "beaches in Kerala"
+• "hill stations in Idukki"
+• "waterfalls in Thrissur"
+• "backwaters in Alappuzha"
+• "Hidden gems in Wayanad"
+• "one best hill station"
+• "Budget trekking itinerary for Munnar"
+• "A 3-day trip to Varkala"
+• "Family-friendly plan in Kochi"
+• "Monsoon waterfalls itinerary"
+• "Plan a backwater escape in Kerala"
+• "Plan a 4-day backwater escape in Alleppey"
+• "sacred places"
+• "mosques in Kerala"
+• "temples in Kerala"
+• "churches in Kerala"
+• "Active Planet"
+• "park in Kannur"
+• "Vazhamala"
+• "Munnar"
+• "Bekal Fort"
+• "Kovalam Beach"
+• "knowledge city"
+• "Markaz" """
+
+def build_greeting_response() -> str:
+    return """👋 Hi! I'm your Kerala travel assistant.
+
+I can help you with:
+• 🗺️ Destinations - Best places in Kerala
+• 🏖️ Beaches - Coastal getaways
+• ⛰️ Hill Stations - Mountain retreats
+• 💧 Waterfalls - Cascading beauty
+• 🚣 Backwaters - Houseboat experiences
+• 🐘 Wildlife - Sanctuaries and safaris
+• 🛕 Temples - Sacred sites
+• 🕌 Mosques - Islamic heritage
+• ⛪ Churches - Christian heritage
+• 💰 Budget - Travel cost planning
+• 📅 Itineraries - Day-by-day plans
+• 👨‍👩‍👧‍👦 Family - Kid-friendly places
+
+💡 Try asking:
+• "14 districts best places list"
+• "best places in Kannur"
+• "park in Kannur"
+• "Active Planet"
+• "sacred places"
+• "mosques in Kerala"
+• "temples in Kerala"
+• "Vazhamala"
+• "Budget trekking itinerary for Munnar"
+• "A 3-day trip to Varkala"
+• "Family-friendly plan in Kochi"
+• "Hidden gems in Wayanad"
+• "Monsoon waterfalls itinerary"
+• "Plan a backwater escape in Kerala"
+• "Plan a 4-day backwater escape in Alleppey"
+• "knowledge city"
+• "Markaz" """
 
 # ============================================
 # AI CHAT VIEW
@@ -201,12 +1246,7 @@ class AIChatView(APIView):
     
     def post(self, request):
         try:
-            # Cleanup old sessions
-            if len(session_last_accessed) > MAX_SESSIONS:
-                self._cleanup_old_sessions()
-            
             query = request.data.get('query', '')
-            mode = request.data.get('mode', 'answer')
             session_id = request.data.get('session_id', None)
             
             if not session_id:
@@ -218,1440 +1258,285 @@ class AIChatView(APIView):
                     'error': 'Query is required'
                 }, status=400)
             
-            print(f"📝 Query: '{query[:50]}...' (mode: {mode})")
+            print(f"📝 Query: '{query}'")
             
-            session_last_accessed[session_id] = time.time()
-            history = conversation_memory.get(session_id, [])
-            
-            # Get destinations from database
             destinations = get_destinations()
+            query_clean = query.lower().strip()
             
-            if mode == 'search':
-                return self._handle_search(query, destinations, session_id, history)
-            elif mode == 'plan':
-                return self._handle_plan(query, destinations, session_id, history)
-            else:
-                return self._handle_answer(query, destinations, session_id, history)
+            # ============================================
+            # 1. CHECK NAME MAPPINGS (BEFORE ANYTHING ELSE)
+            # ============================================
+            mapped_name = get_mapped_name(query_clean)
+            if mapped_name:
+                for dest in destinations:
+                    if dest.get('name', '').lower() == mapped_name.lower():
+                        return Response({
+                            'success': True,
+                            'result': {
+                                'answer': build_destination_detail(dest),
+                                'destinations': [dest]
+                            },
+                            'session_id': session_id
+                        })
+                results = search_data(mapped_name, destinations, 5)
+                if results:
+                    return Response({
+                        'success': True,
+                        'result': {
+                            'answer': build_general_answer(query, results),
+                            'destinations': results[:5]
+                        },
+                        'session_id': session_id
+                    })
+            
+            # ============================================
+            # 2. CHECK FOR ITINERARY / PLAN QUERIES (BEFORE EXACT NAME MATCH)
+            # ============================================
+            itinerary_keywords = ['itinerary', 'plan', 'trip', 'schedule', 'day trip', 'escape', 'built around']
+            
+            # Check if ANY itinerary keyword is in the query
+            is_itinerary_query = any(p in query_clean for p in itinerary_keywords)
+            
+            # Special cases: specific destination + activity combinations
+            if 'munnar' in query_clean and ('trekking' in query_clean or 'trek' in query_clean):
+                is_itinerary_query = True
+            if 'varkala' in query_clean and ('sunset' in query_clean or 'sun set' in query_clean):
+                is_itinerary_query = True
+            if 'alleppey' in query_clean and ('backwater' in query_clean or 'escape' in query_clean):
+                is_itinerary_query = True
+            if 'waterfall' in query_clean and ('monsoon' in query_clean or 'itinerary' in query_clean):
+                is_itinerary_query = True
+            
+            if is_itinerary_query:
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_itinerary_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 3. CHECK FOR EXACT NAME MATCH
+            # ============================================
+            for dest in destinations:
+                if dest.get('name', '').lower() == query_clean:
+                    return Response({
+                        'success': True,
+                        'result': {
+                            'answer': build_destination_detail(dest),
+                            'destinations': [dest]
+                        },
+                        'session_id': session_id
+                    })
+            
+            # ============================================
+            # 4. DISTRICT + CATEGORY QUERIES (e.g., "park in kannur")
+            # ============================================
+            district = detect_district(query_clean)
+            category = detect_category(query_clean)
+            
+            if district and category:
+                # Special handling for park/garden queries
+                if category == 'Park':
+                    park_dests = [d for d in destinations if 'park' in d.get('category', '').lower() or 'garden' in d.get('category', '').lower()]
+                    district_park_dests = [d for d in park_dests if d.get('district', '').lower() == district.lower()]
+                    
+                    if district_park_dests:
+                        return Response({
+                            'success': True,
+                            'result': {
+                                'answer': build_district_answer(district, destinations, 'Park'),
+                                'destinations': []
+                            },
+                            'session_id': session_id
+                        })
                 
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_district_answer(district, destinations, category),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 5. SACRED / RELIGION QUERIES
+            # ============================================
+            religion_keywords = ['sacred', 'holy', 'pilgrimage', 'mosque', 'masjid', 'church', 'temple', 'spiritual']
+            if any(kw in query_clean for kw in religion_keywords):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_sacred_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 6. HIDDEN GEMS
+            # ============================================
+            if any(p in query_clean for p in ['hidden', 'offbeat', 'unknown', 'lesser known', 'secret', 'untouched', 'off the tourist trail']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_hidden_gems_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 7. ALL DISTRICTS
+            # ============================================
+            if any(p in query_clean for p in ['14 district', 'all district', '14 districts', 'all districts', 'all 14']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_all_districts_answer(destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 8. DISTRICT QUERIES
+            # ============================================
+            if district and any(p in query_clean for p in ['best', 'place', 'places', 'top', 'list']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_district_answer(district, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 9. HILL STATION / TREKKING QUERIES
+            # ============================================
+            if any(p in query_clean for p in ['hill', 'mountain', 'peak']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_hill_station_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 10. BACKWATER QUERIES
+            # ============================================
+            if any(p in query_clean for p in ['backwater', 'backwaters', 'houseboat', 'lake']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_backwater_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 11. WATERFALL QUERIES
+            # ============================================
+            if any(p in query_clean for p in ['waterfall', 'waterfalls', 'falls']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_waterfall_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 12. CATEGORY QUERIES
+            # ============================================
+            if category:
+                category_handlers = {
+                    'Hill Station': build_hill_station_answer,
+                    'Beach': lambda q, d: build_general_answer(q, [x for x in d if 'beach' in x.get('category', '').lower()]),
+                    'Backwater': build_backwater_answer,
+                    'Waterfall': build_waterfall_answer,
+                    'Wildlife': lambda q, d: build_general_answer(q, [x for x in d if 'wildlife' in x.get('category', '').lower() or 'sanctuary' in x.get('category', '').lower()]),
+                    'Temple': lambda q, d: build_general_answer(q, [x for x in d if 'temple' in x.get('category', '').lower()]),
+                    'Heritage': lambda q, d: build_general_answer(q, [x for x in d if 'heritage' in x.get('category', '').lower() or 'fort' in x.get('category', '').lower()]),
+                    'Park': lambda q, d: build_general_answer(q, [x for x in d if 'park' in x.get('category', '').lower() or 'garden' in x.get('category', '').lower()]),
+                    'Museum': lambda q, d: build_general_answer(q, [x for x in d if 'museum' in x.get('category', '').lower()]),
+                    'Sacred': build_sacred_answer,
+                }
+                handler = category_handlers.get(category)
+                if handler:
+                    return Response({
+                        'success': True,
+                        'result': {
+                            'answer': handler(query, destinations),
+                            'destinations': []
+                        },
+                        'session_id': session_id
+                    })
+            
+            # ============================================
+            # 13. ONE BEST
+            # ============================================
+            if 'one best' in query_clean:
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_hill_station_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 14. GREETINGS
+            # ============================================
+            if any(w in query_clean for w in ['hi', 'hello', 'hey', 'good morning', 'good evening']):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_greeting_response(),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 15. GENERAL SEARCH
+            # ============================================
+            results = search_data(query, destinations, 10, district)
+            
+            if not results:
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_no_results_answer(),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            return Response({
+                'success': True,
+                'result': {
+                    'answer': build_general_answer(query, results),
+                    'destinations': results[:5]
+                },
+                'session_id': session_id
+            })
+            
         except Exception as e:
             print(f"❌ Error: {e}")
             import traceback
             traceback.print_exc()
             return Response({
                 'success': False,
-                'mode': 'answer',
                 'error': str(e),
-                'message': 'Failed to process your request'
+                'message': 'Failed to process request'
             }, status=400)
-    
-    def _cleanup_old_sessions(self):
-        current_time = time.time()
-        expired_sessions = [
-            sid for sid, last_access in session_last_accessed.items()
-            if current_time - last_access > SESSION_TIMEOUT
-        ]
-        
-        for sid in expired_sessions:
-            if sid in conversation_memory:
-                del conversation_memory[sid]
-            if sid in session_last_accessed:
-                del session_last_accessed[sid]
-    
-    # ============================================
-    # SEARCH
-    # ============================================
-    
-    def _search_data(self, query: str, destinations: List[Dict], top_k: int = 30) -> List[Dict]:
-        """Search destinations using vector search or keyword fallback"""
-        query_lower = query.lower().strip()
-        
-        print(f"🔍 Searching: '{query}' among {len(destinations)} destinations")
-        
-        if not destinations:
-            print("❌ No destinations to search!")
-            return []
-        
-        # Try vector search first
-        if vector_store:
-            try:
-                results = vector_store.search(query, top_k=top_k)
-                if results:
-                    print(f"✅ Vector search found {len(results)} results")
-                    return results
-            except Exception as e:
-                print(f"⚠️ Vector search failed: {e}")
-        
-        # Fallback to keyword search
-        words = query_lower.split()
-        scored = []
-        
-        for dest in destinations:
-            score = 0
-            search_text = ' '.join([
-                dest.get('name', ''),
-                dest.get('district', ''),
-                dest.get('category', ''),
-                dest.get('description', '')
-            ]).lower()
-            
-            if query_lower in search_text:
-                score += 10
-            
-            for word in words:
-                if len(word) < 2:
-                    continue
-                if word in dest.get('name', '').lower():
-                    score += 5
-                if word in dest.get('district', '').lower():
-                    score += 4
-                if word in dest.get('category', '').lower():
-                    score += 3
-                if word in dest.get('description', '').lower():
-                    score += 2
-            
-            if score > 0:
-                scored.append({**dest, 'score': min(score / 10, 1.0)})
-        
-        scored.sort(key=lambda x: x.get('score', 0), reverse=True)
-        print(f"✅ Keyword search found {len(scored)} results")
-        return scored[:top_k]
-    
-    def _detect_district(self, query_lower: str) -> Optional[str]:
-        districts = [
-            'thiruvananthapuram', 'kollam', 'pathanamthitta', 'alappuzha', 
-            'kottayam', 'idukki', 'ernakulam', 'thrissur', 'palakkad',
-            'malappuram', 'kozhikode', 'wayanad', 'kannur', 'kasargod',
-            'kasaragod'
-        ]
-        for district in districts:
-            if district in query_lower:
-                return district.title()
-        return None
-    
-    def _detect_category(self, query_lower: str) -> Optional[str]:
-        categories = {
-            'beach': 'Beach',
-            'beaches': 'Beach',
-            'hill': 'Hill Station',
-            'hills': 'Hill Station',
-            'hill station': 'Hill Station',
-            'hill stations': 'Hill Station',
-            'mountain': 'Hill Station',
-            'mountains': 'Hill Station',
-            'waterfall': 'Waterfall',
-            'waterfalls': 'Waterfall',
-            'falls': 'Waterfall',
-            'backwater': 'Backwater',
-            'backwaters': 'Backwater',
-            'lake': 'Backwater',
-            'lakes': 'Backwater',
-            'wildlife': 'Wildlife',
-            'sanctuary': 'Wildlife',
-            'sanctuaries': 'Wildlife',
-            'temple': 'Temple',
-            'temples': 'Temple',
-            'heritage': 'Heritage',
-            'fort': 'Heritage',
-            'forts': 'Heritage',
-            'palace': 'Heritage',
-            'adventure': 'Adventure',
-            'nature': 'Nature',
-            'park': 'Park',
-            'parks': 'Park',
-            'garden': 'Park',
-            'gardens': 'Park',
-            'museum': 'Museum',
-            'museums': 'Museum',
-            'resort': 'Resort',
-            'resorts': 'Resort',
-            'spa': 'Wellness',
-            'ayurveda': 'Wellness',
-            'spiritual': 'Spiritual',
-            'sacred': 'Spiritual',
-            'church': 'Spiritual',
-            'mosque': 'Spiritual',
-            'pilgrimage': 'Spiritual',
-        }
-        
-        for key, value in categories.items():
-            if key in query_lower:
-                return value
-        return None
-    
-    def _safe_truncate(self, text: str, max_length: int) -> str:
-        if not text:
-            return ''
-        if len(text) <= max_length:
-            return text
-        truncate_at = text[:max_length].rfind(' ')
-        if truncate_at > 0:
-            return text[:truncate_at] + '...'
-        return text[:max_length - 3] + '...'
-    
-    def _clean_name(self, name: str) -> str:
-        """Clean and fix common data quality issues in names"""
-        if not name:
-            return ''
-        
-        # Fix common truncations
-        fixes = {
-            'Queen': "Queen's Walkway",
-            'Vatika Children': "Vatika Children's Park",
-            'Overbury': "Overbury's Folly",
-            'Jatayu Earth': "Jatayu Earth's Center",
-            'kadalpalam': "Kadalpalam Beach",
-            'Changkampuzha': "Changampuzha Park",
-            'Sadhoo Merry': "Sadhoo Merry Kingdom",
-            'VLand': "VLand Water Theme Park",
-            'Wonderla': "Wonderla Amusement Park",
-            'Silver Storm': "Silver Storm Water Theme Park",
-            'Payyambalam Beach Children': "Payyambalam Beach Children's Park",
-        }
-        
-        for key, value in fixes.items():
-            if key in name:
-                return value
-        
-        return name
-    
-    # ============================================
-    # SEARCH HANDLER
-    # ============================================
-    
-    def _handle_search(self, query, destinations, session_id, history):
-        try:
-            results = self._search_data(query, destinations, top_k=30)
-            return self._format_search_response(results, session_id, history, query)
-            
-        except Exception as e:
-            print(f"❌ Search error: {e}")
-            return Response({
-                'success': False,
-                'mode': 'search',
-                'error': str(e),
-                'message': 'Failed to perform search.'
-            }, status=400)
-    
-    def _format_search_response(self, results, session_id, history, query):
-        unique = []
-        seen = set()
-        for r in results:
-            name = r.get('name', '').lower()
-            if name and name not in seen:
-                seen.add(name)
-                # Clean the name before displaying
-                r['name'] = self._clean_name(r.get('name', ''))
-                unique.append(r)
-        
-        conversation_memory[session_id] = history + [
-            {'role': 'user', 'content': query},
-            {'role': 'assistant', 'content': f"Search returned {len(unique)} results"}
-        ]
-        if len(conversation_memory[session_id]) > 20:
-            conversation_memory[session_id] = conversation_memory[session_id][-20:]
-        
-        return Response({
-            'success': True,
-            'mode': 'search',
-            'session_id': session_id,
-            'result': {
-                'destinations': [
-                    {
-                        'id': r.get('id'),
-                        'name': self._clean_name(r.get('name', '')),
-                        'district': r.get('district'),
-                        'description': self._safe_truncate(r.get('description', ''), 200),
-                        'category': r.get('category'),
-                        'rating': r.get('rating', 0),
-                        'score': r.get('score', 0),
-                    }
-                    for r in unique[:20]
-                ],
-                'total_count': len(unique)
-            }
-        })
-    
-    # ============================================
-    # PLAN HANDLER
-    # ============================================
-    
-    def _handle_plan(self, query, destinations, session_id, history):
-        try:
-            results = self._search_data(query, destinations, top_k=50)
-            
-            if not results:
-                return Response({
-                    'success': True,
-                    'mode': 'plan',
-                    'session_id': session_id,
-                    'result': {
-                        'plan': self._build_comprehensive_plan(query),
-                        'itinerary': []
-                    }
-                })
-            
-            itinerary = self._create_itinerary(query, results[:10])
-            
-            conversation_memory[session_id] = history + [
-                {'role': 'user', 'content': query},
-                {'role': 'assistant', 'content': f"Created itinerary with {len(itinerary)} stops"}
-            ]
-            if len(conversation_memory[session_id]) > 20:
-                conversation_memory[session_id] = conversation_memory[session_id][-20:]
-            
-            return Response({
-                'success': True,
-                'mode': 'plan',
-                'session_id': session_id,
-                'result': {
-                    'plan': self._build_itinerary_text(itinerary),
-                    'itinerary': itinerary
-                }
-            })
-            
-        except Exception as e:
-            print(f"❌ Plan error: {e}")
-            return Response({
-                'success': False,
-                'mode': 'plan',
-                'error': str(e),
-                'message': 'Failed to create itinerary.'
-            }, status=400)
-    
-    def _create_itinerary(self, query: str, results: List[Dict]) -> List[Dict]:
-        query_lower = query.lower()
-        
-        day_match = re.search(r'(\d+)\s*(day|days?)', query_lower)
-        num_days = min(int(day_match.group(1)), 7) if day_match else 3
-        
-        is_beach = 'beach' in query_lower
-        is_hill = 'hill' in query_lower or 'mountain' in query_lower
-        is_waterfall = 'waterfall' in query_lower or 'falls' in query_lower
-        
-        categorized = defaultdict(list)
-        for r in results:
-            cat = r.get('category', '').lower()
-            if 'beach' in cat:
-                categorized['beach'].append(r)
-            elif 'hill' in cat or 'mountain' in cat:
-                categorized['hill'].append(r)
-            elif 'waterfall' in cat:
-                categorized['waterfall'].append(r)
-            else:
-                categorized['general'].append(r)
-        
-        itinerary = []
-        used = set()
-        
-        for day in range(1, num_days + 1):
-            day_plan = {'day': day, 'destinations': []}
-            
-            if day == 1:
-                if is_beach and categorized.get('beach'):
-                    day_plan['title'] = f"Day {day} - Beach Day"
-                    dests = categorized['beach'][:3]
-                elif is_waterfall and categorized.get('waterfall'):
-                    day_plan['title'] = f"Day {day} - Waterfall Adventure"
-                    dests = categorized['waterfall'][:3]
-                elif is_hill and categorized.get('hill'):
-                    day_plan['title'] = f"Day {day} - Hill Station Adventure"
-                    dests = categorized['hill'][:3]
-                else:
-                    day_plan['title'] = f"Day {day} - Explore Highlights"
-                    dests = results[:3]
-            else:
-                day_plan['title'] = f"Day {day} - Local Experience"
-                remaining = [r for r in results if r.get('name') not in used]
-                dests = remaining[:3] if remaining else results[:3]
-            
-            for dest in dests:
-                dest_name = dest.get('name')
-                if dest_name and dest_name not in used:
-                    day_plan['destinations'].append({
-                        'name': self._clean_name(dest_name),
-                        'district': dest.get('district', 'Unknown'),
-                        'category': dest.get('category', 'General'),
-                        'description': self._safe_truncate(dest.get('description', ''), 100)
-                    })
-                    used.add(dest_name)
-            
-            itinerary.append(day_plan)
-        
-        return itinerary
-    
-    def _build_itinerary_text(self, itinerary: List[Dict]) -> str:
-        if not itinerary:
-            return "Could not create an itinerary."
-        
-        text = "🗺️ **Your Kerala Itinerary**\n\n"
-        
-        for day in itinerary:
-            day_num = day.get('day', 1)
-            day_title = day.get('title', f'Day {day_num}')
-            text += f"**{day_title}**\n"
-            
-            for dest in day.get('destinations', []):
-                emoji = get_category_emoji(dest.get('category', ''))
-                dest_name = dest.get('name', 'Unknown')
-                dest_district = dest.get('district', 'Unknown')
-                text += f"  {emoji} {dest_name} ({dest_district})\n"
-            text += "\n"
-        
-        text += "💡 **Tips:**\n"
-        text += "• Book accommodations in advance\n"
-        text += "• Carry comfortable shoes and water\n"
-        text += "• Check weather before traveling"
-        
-        return text
-    
-    def _build_comprehensive_plan(self, query: str) -> str:
-        query_lower = query.lower()
-        num_days = 3
-        
-        day_match = re.search(r'(\d+)\s*(day|days?)', query_lower)
-        if day_match:
-            num_days = min(int(day_match.group(1)), 7)
-        
-        return f"""🗺️ **Kerala Trip Plan**\n\n
-Based on your query: "{query}"
-
-**📅 {num_days}-Day Recommended Itinerary:**
-
-**Day 1:**
-• Morning: Arrival and check-in
-• Afternoon: Explore local attractions
-• Evening: Sunset viewing and local dinner
-
-**Day 2:**
-• Morning: Visit key attractions
-• Afternoon: Local experiences and cuisine
-• Evening: Relax and enjoy
-
-**Day 3:**
-• Morning: Explore more attractions
-• Afternoon: Shopping and local experiences
-• Evening: Departure
-
-💡 **Tips:**
-• Book accommodations in advance
-• Check local transport options
-• Download offline maps
-• Carry water and comfortable shoes"""
-    
-    # ============================================
-    # ANSWER HANDLER - FIXED ORDER
-    # ============================================
-    
-    def _handle_answer(self, query, destinations, session_id, history):
-        try:
-            query_lower = query.lower().strip()
-            
-            print(f"📝 Answer mode: '{query}'")
-            print(f"📊 Destinations available: {len(destinations)}")
-            
-            # ============================================
-            # 1. FIRST: Check for category queries
-            # (This runs BEFORE greetings)
-            # ============================================
-            
-            # Check for specific categories
-            category_handlers = {
-                'hill station': self._build_hill_station_answer,
-                'hill stations': self._build_hill_station_answer,
-                'hill': self._build_hill_station_answer,
-                'hills': self._build_hill_station_answer,
-                'mountain': self._build_hill_station_answer,
-                'mountains': self._build_hill_station_answer,
-                'trekking': self._build_hill_station_answer,
-                'beach': self._build_beach_answer,
-                'beaches': self._build_beach_answer,
-                'waterfall': self._build_waterfall_answer,
-                'waterfalls': self._build_waterfall_answer,
-                'falls': self._build_waterfall_answer,
-                'backwater': self._build_backwater_answer,
-                'backwaters': self._build_backwater_answer,
-                'wildlife': self._build_wildlife_answer,
-                'sanctuary': self._build_wildlife_answer,
-                'sanctuaries': self._build_wildlife_answer,
-                'temple': self._build_temple_answer,
-                'temples': self._build_temple_answer,
-                'heritage': self._build_heritage_answer,
-                'fort': self._build_heritage_answer,
-                'forts': self._build_heritage_answer,
-                'palace': self._build_heritage_answer,
-                'park': self._build_parks_answer,
-                'parks': self._build_parks_answer,
-                'garden': self._build_parks_answer,
-                'gardens': self._build_parks_answer,
-                'museum': self._build_museum_answer,
-                'museums': self._build_museum_answer,
-            }
-            
-            # Check if any category matches
-            for category, handler in category_handlers.items():
-                if category in query_lower:
-                    return Response({
-                        'success': True,
-                        'mode': 'answer',
-                        'session_id': session_id,
-                        'result': {
-                            'answer': handler(query, destinations),
-                            'destinations': []
-                        }
-                    })
-            
-            # ============================================
-            # 2. Check for "one best" queries (BEFORE district)
-            # ============================================
-            if any(phrase in query_lower for phrase in ['one best', 'top one', 'only one', 'single best', 'best one']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_one_best_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 3. Check for district queries
-            # ============================================
-            district = self._detect_district(query_lower)
-            if district and any(phrase in query_lower for phrase in ['best', 'place', 'places', 'top', 'list', 'parks', 'beaches', 'hill']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_district_answer(district, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 4. All districts
-            # ============================================
-            if any(phrase in query_lower for phrase in ['14 district', 'all district', '14 districts', 'all districts', 'all 14']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_all_districts_answer(destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 5. Hidden gems
-            # ============================================
-            if any(phrase in query_lower for phrase in ['hidden', 'offbeat', 'unknown', 'lesser known', 'secret', 'untouched']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_hidden_gems_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 6. Itinerary/Plan
-            # ============================================
-            if any(phrase in query_lower for phrase in ['itinerary', 'plan', 'trip', 'schedule', 'day trip']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_itinerary_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 7. Budget
-            # ============================================
-            if any(phrase in query_lower for phrase in ['budget', 'under ₹', 'under rs', 'cheap', 'affordable', 'low cost']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_budget_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 8. Family
-            # ============================================
-            if any(phrase in query_lower for phrase in ['family', 'kids', 'children', 'kid friendly', 'child friendly']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_family_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 9. Monsoon
-            # ============================================
-            if any(phrase in query_lower for phrase in ['monsoon', 'rainy', 'rain', 'wet season']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_monsoon_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 10. Without beach
-            # ============================================
-            if any(phrase in query_lower for phrase in ['without beach', 'no beach', 'not beach', 'excluding beach']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_without_beach_answer(query, destinations),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 11. Greetings (LAST - only if nothing else matches)
-            # ============================================
-            if any(word in query_lower for word in ['hi', 'hello', 'hey', 'good morning', 'good evening', 'good afternoon']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._get_greeting_response(),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 12. Help
-            # ============================================
-            if any(word in query_lower for word in ['help', 'what can you do', 'capabilities']):
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._get_help_response(),
-                        'destinations': []
-                    }
-                })
-            
-            # ============================================
-            # 13. GENERAL SEARCH
-            # ============================================
-            
-            results = self._search_data(query, destinations, top_k=30)
-            
-            if not results:
-                return Response({
-                    'success': True,
-                    'mode': 'answer',
-                    'session_id': session_id,
-                    'result': {
-                        'answer': self._build_no_results_answer(),
-                        'destinations': []
-                    }
-                })
-            
-            unique = []
-            seen = set()
-            for r in results:
-                name = r.get('name', '').lower()
-                if name and name not in seen:
-                    seen.add(name)
-                    r['name'] = self._clean_name(r.get('name', ''))
-                    unique.append(r)
-            
-            answer = self._build_general_answer(query, unique)
-            max_results = self._get_max_results(query, len(unique))
-            
-            conversation_memory[session_id] = history + [
-                {'role': 'user', 'content': query},
-                {'role': 'assistant', 'content': answer[:500]}
-            ]
-            if len(conversation_memory[session_id]) > 20:
-                conversation_memory[session_id] = conversation_memory[session_id][-20:]
-            
-            return Response({
-                'success': True,
-                'mode': 'answer',
-                'session_id': session_id,
-                'result': {
-                    'answer': answer,
-                    'destinations': [
-                        {
-                            'id': r.get('id'),
-                            'name': self._clean_name(r.get('name', '')),
-                            'district': r.get('district'),
-                            'description': self._safe_truncate(r.get('description', ''), 200),
-                            'category': r.get('category'),
-                            'rating': r.get('rating', 0),
-                            'score': r.get('score', 0),
-                        }
-                        for r in unique[:max_results]
-                    ],
-                    'total_count': len(unique),
-                    'displayed_count': max_results
-                }
-            })
-            
-        except Exception as e:
-            print(f"❌ Answer failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return Response({
-                'success': False,
-                'mode': 'answer',
-                'error': str(e),
-                'message': 'Failed to generate answer.'
-            }, status=400)
-    
-    # ============================================
-    # ANSWER BUILDERS (WITH DATABASE DATA)
-    # ============================================
-    
-    def _get_greeting_response(self) -> str:
-        return """👋 **Hello! Welcome to DiscoverEase Kerala Travel Assistant!**
-
-I can help you with:
-• 🗺️ **Destinations** - Best places in Kerala
-• 🏖️ **Beaches** - Coastal getaways
-• ⛰️ **Hill Stations** - Mountain retreats
-• 💧 **Waterfalls** - Cascading beauty
-• 🚣 **Backwaters** - Houseboat experiences
-• 🐘 **Wildlife** - Sanctuaries and safaris
-• 🛕 **Temples** - Sacred sites
-• 💰 **Budget** - Travel cost planning
-• 📅 **Itineraries** - Day-by-day plans
-• 👨‍👩‍👧‍👦 **Family** - Kid-friendly places
-
-💡 **Try asking:**
-• "14 districts best places list"
-• "Best hill stations for trekking"
-• "One best hill station"
-• "Budget travel guide for Munnar"
-• "3-day itinerary for Varkala"
-• "Family-friendly places in Kochi"
-• "Hidden gems in Wayanad"
-• "Monsoon waterfalls itinerary"
-• "Backwater escape in Alleppey"
-• "Best places in Kannur district"""
-    
-    def _get_help_response(self) -> str:
-        return self._get_greeting_response()
-    
-    def _build_all_districts_answer(self, destinations: List[Dict]) -> str:
-        # Group by district
-        district_map = defaultdict(list)
-        for dest in destinations:
-            district = dest.get('district', 'Unknown')
-            if district != 'Unknown':
-                district_map[district].append(dest)
-        
-        answer = "🗺️ **Best places across all districts:**\n\n"
-        
-        for district, places in sorted(district_map.items()):
-            sorted_places = sorted(places, key=lambda x: x.get('rating', 0), reverse=True)
-            top_names = [self._clean_name(p['name']) for p in sorted_places[:3]]
-            
-            answer += f"**{district}**: "
-            answer += ", ".join(top_names)
-            if len(places) > 3:
-                answer += f" and {len(places) - 3} more"
-            answer += "\n"
-        
-        answer += "\n💡 **Tips:**\n"
-        answer += "• Best time to visit: October to March\n"
-        answer += "• Each district has unique attractions\n"
-        answer += "• Plan 2-3 days per district"
-        
-        return answer
-    
-    def _build_district_answer(self, district: str, destinations: List[Dict]) -> str:
-        print(f"📍 Building answer for district: {district}")
-        
-        district_dests = [d for d in destinations if d.get('district', '').lower() == district.lower()]
-        
-        if not district_dests:
-            district_dests = [d for d in destinations if district.lower() in d.get('district', '').lower()]
-        
-        print(f"📊 Found {len(district_dests)} destinations in {district}")
-        
-        if not district_dests:
-            return f"📍 No destinations found in {district} district.\n\n💡 Try asking for a specific category like 'beaches in {district}' or 'hill stations in {district}'."
-        
-        sorted_dests = sorted(district_dests, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = f"📍 **Top destinations in {district} district:**\n\n"
-        answer += f"📊 Found {len(sorted_dests)} places\n\n"
-        
-        for i, place in enumerate(sorted_dests[:15], 1):
-            emoji = get_category_emoji(place.get('category', ''))
-            name = self._clean_name(place.get('name', 'Unknown'))
-            answer += f"{i}. {emoji} **{name}**\n"
-            if place.get('description'):
-                answer += f"   {self._safe_truncate(place.get('description', ''), 150)}\n"
-            if place.get('rating'):
-                answer += f"   ⭐ {place['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• 📲 Download maps for easier navigation\n"
-        answer += "• 🍛 Try local Kerala cuisine\n"
-        answer += "• 🌅 Visit early morning for the best experience"
-        
-        return answer
-    
-    def _build_beach_answer(self, query: str, destinations: List[Dict]) -> str:
-        beaches = [d for d in destinations if 'beach' in d.get('category', '').lower() or 'beach' in d.get('name', '').lower()]
-        
-        if not beaches:
-            return "🏖️ No beaches found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(beaches))
-        beaches_sorted = sorted(beaches, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🏖️ **Top beaches in Kerala:**\n\n" if not is_single else "🏖️ **The best beach in Kerala is:**\n\n"
-        
-        for i, b in enumerate(beaches_sorted[:max_results], 1):
-            name = self._clean_name(b.get('name', ''))
-            answer += f"{i}. 🏖️ **{name}** ({b['district']})\n"
-            answer += f"   {self._safe_truncate(b.get('description', ''), 120)}\n"
-            if b.get('rating'):
-                answer += f"   ⭐ {b['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Best time to visit: October to March\n"
-        answer += "• Don't miss local seafood\n"
-        answer += "• 📲 Download maps for navigation"
-        
-        return answer
-    
-    def _build_parks_answer(self, query: str, destinations: List[Dict]) -> str:
-        parks = [d for d in destinations if 'park' in d.get('category', '').lower() or 'garden' in d.get('category', '').lower()]
-        
-        if not parks:
-            return "🌳 No parks found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(parks))
-        parks_sorted = sorted(parks, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🌳 **Top parks and gardens in Kerala:**\n\n" if not is_single else "🌳 **The best park in Kerala is:**\n\n"
-        
-        for i, p in enumerate(parks_sorted[:max_results], 1):
-            name = self._clean_name(p.get('name', ''))
-            answer += f"{i}. 🌳 **{name}** ({p['district']})\n"
-            answer += f"   {self._safe_truncate(p.get('description', ''), 120)}\n"
-            if p.get('rating'):
-                answer += f"   ⭐ {p['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Best time to visit: Morning or evening\n"
-        answer += "• Carry water and snacks\n"
-        answer += "• 📲 Download maps for navigation"
-        
-        return answer
-    
-    def _build_museum_answer(self, query: str, destinations: List[Dict]) -> str:
-        museums = [d for d in destinations if 'museum' in d.get('category', '').lower()]
-        
-        if not museums:
-            return "🏛️ No museums found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(museums))
-        museums_sorted = sorted(museums, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🏛️ **Top museums in Kerala:**\n\n" if not is_single else "🏛️ **The best museum in Kerala is:**\n\n"
-        
-        for i, m in enumerate(museums_sorted[:max_results], 1):
-            name = self._clean_name(m.get('name', ''))
-            answer += f"{i}. 🏛️ **{name}** ({m['district']})\n"
-            answer += f"   {self._safe_truncate(m.get('description', ''), 120)}\n"
-            if m.get('rating'):
-                answer += f"   ⭐ {m['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• 📅 Check museum timings before visiting\n"
-        answer += "• 📸 Some museums restrict photography\n"
-        answer += "• 📲 Download maps for navigation"
-        
-        return answer
-    
-    def _build_hill_station_answer(self, query: str, destinations: List[Dict]) -> str:
-        hills = [d for d in destinations if 'hill' in d.get('category', '').lower() or 'mountain' in d.get('category', '').lower()]
-        
-        if not hills:
-            return "⛰️ No hill stations found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top', 'one best'])
-        is_trekking = 'trekking' in query_lower
-        
-        if is_trekking:
-            trekking_hills = [h for h in hills if 'trek' in h.get('description', '').lower()]
-            if trekking_hills:
-                hills = trekking_hills
-        
-        max_results = 1 if is_single else min(10, len(hills))
-        hills_sorted = sorted(hills, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "⛰️ **Top hill stations in Kerala:**\n\n" if not is_single else "⛰️ **The best hill station in Kerala is:**\n\n"
-        if is_trekking and not is_single:
-            answer = "⛰️ **Best hill stations for trekking:**\n\n"
-        if is_trekking and is_single:
-            answer = "⛰️ **The best hill station for trekking is:**\n\n"
-        
-        for i, h in enumerate(hills_sorted[:max_results], 1):
-            name = self._clean_name(h.get('name', ''))
-            answer += f"{i}. ⛰️ **{name}** ({h['district']})\n"
-            answer += f"   {self._safe_truncate(h.get('description', ''), 120)}\n"
-            if h.get('rating'):
-                answer += f"   ⭐ {h['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Best time to visit: September to May\n"
-        if is_trekking:
-            answer += "• 🥾 Start your trek early morning\n"
-            answer += "• 💧 Carry sufficient water (2L per person)\n"
-            answer += "• 👟 Wear comfortable trekking shoes\n"
-        else:
-            answer += "• 📲 Download maps for easier navigation\n"
-            answer += "• 🍛 Don't miss local Kerala cuisine\n"
-        
-        return answer
-    
-    def _build_waterfall_answer(self, query: str, destinations: List[Dict]) -> str:
-        waterfalls = [d for d in destinations if 'waterfall' in d.get('category', '').lower() or 'falls' in d.get('name', '').lower()]
-        
-        if not waterfalls:
-            return "💧 No waterfalls found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(waterfalls))
-        waterfalls_sorted = sorted(waterfalls, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "💧 **Top waterfalls in Kerala:**\n\n" if not is_single else "💧 **The best waterfall in Kerala is:**\n\n"
-        
-        for i, w in enumerate(waterfalls_sorted[:max_results], 1):
-            name = self._clean_name(w.get('name', ''))
-            answer += f"{i}. 💧 **{name}** ({w['district']})\n"
-            answer += f"   {self._safe_truncate(w.get('description', ''), 120)}\n"
-            if w.get('rating'):
-                answer += f"   ⭐ {w['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Best time to visit: Post-monsoon (September to February)\n"
-        answer += "• 👟 Wear comfortable footwear\n"
-        answer += "• 📲 Download maps for navigation"
-        
-        return answer
-    
-    def _build_backwater_answer(self, query: str, destinations: List[Dict]) -> str:
-        backwaters = [d for d in destinations if 'backwater' in d.get('category', '').lower() or 'lake' in d.get('category', '').lower()]
-        
-        if not backwaters:
-            return "🚣 No backwater destinations found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(backwaters))
-        backwaters_sorted = sorted(backwaters, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🚣 **Top backwater destinations:**\n\n" if not is_single else "🚣 **The best backwater destination is:**\n\n"
-        
-        for i, b in enumerate(backwaters_sorted[:max_results], 1):
-            name = self._clean_name(b.get('name', ''))
-            answer += f"{i}. 🚣 **{name}** ({b['district']})\n"
-            answer += f"   {self._safe_truncate(b.get('description', ''), 120)}\n"
-            if b.get('rating'):
-                answer += f"   ⭐ {b['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Best time to visit: October to March\n"
-        answer += "• 🚣 Book houseboats in advance\n"
-        answer += "• 📲 Download maps for navigation"
-        
-        return answer
-    
-    def _build_wildlife_answer(self, query: str, destinations: List[Dict]) -> str:
-        wildlife = [d for d in destinations if 'wildlife' in d.get('category', '').lower() or 'sanctuary' in d.get('category', '').lower()]
-        
-        if not wildlife:
-            return "🐘 No wildlife destinations found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(wildlife))
-        wildlife_sorted = sorted(wildlife, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🐘 **Top wildlife destinations:**\n\n" if not is_single else "🐘 **The best wildlife destination is:**\n\n"
-        
-        for i, w in enumerate(wildlife_sorted[:max_results], 1):
-            name = self._clean_name(w.get('name', ''))
-            answer += f"{i}. 🐘 **{name}** ({w['district']})\n"
-            answer += f"   {self._safe_truncate(w.get('description', ''), 120)}\n"
-            if w.get('rating'):
-                answer += f"   ⭐ {w['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Best time to visit: October to June\n"
-        answer += "• 🐘 Book safaris in advance\n"
-        answer += "• 📷 Bring binoculars and camera"
-        
-        return answer
-    
-    def _build_temple_answer(self, query: str, destinations: List[Dict]) -> str:
-        temples = [d for d in destinations if 'temple' in d.get('category', '').lower() or 'sacred' in d.get('category', '').lower()]
-        
-        if not temples:
-            return "🛕 No temples found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(temples))
-        temples_sorted = sorted(temples, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🛕 **Top sacred places in Kerala:**\n\n" if not is_single else "🛕 **The best sacred place is:**\n\n"
-        
-        for i, t in enumerate(temples_sorted[:max_results], 1):
-            name = self._clean_name(t.get('name', ''))
-            answer += f"{i}. 🛕 **{name}** ({t['district']})\n"
-            answer += f"   {self._safe_truncate(t.get('description', ''), 120)}\n"
-            if t.get('rating'):
-                answer += f"   ⭐ {t['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• 👘 Dress modestly when visiting temples\n"
-        answer += "• 📸 Ask permission before taking photos\n"
-        answer += "• 📅 Check temple timings before visiting"
-        
-        return answer
-    
-    def _build_heritage_answer(self, query: str, destinations: List[Dict]) -> str:
-        heritage = [d for d in destinations if 'heritage' in d.get('category', '').lower() or 'fort' in d.get('category', '').lower() or 'palace' in d.get('category', '').lower()]
-        
-        if not heritage:
-            return "🏛️ No heritage sites found in the database."
-        
-        query_lower = query.lower()
-        is_single = any(phrase in query_lower for phrase in ['one', 'single', 'best', 'top'])
-        max_results = 1 if is_single else min(10, len(heritage))
-        heritage_sorted = sorted(heritage, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🏛️ **Top heritage sites in Kerala:**\n\n" if not is_single else "🏛️ **The best heritage site is:**\n\n"
-        
-        for i, h in enumerate(heritage_sorted[:max_results], 1):
-            name = self._clean_name(h.get('name', ''))
-            answer += f"{i}. 🏛️ **{name}** ({h['district']})\n"
-            answer += f"   {self._safe_truncate(h.get('description', ''), 120)}\n"
-            if h.get('rating'):
-                answer += f"   ⭐ {h['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• 🗺️ Hire a guide for historical context\n"
-        answer += "• 📸 Best time for photos: Morning and evening\n"
-        answer += "• 📅 Check opening hours before visiting"
-        
-        return answer
-    
-    def _build_budget_answer(self, query: str, destinations: List[Dict]) -> str:
-        return """💰 **Kerala Budget Travel Guide**\n\n
-
-**🏨 Accommodation Budget:**
-• Hostels: ₹500-₹1,500/night
-• Budget Hotels: ₹1,500-₹3,000/night
-• Homestays: ₹1,000-₹2,500/night
-
-**🍛 Food Budget:**
-• Local meals: ₹100-₹300/meal
-• Street food: ₹50-₹150/snack
-• Mid-range restaurant: ₹300-₹600/meal
-
-**🚌 Transport Budget:**
-• Bus: ₹50-₹200/trip
-• Train: ₹100-₹500/trip
-• Auto-rickshaw: ₹30-₹100/short trip
-
-**💰 Daily Budget Estimate:**
-• Backpacker: ₹1,500-₹2,500/day
-• Budget traveler: ₹2,500-₹4,000/day
-• Mid-range: ₹4,000-₹7,000/day
-
-💡 **Money-Saving Tips:**
-• Travel during off-season (June-September)
-• Use public transport instead of taxis
-• Eat at local restaurants
-• Book accommodations online in advance
-• Carry your own water bottle"""
-    
-    def _build_family_answer(self, query: str, destinations: List[Dict]) -> str:
-        return """👨‍👩‍👧‍👦 **Family-Friendly Kerala Travel Guide**\n\n
-
-**🏖️ Best Family Destinations:**
-• **Alleppey** - Houseboat cruises, beach time
-• **Kochi** - Fort walking, boating, marine drive
-• **Munnar** - Tea gardens, nature walks
-• **Varkala** - Cliff walks, beach time
-• **Thrissur** - Temple visits, waterfall picnic
-
-**👶 Kid-Friendly Activities:**
-• Nature walks and exploration
-• Bird watching
-• Safe swimming spots
-• Educational tours
-• Fun outdoor activities
-
-**🏠 Family Accommodation Tips:**
-• Look for family rooms or suites
-• Check for kid-friendly amenities
-• Book places with play areas
-• Consider homestays
-
-💡 **Tips for Families:**
-• Carry snacks and water
-• Plan for rest breaks
-• Keep a flexible schedule
-• Pack appropriate clothing"""
-    
-    def _build_hidden_gems_answer(self, query: str, destinations: List[Dict]) -> str:
-        query_lower = query.lower()
-        district = self._detect_district(query_lower)
-        
-        hidden = [d for d in destinations if d.get('type') == 'hidden']
-        
-        if district:
-            hidden = [d for d in hidden if d.get('district', '').lower() == district.lower()]
-        
-        if not hidden:
-            return "💎 No hidden gems found in the database."
-        
-        hidden_sorted = sorted(hidden, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        district_title = f" in {district}" if district else ""
-        answer = f"💎 **Hidden Gems{district_title}**\n\n"
-        answer += "Discover these offbeat destinations:\n\n"
-        
-        for i, gem in enumerate(hidden_sorted[:5], 1):
-            emoji = get_category_emoji(gem.get('category', ''))
-            name = self._clean_name(gem.get('name', ''))
-            answer += f"{i}. {emoji} **{name}** ({gem['district']})\n"
-            answer += f"   {self._safe_truncate(gem.get('description', ''), 100)}\n"
-            if gem.get('rating'):
-                answer += f"   ⭐ {gem['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips for Hidden Gems:**\n"
-        answer += "• Visit early morning for peaceful experience\n"
-        answer += "• Check local access and transportation\n"
-        answer += "• Carry snacks and water (limited facilities)\n"
-        answer += "• Respect local culture and privacy"
-        
-        return answer
-    
-    def _build_one_best_answer(self, query: str, destinations: List[Dict]) -> str:
-        query_lower = query.lower()
-        category = self._detect_category(query_lower)
-        district = self._detect_district(query_lower)
-        
-        best_places = []
-        for dest in destinations:
-            if district and dest.get('district', '').lower() != district.lower():
-                continue
-            if category and category.lower() not in dest.get('category', '').lower():
-                continue
-            best_places.append(dest)
-        
-        if not best_places:
-            return "⭐ I couldn't find a top recommendation matching your query.\n\n💡 Try being more specific (e.g., 'one best hill station', 'best beach in Kerala')"
-        
-        best_place = sorted(best_places, key=lambda x: x.get('rating', 0), reverse=True)[0]
-        
-        emoji = get_category_emoji(best_place.get('category', ''))
-        name = self._clean_name(best_place.get('name', ''))
-        answer = f"⭐ **The top recommendation for you is:**\n\n"
-        answer += f"1. {emoji} **{name}** ({best_place['district']})\n"
-        answer += f"   {self._safe_truncate(best_place.get('description', ''), 150)}\n"
-        if best_place.get('rating'):
-            answer += f"   ⭐ {best_place['rating']}/5\n"
-        answer += "\n"
-        answer += "💡 **Tips:**\n"
-        answer += "• 📲 Download maps for easier navigation\n"
-        answer += "• 🍛 Don't miss local Kerala cuisine\n"
-        answer += "• 🌅 Visit early morning for the best experience"
-        
-        return answer
-    
-    def _build_itinerary_answer(self, query: str, destinations: List[Dict]) -> str:
-        query_lower = query.lower()
-        
-        day_match = re.search(r'(\d+)\s*(day|days?)', query_lower)
-        num_days = min(int(day_match.group(1)), 5) if day_match else 3
-        
-        dest_names = ['Munnar', 'Varkala', 'Alleppey', 'Kochi', 'Wayanad', 'Thrissur', 'Kannur', 'Idukki']
-        target_dest = None
-        for dest in dest_names:
-            if dest.lower() in query_lower:
-                target_dest = dest
-                break
-        
-        if target_dest:
-            matching = [d for d in destinations if d.get('name', '').lower() == target_dest.lower()]
-            if matching:
-                place = matching[0]
-                return self._build_specific_itinerary(target_dest, place, num_days)
-        
-        return self._build_generic_itinerary("Kerala", num_days)
-    
-    def _build_specific_itinerary(self, dest_name: str, place: Dict, num_days: int) -> str:
-        emoji = get_category_emoji(place.get('category', ''))
-        name = self._clean_name(place.get('name', ''))
-        
-        answer = f"🗺️ **{num_days}-Day Itinerary for {name}**\n\n"
-        answer += f"{emoji} {place.get('category', '')} | ⭐ {place.get('rating', 0)}/5\n\n"
-        answer += f"📝 {place.get('description', '')}\n\n"
-        
-        activities = [
-            "🏔️ Explore the main attractions",
-            "🌿 Nature walks and photography",
-            "🍽️ Local cuisine tasting",
-            "🌅 Sunset viewing",
-            "🛍️ Visit local markets",
-            "📸 Scenic viewpoints"
-        ]
-        
-        for day in range(1, num_days + 1):
-            answer += f"**Day {day}:**\n"
-            if day == 1:
-                answer += f"  • Morning: Arrive and check-in\n"
-                answer += f"  • Afternoon: {activities[0]}\n"
-                answer += f"  • Evening: {activities[3]}\n"
-            elif day == num_days:
-                answer += f"  • Morning: {activities[1]}\n"
-                answer += f"  • Afternoon: {activities[4]}\n"
-                answer += f"  • Evening: Departure\n"
-            else:
-                answer += f"  • Morning: {activities[day % len(activities)]}\n"
-                answer += f"  • Afternoon: {activities[(day + 1) % len(activities)]}\n"
-                answer += f"  • Evening: {activities[(day + 2) % len(activities)]}\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Book accommodations in advance\n"
-        answer += "• Start early to avoid crowds\n"
-        answer += "• Carry water and snacks\n"
-        answer += "• Check weather before traveling"
-        
-        return answer
-    
-    def _build_generic_itinerary(self, dest_name: str, num_days: int) -> str:
-        answer = f"🗺️ **{num_days}-Day Itinerary for {dest_name}**\n\n"
-        
-        for day in range(1, num_days + 1):
-            answer += f"**Day {day}:**\n"
-            if day == 1:
-                answer += "  • Morning: Arrival and check-in\n"
-                answer += "  • Afternoon: Explore local attractions\n"
-                answer += "  • Evening: Sunset viewing and local dinner\n"
-            elif day == num_days:
-                answer += "  • Morning: Visit key attractions\n"
-                answer += "  • Afternoon: Shopping and local experiences\n"
-                answer += "  • Evening: Departure\n"
-            else:
-                answer += "  • Morning: Full day exploration\n"
-                answer += "  • Afternoon: Continue exploring\n"
-                answer += "  • Evening: Relax and enjoy local cuisine\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• Book accommodations in advance\n"
-        answer += "• Check local transport options\n"
-        answer += "• Try local Kerala cuisine\n"
-        answer += "• Download offline maps"
-        
-        return answer
-    
-    def _build_monsoon_answer(self, query: str, destinations: List[Dict]) -> str:
-        if 'waterfall' in query.lower() or 'falls' in query.lower():
-            waterfalls = [d for d in destinations if 'waterfall' in d.get('category', '').lower()]
-            waterfall_names = [f"**{self._clean_name(w['name'])}** ({w['district']})" for w in waterfalls[:5]]
-            
-            answer = "🌧️ **Monsoon Waterfall Itinerary for Kerala**\n\n"
-            answer += "Experience Kerala's waterfalls at their most powerful during the monsoon!\n\n"
-            answer += "**🌊 Top Monsoon Waterfalls:**\n"
-            for i, name in enumerate(waterfall_names, 1):
-                answer += f"{i}. {name}\n"
-            answer += "\n**📅 3-Day Monsoon Waterfall Itinerary:**\n\n"
-            answer += "**Day 1: Thrissur Waterfalls**\n"
-            answer += "  • 🌅 Morning: Athirappilly Waterfall\n"
-            answer += "  • 🍽️ Afternoon: Lunch at local restaurant\n"
-            answer += "  • 🌿 Evening: Visit Vazhachal Waterfall\n\n"
-            answer += "**Day 2: Wayanad Waterfalls**\n"
-            answer += "  • 🌄 Morning: Drive to Wayanad\n"
-            answer += "  • 💧 Afternoon: Meenmutty Waterfall\n"
-            answer += "  • 🌅 Evening: Soochipara Waterfall\n\n"
-            answer += "**Day 3: Kozhikode & Departure**\n"
-            answer += "  • 🌊 Morning: Thusharagiri Waterfall\n"
-            answer += "  • 🛍️ Afternoon: Local shopping\n"
-            answer += "  • 🚗 Evening: Departure\n\n"
-            answer += "💡 **Monsoon Tips:**\n"
-            answer += "• 🧥 Carry raincoat and waterproof bags\n"
-            answer += "• 👟 Wear waterproof footwear\n"
-            answer += "• 📸 Protect camera from rain\n"
-            answer += "• 🚗 Check road conditions"
-            return answer
-        
-        return """🌧️ **Monsoon Travel Guide for Kerala**\n\n
-Kerala is beautiful during the monsoon season (June-September).
-
-**🌊 Best Monsoon Destinations:**
-• Athirappilly Waterfall - The Niagara of India
-• Meenmutty Waterfall - 3-tiered stunning waterfall
-• Thusharagiri Waterfall - Trekking trails
-• Munnar - Misty hills and tea gardens
-
-**✅ Monsoon Activities:**
-• 💧 Waterfall visits (best during monsoon)
-• 🌿 Nature walks in lush greenery
-• 📸 Photography of misty landscapes
-• 🍛 Enjoy hot local cuisine
-
-**⚠️ Monsoon Tips:**
-• 🧥 Carry raincoat and waterproof bags
-• 👟 Wear waterproof footwear with good grip
-• 📸 Protect camera equipment from rain
-• 🚗 Check road conditions before traveling"""
-    
-    def _build_without_beach_answer(self, query: str, destinations: List[Dict]) -> str:
-        non_beach = [d for d in destinations if 'beach' not in d.get('category', '').lower()]
-        
-        if not non_beach:
-            return "🌿 No non-beach destinations found."
-        
-        sorted_dests = sorted(non_beach, key=lambda x: x.get('rating', 0), reverse=True)
-        
-        answer = "🌿 **Exploring Kerala beyond beaches:**\n\n"
-        
-        for i, p in enumerate(sorted_dests[:10], 1):
-            emoji = get_category_emoji(p.get('category', ''))
-            name = self._clean_name(p.get('name', ''))
-            answer += f"{i}. {emoji} **{name}** ({p['district']})\n"
-            answer += f"   {self._safe_truncate(p.get('description', ''), 100)}\n"
-            if p.get('rating'):
-                answer += f"   ⭐ {p['rating']}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• 🌿 Kerala has diverse landscapes beyond beaches\n"
-        answer += "• 🗺️ Explore hills, backwaters, and wildlife sanctuaries\n"
-        answer += "• 🕊️ Visit early morning for peaceful experience"
-        
-        return answer
-    
-    def _build_general_answer(self, query: str, results: List[Dict]) -> str:
-        if not results:
-            return self._build_no_results_answer()
-        
-        max_results = min(10, len(results))
-        
-        answer = f"✨ **Found {len(results)} matching destinations:**\n\n"
-        
-        for i, r in enumerate(results[:max_results], 1):
-            emoji = get_category_emoji(r.get('category', ''))
-            name = self._clean_name(r.get('name', 'Unknown'))
-            district = r.get('district', '')
-            description = r.get('description', '')
-            rating = r.get('rating', 0)
-            
-            answer += f"{i}. {emoji} **{name}**"
-            if district:
-                answer += f" ({district})"
-            answer += "\n"
-            
-            if description:
-                answer += f"   {self._safe_truncate(description, 120)}\n"
-            
-            if rating:
-                stars = "⭐" * min(int(rating), 5)
-                answer += f"   {stars} {rating}/5\n"
-            answer += "\n"
-        
-        answer += "💡 **Tips:**\n"
-        answer += "• 📲 Download maps for easier navigation\n"
-        answer += "• 🍛 Don't miss local Kerala cuisine\n"
-        answer += "• 🌅 Visit early morning for the best experience"
-        
-        return answer
-    
-    def _build_no_results_answer(self) -> str:
-        return """🔍 I couldn't find any destinations matching your query.
-
-💡 **Try these examples:**
-• "14 districts best places list" - All districts
-• "best places in Kannur" - Specific district
-• "beaches in Kerala" - By type
-• "hill stations in Idukki" - Category in district
-• "waterfalls in Thrissur" - Category in district
-• "backwaters in Alappuzha" - Category in district
-• "hidden gems in Wayanad" - Offbeat destinations
-• "one best hill station" - Top recommendation
-• "budget travel guide" - Budget planning
-• "3-day itinerary for Varkala" - Trip planning
-• "family-friendly places in Kochi" - Family travel
-• "monsoon waterfalls itinerary" - Seasonal travel"""
-    
-    def _get_max_results(self, query: str, total_available: int) -> int:
-        query_lower = query.lower()
-        
-        if any(phrase in query_lower for phrase in ['one best', 'top one', 'only one']):
-            return min(1, total_available)
-        if query_lower.startswith('one ') or query_lower.startswith('single '):
-            return min(1, total_available)
-        
-        num_match = re.search(r'(\d+)\s*places?', query_lower)
-        if num_match:
-            requested = int(num_match.group(1))
-            return min(requested, 14, total_available)
-        
-        if '14' in query_lower or 'all' in query_lower:
-            return min(14, total_available)
-        if '10' in query_lower:
-            return min(10, total_available)
-        if '5' in query_lower:
-            return min(5, total_available)
-        
-        return min(10, total_available)
