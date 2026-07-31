@@ -256,11 +256,22 @@ def get_destinations() -> List[Dict]:
 
 def detect_destination_name(query_lower: str) -> Optional[str]:
     """Detect if query mentions a specific destination name"""
+    # Don't detect destination if query is about hidden gems
+    hidden_keywords = ['hidden', 'offbeat', 'unknown', 'lesser known', 'secret', 'untouched', 'off the tourist trail']
+    if any(kw in query_lower for kw in hidden_keywords):
+        return None
+    
     destinations = get_destinations()
     for dest in destinations:
         name = dest.get('name', '').lower()
-        if name in query_lower or query_lower in name:
-            return dest.get('name')
+        # Only match if the name is a significant part of the query
+        if name in query_lower and len(name) > 3:
+            # Check if this is a full destination name match
+            if query_lower == name or query_lower.startswith(name + ' ') or query_lower.endswith(' ' + name):
+                return dest.get('name')
+            # Also match if the name appears as a word in the query
+            if f' {name} ' in f' {query_lower} ':
+                return dest.get('name')
     return None
 
 def search_data(query: str, destinations: List[Dict], top_k: int = 10, district: str = None) -> List[Dict]:
@@ -1066,27 +1077,78 @@ def build_waterfall_answer(query: str, destinations: List[Dict]) -> str:
     return "\n".join(lines)
 
 def build_hidden_gems_answer(query: str, destinations: List[Dict]) -> str:
-    hidden = [d for d in destinations if d.get('type') == 'hidden' or 'hidden' in d.get('description', '').lower()]
+    """Build response for hidden gems queries"""
+    query_lower = query.lower()
     
-    district = detect_district(query.lower())
+    # Get hidden destinations (type='hidden' or description contains 'hidden')
+    hidden = []
+    for d in destinations:
+        is_hidden = False
+        if d.get('type') == 'hidden':
+            is_hidden = True
+        if 'hidden' in d.get('description', '').lower():
+            is_hidden = True
+        if 'offbeat' in d.get('description', '').lower():
+            is_hidden = True
+        if 'lesser known' in d.get('description', '').lower():
+            is_hidden = True
+        if is_hidden:
+            hidden.append(d)
+    
+    # If no hidden gems found, fall back to general search
+    if not hidden:
+        # Try to find any destinations in the specified district
+        district = detect_district(query_lower)
+        if district:
+            district_dests = [d for d in destinations if d.get('district', '').lower() == district.lower()]
+            if district_dests:
+                sorted_dests = sorted(district_dests, key=lambda x: x.get('rating', 0), reverse=True)
+                lines = [f"💎 Exploring {district} district:", ""]
+                lines.append("While we don't have specific 'hidden gems' marked, here are some great places to explore:")
+                lines.append("")
+                for i, d in enumerate(sorted_dests[:8], 1):
+                    emoji = get_category_emoji(d.get('category', ''))
+                    lines.append(f"{i}. {emoji} {d.get('name', 'Unknown')}")
+                    if d.get('district'):
+                        lines.append(f"   📍 {d.get('district')}")
+                    if d.get('description'):
+                        lines.append(f"   {safe_truncate(d.get('description'), 80)}")
+                    lines.append("")
+                lines.append("💡 Tips for offbeat exploration:")
+                lines.append("• 🚗 Ask locals for lesser-known spots")
+                lines.append("• 🌅 Visit early morning for peaceful experience")
+                lines.append("• 📸 Respect local culture and privacy")
+                return "\n".join(lines)
+        
+        return "💎 No hidden gems found in the database.\n\n💡 Try searching for specific categories like 'beaches' or 'hill stations' in a district instead.\n\nExample: 'beaches in Kannur' or 'hill stations in Idukki'"
+    
+    # Filter by district if specified
+    district = detect_district(query_lower)
     if district:
         hidden = [h for h in hidden if h.get('district', '').lower() == district.lower()]
     
     if not hidden:
-        return "💎 No hidden gems found.\n\n💡 Try searching for specific categories like 'beaches' or 'hill stations' instead."
+        if district:
+            return f"💎 No hidden gems found in {district} district.\n\n💡 Try searching for specific categories like 'beaches' or 'hill stations' instead."
+        return "💎 No hidden gems found in the database."
     
     sorted_hidden = sorted(hidden, key=lambda x: x.get('rating', 0), reverse=True)
     
-    lines = ["💎 Hidden Gems in Kerala:", ""]
+    title = "💎 Hidden Gems in Kerala"
+    if district:
+        title = f"💎 Hidden Gems in {district} district"
     
-    for i, gem in enumerate(sorted_hidden[:8], 1):
+    lines = [title, f"📊 Found {len(sorted_hidden)} offbeat destinations", ""]
+    
+    for i, gem in enumerate(sorted_hidden[:10], 1):
         emoji = get_category_emoji(gem.get('category', ''))
         name = gem.get('name', 'Unknown')
-        district = gem.get('district', 'Unknown')
+        district_text = gem.get('district', 'Unknown')
         desc = gem.get('description', '')
         rating = gem.get('rating', 0)
         
-        lines.append(f"{i}. {emoji} {name} ({district})")
+        lines.append(f"{i}. {emoji} {name}")
+        lines.append(f"   📍 {district_text}")
         if desc:
             lines.append(f"   {safe_truncate(desc, 100)}")
         if rating and rating > 0:
@@ -1174,7 +1236,7 @@ def build_no_results_answer() -> str:
     return """🔍 I couldn't find any destinations matching your query.
 
 💡 Try these examples:
-• "14 districts best places list"
+
 • "best places in Kannur"
 • "beaches in Kerala"
 • "hill stations in Idukki"
@@ -1264,7 +1326,21 @@ class AIChatView(APIView):
             query_clean = query.lower().strip()
             
             # ============================================
-            # 1. CHECK NAME MAPPINGS (BEFORE ANYTHING ELSE)
+            # 1. CHECK FOR HIDDEN GEMS (HIGHEST PRIORITY)
+            # ============================================
+            hidden_keywords = ['hidden', 'offbeat', 'unknown', 'lesser known', 'secret', 'untouched', 'off the tourist trail', 'offbeat']
+            if any(p in query_clean for p in hidden_keywords):
+                return Response({
+                    'success': True,
+                    'result': {
+                        'answer': build_hidden_gems_answer(query, destinations),
+                        'destinations': []
+                    },
+                    'session_id': session_id
+                })
+            
+            # ============================================
+            # 2. CHECK NAME MAPPINGS
             # ============================================
             mapped_name = get_mapped_name(query_clean)
             if mapped_name:
@@ -1290,11 +1366,10 @@ class AIChatView(APIView):
                     })
             
             # ============================================
-            # 2. CHECK FOR ITINERARY / PLAN QUERIES (BEFORE EXACT NAME MATCH)
+            # 3. CHECK FOR ITINERARY / PLAN QUERIES
             # ============================================
             itinerary_keywords = ['itinerary', 'plan', 'trip', 'schedule', 'day trip', 'escape', 'built around']
             
-            # Check if ANY itinerary keyword is in the query
             is_itinerary_query = any(p in query_clean for p in itinerary_keywords)
             
             # Special cases: specific destination + activity combinations
@@ -1318,7 +1393,7 @@ class AIChatView(APIView):
                 })
             
             # ============================================
-            # 3. CHECK FOR EXACT NAME MATCH
+            # 4. CHECK FOR EXACT NAME MATCH
             # ============================================
             for dest in destinations:
                 if dest.get('name', '').lower() == query_clean:
@@ -1332,7 +1407,7 @@ class AIChatView(APIView):
                     })
             
             # ============================================
-            # 4. DISTRICT + CATEGORY QUERIES (e.g., "park in kannur")
+            # 5. DISTRICT + CATEGORY QUERIES (e.g., "park in kannur")
             # ============================================
             district = detect_district(query_clean)
             category = detect_category(query_clean)
@@ -1363,7 +1438,7 @@ class AIChatView(APIView):
                 })
             
             # ============================================
-            # 5. SACRED / RELIGION QUERIES
+            # 6. SACRED / RELIGION QUERIES
             # ============================================
             religion_keywords = ['sacred', 'holy', 'pilgrimage', 'mosque', 'masjid', 'church', 'temple', 'spiritual']
             if any(kw in query_clean for kw in religion_keywords):
@@ -1371,19 +1446,6 @@ class AIChatView(APIView):
                     'success': True,
                     'result': {
                         'answer': build_sacred_answer(query, destinations),
-                        'destinations': []
-                    },
-                    'session_id': session_id
-                })
-            
-            # ============================================
-            # 6. HIDDEN GEMS
-            # ============================================
-            if any(p in query_clean for p in ['hidden', 'offbeat', 'unknown', 'lesser known', 'secret', 'untouched', 'off the tourist trail']):
-                return Response({
-                    'success': True,
-                    'result': {
-                        'answer': build_hidden_gems_answer(query, destinations),
                         'destinations': []
                     },
                     'session_id': session_id
