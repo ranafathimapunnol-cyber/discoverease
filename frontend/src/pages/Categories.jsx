@@ -1,6 +1,4 @@
-
-
-// pages/Categories.jsx - COMPLETE FULLY FIXED VERSION
+// pages/Categories.jsx - COMPLETE FIXED VERSION
 // Shows categories with implemented suggestions count
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -31,6 +29,54 @@ export default function Categories() {
   const categoryRef = useRef(null);
   const dataLoadedRef = useRef(false);
   const suggestionsFetchedRef = useRef(false);
+
+  // Category mapping for better filtering
+  const categoryTypeMapping = {
+    // Nature & Outdoor
+    'beaches': 'Nature & Outdoor',
+    'backwaters': 'Nature & Outdoor',
+    'waterfall': 'Nature & Outdoor',
+    'hillstations': 'Nature & Outdoor',
+    'wildlife': 'Nature & Outdoor',
+    'gardens': 'Nature & Outdoor',
+    'lakes': 'Nature & Outdoor',
+    'rivers': 'Nature & Outdoor',
+    'forests': 'Nature & Outdoor',
+    'mountains': 'Nature & Outdoor',
+    
+    // Adventure & Activities
+    'trekking': 'Adventure & Activities',
+    'boating': 'Adventure & Activities',
+    'water_sports': 'Adventure & Activities',
+    'cycling': 'Adventure & Activities',
+    'camping': 'Adventure & Activities',
+    'rafting': 'Adventure & Activities',
+    'paragliding': 'Adventure & Activities',
+    
+    // Parks & Recreation
+    'parks': 'Parks & Recreation',
+    'zoos': 'Parks & Recreation',
+    'aquariums': 'Parks & Recreation',
+    'amusement_parks': 'Parks & Recreation',
+    'botanical_gardens': 'Parks & Recreation',
+    
+    // Cultural & Heritage
+    'temples': 'Cultural & Heritage',
+    'churches': 'Cultural & Heritage',
+    'mosques': 'Cultural & Heritage',
+    'museums': 'Cultural & Heritage',
+    'heritage': 'Cultural & Heritage',
+    'palaces': 'Cultural & Heritage',
+    'forts': 'Cultural & Heritage',
+    'art_galleries': 'Cultural & Heritage',
+    'monuments': 'Cultural & Heritage',
+    
+    // Wellness & Relaxation
+    'ayurveda': 'Wellness & Relaxation',
+    'spa': 'Wellness & Relaxation',
+    'yoga': 'Wellness & Relaxation',
+    'wellness': 'Wellness & Relaxation'
+  };
 
   // ✅ Redirect if not logged in
   useEffect(() => {
@@ -69,10 +115,9 @@ export default function Categories() {
     try {
       console.log('📊 Fetching ALL implemented suggestions...');
       
-      // ✅ ONE API call to get all implemented suggestions
       const response = await api.get('/suggestions/implemented/', {
         params: {
-          limit: 200 // Get all implemented suggestions
+          limit: 200
         }
       });
       
@@ -89,7 +134,6 @@ export default function Categories() {
       
       console.log(`📊 Found ${allSuggestions.length} total implemented suggestions`);
       
-      // ✅ Group suggestions by category
       const groupedByCategory = {};
       const categoryKeys = categories.map(cat => cat.key);
       
@@ -101,7 +145,6 @@ export default function Categories() {
         groupedByCategory[category].push(s);
       });
       
-      // ✅ Only keep categories that exist in our categories list
       const filteredGrouped = {};
       categoryKeys.forEach(key => {
         if (groupedByCategory[key]) {
@@ -113,7 +156,6 @@ export default function Categories() {
       
       setSuggestionsByCategory(filteredGrouped);
       
-      // ✅ Update categories with suggestion counts
       setCategories(prev => prev.map(cat => ({
         ...cat,
         suggestionCount: filteredGrouped[cat.key]?.length || 0,
@@ -157,6 +199,9 @@ export default function Categories() {
           
           const formattedCategories = response.data.map(cat => {
             const categoryKey = cat.key;
+            // ✅ Determine category type from key using mapping
+            const categoryType = categoryTypeMapping[categoryKey] || cat.type || 'Nature & Outdoor';
+            
             return {
               key: categoryKey,
               label: cat.title || cat.key.charAt(0).toUpperCase() + cat.key.slice(1),
@@ -164,7 +209,7 @@ export default function Categories() {
               countLabel: `${cat.count || 0} places`,
               url: cat.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80',
               description: cat.description || `Explore ${cat.title || cat.key} in Kerala`,
-              type: cat.type || 'Nature & Outdoor',
+              type: categoryType, // ✅ Set proper type
               icon: cat.icon,
               places: cat.places || [],
               districts: (cat.places || [])
@@ -175,7 +220,8 @@ export default function Categories() {
             };
           });
           
-          console.log('✅ Formatted', formattedCategories.length, 'categories');
+          console.log('✅ Formatted', formattedCategories.length, 'categories with types');
+          console.log('📋 Category types:', [...new Set(formattedCategories.map(c => c.type))]);
           
           setCategories(formattedCategories);
           setFilteredCategories(formattedCategories);
@@ -189,7 +235,6 @@ export default function Categories() {
           
           dataLoadedRef.current = true;
           
-          // ✅ Fetch ALL implemented suggestions in ONE API call
           await fetchAllImplementedSuggestions();
           
           try {
@@ -248,14 +293,18 @@ export default function Categories() {
     { key: "waterfall", label: "Waterfalls", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=600&q=80", description: "Spectacular cascades", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
     { key: "hillstations", label: "Hill Stations", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1470770903676-69b98201ea1c?w=600&q=80", description: "Misty mountains and tea gardens", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
     { key: "wildlife", label: "Wildlife Sanctuaries", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1546182990-dffeafbe841d?w=600&q=80", description: "National parks and reserves", type: "Nature & Outdoor", districts: [], suggestions: [], suggestionCount: 0 },
+    { key: "temples", label: "Temples", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1587474260584-136574528ed5?w=600&q=80", description: "Ancient temples and spirituality", type: "Cultural & Heritage", districts: [], suggestions: [], suggestionCount: 0 },
+    { key: "forts", label: "Forts", count: 0, countLabel: "0 places", url: "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=600&q=80", description: "Historic forts and monuments", type: "Cultural & Heritage", districts: [], suggestions: [], suggestionCount: 0 },
   ];
 
-  // ✅ Filter categories
+  // ✅ Filter categories - FIXED
   useEffect(() => {
     console.log('🔄 Filtering categories. Total:', categories.length);
+    console.log('📋 Current filter type:', categoryTypeFilter);
     
     let filtered = [...categories];
     
+    // Search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(cat =>
@@ -265,6 +314,7 @@ export default function Categories() {
       );
     }
     
+    // District filter
     if (selectedDistrict !== "All Districts") {
       filtered = filtered.filter(cat => 
         cat.districts && cat.districts.some(d => 
@@ -273,8 +323,26 @@ export default function Categories() {
       );
     }
     
+    // ✅ Category type filter - FIXED
     if (categoryTypeFilter !== "all") {
-      filtered = filtered.filter(cat => cat.type === categoryTypeFilter);
+      console.log('🔍 Filtering by type:', categoryTypeFilter);
+      const filteredByType = filtered.filter(cat => {
+        const matches = cat.type === categoryTypeFilter;
+        if (!matches) {
+          console.log(`❌ ${cat.label} type "${cat.type}" doesn't match "${categoryTypeFilter}"`);
+        } else {
+          console.log(`✅ ${cat.label} matches type "${categoryTypeFilter}"`);
+        }
+        return matches;
+      });
+      filtered = filteredByType;
+      console.log(`📊 After type filter: ${filtered.length} categories`);
+    }
+    
+    // Log final results
+    console.log(`📊 Final filtered count: ${filtered.length}`);
+    if (filtered.length > 0) {
+      console.log('📋 Filtered categories:', filtered.map(c => `${c.label} (${c.type})`).join(', '));
     }
     
     setFilteredCategories(filtered);
@@ -288,6 +356,7 @@ export default function Categories() {
   };
 
   const handleCategoryTypeSelect = (type) => {
+    console.log('📌 Category type selected:', type);
     setCategoryTypeFilter(type);
     setShowCategoryFilter(false);
   };
@@ -327,6 +396,7 @@ export default function Categories() {
   ];
 
   const categoryGroups = [
+    "All Categories",
     "Nature & Outdoor",
     "Adventure & Activities",
     "Parks & Recreation",
@@ -624,16 +694,19 @@ export default function Categories() {
               </button>
               {showCategoryFilter && (
                 <div className="dropdown-menu">
-                  <div className={`dropdown-item ${categoryTypeFilter === 'all' ? 'active' : ''}`} onClick={() => handleCategoryTypeSelect('all')}>
-                    <span>All Categories</span>
-                    {categoryTypeFilter === 'all' && <span className="check">✓</span>}
-                  </div>
-                  {categoryGroups.map((group) => (
-                    <div key={group} className={`dropdown-item ${categoryTypeFilter === group ? 'active' : ''}`} onClick={() => handleCategoryTypeSelect(group)}>
-                      <span>{group}</span>
-                      {categoryTypeFilter === group && <span className="check">✓</span>}
-                    </div>
-                  ))}
+                  {categoryGroups.map((group) => {
+                    const displayName = group === "All Categories" ? "All Categories" : group;
+                    return (
+                      <div 
+                        key={group} 
+                        className={`dropdown-item ${categoryTypeFilter === (group === "All Categories" ? "all" : group) ? 'active' : ''}`} 
+                        onClick={() => handleCategoryTypeSelect(group === "All Categories" ? "all" : group)}
+                      >
+                        <span>{displayName}</span>
+                        {categoryTypeFilter === (group === "All Categories" ? "all" : group) && <span className="check">✓</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

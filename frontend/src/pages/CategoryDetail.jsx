@@ -1,5 +1,4 @@
-// pages/CategoryDetail.jsx - COMPLETE FULLY FIXED VERSION
-// Shows places + implemented suggestions for the category
+// pages/CategoryDetail.jsx - COMPLETE FIXED with correct wishlist messages
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
@@ -54,6 +53,7 @@ export default function CategoryDetail() {
   const [error, setError] = useState(null);
   const [implementedSuggestions, setImplementedSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(true);
+  const [toast, setToast] = useState(null);
   
   const districtRef = useRef(null);
   const typeRef = useRef(null);
@@ -61,14 +61,22 @@ export default function CategoryDetail() {
   const wishlistFetchedRef = useRef(false);
   const abortControllerRef = useRef(null);
 
-  // ✅ Redirect if not logged in
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Redirect if not logged in
   useEffect(() => {
     if (!isLoggedIn) {
       navigate('/login', { replace: true });
     }
   }, [isLoggedIn, navigate]);
 
-  // ✅ Handle click outside dropdowns
+  // Handle click outside dropdowns
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (districtRef.current && !districtRef.current.contains(event.target)) {
@@ -85,22 +93,14 @@ export default function CategoryDetail() {
     };
   }, []);
 
-  // ✅ Fetch implemented suggestions for this category
+  // Fetch implemented suggestions
   const fetchImplementedSuggestions = async () => {
     if (!isLoggedIn) return;
     
     try {
-      console.log(`📊 Fetching implemented suggestions for category: ${categoryId}`);
-      
-      // Get implemented suggestions with this category
       const response = await api.get('/suggestions/implemented/', {
-        params: {
-          category: categoryId,
-          limit: 100
-        }
+        params: { category: categoryId, limit: 100 }
       });
-      
-      console.log('📊 Implemented suggestions response:', response.data);
       
       let items = [];
       if (response.data?.data && Array.isArray(response.data.data)) {
@@ -111,11 +111,8 @@ export default function CategoryDetail() {
         items = response.data.results;
       }
       
-      // ✅ Also fetch by district to catch more suggestions
       const allResponse = await api.get('/suggestions/implemented/', {
-        params: {
-          limit: 200
-        }
+        params: { limit: 200 }
       });
       
       let allItems = [];
@@ -127,18 +124,16 @@ export default function CategoryDetail() {
         allItems = allResponse.data.results;
       }
       
-      // Filter extra items by category or district matching categoryId
       const extraItems = allItems.filter(s => {
         const suggestionCategory = (s.category || '').toLowerCase();
         const suggestionDistrict = (s.district || '').toLowerCase();
-        const categoryLower = categoryId.toLowerCase();
+        const categoryLower = (categoryId || '').toLowerCase();
         return suggestionCategory === categoryLower ||
                suggestionCategory.replace(/_/g, '') === categoryLower.replace(/_/g, '') ||
                suggestionDistrict === categoryLower ||
                suggestionDistrict.replace(/\s+/g, '') === categoryLower.replace(/\s+/g, '');
       });
       
-      // Merge and deduplicate
       const allSuggestions = [...items];
       extraItems.forEach(s => {
         if (!allSuggestions.some(existing => existing.id === s.id)) {
@@ -146,9 +141,8 @@ export default function CategoryDetail() {
         }
       });
       
-      // Format suggestions as places
       const formattedSuggestions = allSuggestions.map(s => ({
-        id: `suggestion-${s.id}`,
+        id: s.id,
         destination_id: s.id,
         name: s.name || s.title || 'Unknown Place',
         location: s.district || s.location_info || '',
@@ -161,19 +155,19 @@ export default function CategoryDetail() {
         isSuggestion: true,
         suggestion_type: s.suggestion_type,
         implemented_at: s.implemented_at || s.created_at,
-        admin_notes: s.admin_notes || ''
+        admin_notes: s.admin_notes || '',
+        _suggestion_id: s.id
       }));
       
       setImplementedSuggestions(formattedSuggestions);
-      console.log(`✅ Found ${formattedSuggestions.length} implemented suggestions for this category`);
       
     } catch (error) {
-      console.error('❌ Error fetching implemented suggestions:', error);
+      console.error('Error fetching implemented suggestions:', error);
       setImplementedSuggestions([]);
     }
   };
 
-  // ✅ Fetch wishlist from backend
+  // Fetch wishlist
   const fetchWishlist = async () => {
     if (!isLoggedIn) return;
     if (wishlistFetchedRef.current) return;
@@ -201,41 +195,73 @@ export default function CategoryDetail() {
     }
   };
 
-  // ✅ Toggle wishlist
+  // Get destination ID from place with safe checks
+  const getDestinationId = (place) => {
+    if (!place) return null;
+    if (place.destination_id) return place.destination_id;
+    if (place.id) return place.id;
+    if (place._id) return place._id;
+    if (place._suggestion_id) return place._suggestion_id;
+    if (typeof place.id === 'string' && place.id.startsWith('suggestion-')) {
+      const extracted = place.id.replace('suggestion-', '');
+      if (extracted && !isNaN(extracted)) {
+        return parseInt(extracted);
+      }
+    }
+    if (place.originalData) {
+      return place.originalData.destination_id || place.originalData.id || place.originalData._id;
+    }
+    return null;
+  };
+
+  // ✅ FIXED: Toggle wishlist with correct messages
   const toggleWishlist = async (place, e) => {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     
     if (!isLoggedIn) {
-      alert('⚠️ Please login to add to wishlist');
+      setToast({ type: 'error', message: '⚠️ Please login to add to wishlist' });
       navigate('/login');
       return;
     }
 
-    const destinationId = place.destination_id;
+    const destinationId = getDestinationId(place);
     
     if (!destinationId) {
-      console.error('❌ Place has no destination_id:', place);
-      alert('This place is not properly linked. Please contact support.');
+      setToast({ type: 'error', message: `"${place?.name || 'Place'}" cannot be added to wishlist` });
       return;
     }
+    
+    // ✅ Check current state BEFORE toggling
+    const currentlyInWishlist = isInWishlist(destinationId);
     
     setWishlistLoading(true);
     try {
       const response = await AuthAPI.toggleWishlist(destinationId);
       
       if (response && response.success) {
+        // Force refresh wishlist
         wishlistFetchedRef.current = false;
         await fetchWishlist();
+        
+        // ✅ Show correct message based on what we just did
+        setToast({ 
+          type: 'success', 
+          message: currentlyInWishlist 
+            ? `💔 "${place?.name}" removed from wishlist` 
+            : `❤️ "${place?.name}" added to wishlist` 
+        });
       } else {
-        alert('Failed to update wishlist. Please try again.');
+        setToast({ type: 'error', message: response?.message || 'Failed to update wishlist' });
       }
     } catch (error) {
-      console.error('❌ Error toggling wishlist:', error);
+      console.error('Error toggling wishlist:', error);
       if (error.response?.status === 401) {
-        alert('⚠️ Session expired. Please login again.');
+        setToast({ type: 'error', message: '⚠️ Session expired. Please login again.' });
         navigate('/login');
+      } else if (error.response?.status === 404) {
+        setToast({ type: 'error', message: `"${place?.name}" is no longer available` });
       } else {
-        alert('Failed to update wishlist. Please try again.');
+        setToast({ type: 'error', message: 'Failed to update wishlist' });
       }
     } finally {
       setWishlistLoading(false);
@@ -244,10 +270,14 @@ export default function CategoryDetail() {
 
   const isInWishlist = (placeId) => {
     if (!placeId) return false;
-    return wishlist.some(item => String(item.id || item.destination) === String(placeId));
+    const idStr = String(placeId);
+    return wishlist.some(item => {
+      const itemId = String(item.id || item.destination || item.destination_id || '');
+      return itemId === idStr;
+    });
   };
 
-  // ✅ Get district from URL query params
+  // Get district from URL
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const districtParam = params.get('district');
@@ -256,43 +286,32 @@ export default function CategoryDetail() {
     }
   }, [location.search]);
 
-  // ✅ Scroll handler
+  // Scroll handler
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // ✅ Fetch category details and implemented suggestions
+  // Fetch category details
   useEffect(() => {
     const fetchCategoryDetails = async () => {
-      if (!isLoggedIn) {
-        console.log('⏳ Waiting for login...');
-        return;
-      }
-      
-      if (dataLoadedRef.current) {
-        console.log('⏳ Category data already loaded, skipping...');
-        return;
-      }
+      if (!isLoggedIn) return;
+      if (dataLoadedRef.current) return;
       
       abortControllerRef.current = new AbortController();
-      
       setLoading(true);
       setError(null);
       
       try {
-        console.log('📊 Fetching category data for:', categoryId);
         const response = await AuthAPI.getCategoryData();
-        console.log('📊 Full API Response:', response);
         
         if (response && response.success && response.data && response.data.length > 0) {
-          // Find category
           let category = null;
           category = response.data.find(cat => cat.key === categoryId);
           if (!category) {
             category = response.data.find(cat => 
-              cat.key.toLowerCase() === categoryId.toLowerCase()
+              cat.key && cat.key.toLowerCase() === categoryId.toLowerCase()
             );
           }
           if (!category) {
@@ -302,17 +321,14 @@ export default function CategoryDetail() {
           }
           
           if (category) {
-            console.log('✅ Found category:', category.key, category.title);
-            
             setCategoryInfo({
               title: category.title || categoryId,
               description: category.description || `Explore ${categoryId} in Kerala`
             });
             
-            // Format places
             const formattedPlaces = (category.places || []).map(place => ({
-              id: place.id || Math.random(),
-              destination_id: place.destination_id || null,
+              id: place.id || place.destination_id,
+              destination_id: place.destination_id || place.id || place._id,
               name: place.name || 'Unknown',
               location: place.location || place.district || '',
               description: place.description || '',
@@ -323,18 +339,18 @@ export default function CategoryDetail() {
               duration: place.duration || '',
               bestTime: place.best_time || '',
               district: place.district || place.location || '',
-              isSuggestion: false
+              isSuggestion: false,
+              rating: place.rating || 0,
+              entryFee: place.entry_fee || '',
+              timings: place.timings || '',
+              originalData: place
             }));
             
             setPlaces(formattedPlaces);
             dataLoadedRef.current = true;
           } else {
-            console.error('❌ Category not found:', categoryId);
             setError(`Category "${categoryId}" not found`);
-            setCategoryInfo({
-              title: categoryId,
-              description: 'Category not found'
-            });
+            setCategoryInfo({ title: categoryId, description: 'Category not found' });
             setPlaces([]);
           }
         } else {
@@ -342,10 +358,9 @@ export default function CategoryDetail() {
         }
       } catch (error) {
         if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
-          console.log('📊 Category fetch was cancelled');
           return;
         }
-        console.error('❌ Error:', error);
+        console.error('Error fetching category:', error);
         setError(error.message || 'Failed to load category');
       } finally {
         setLoading(false);
@@ -365,15 +380,13 @@ export default function CategoryDetail() {
     };
   }, [categoryId, isLoggedIn]);
 
-  // ✅ Combine places and implemented suggestions
+  // Combine places and suggestions
   const getAllPlaces = () => {
     const all = [...places];
-    
-    // Add implemented suggestions that are not already in places
     if (showSuggestions) {
       implementedSuggestions.forEach(suggestion => {
-        // Check if this suggestion already exists as a place
         const exists = all.some(p => 
+          p.name && suggestion.name && 
           p.name.toLowerCase() === suggestion.name.toLowerCase() && 
           p.district === suggestion.district
         );
@@ -382,11 +395,10 @@ export default function CategoryDetail() {
         }
       });
     }
-    
     return all;
   };
 
-  // ✅ Filter places
+  // Filter places with safe checks
   useEffect(() => {
     const allPlaces = getAllPlaces();
     
@@ -395,34 +407,36 @@ export default function CategoryDetail() {
       return;
     }
 
-    console.log('🔄 Filtering places. Total:', allPlaces.length);
     let filtered = [...allPlaces];
     
-    // Filter by district
+    // Filter by district - with safe checks
     if (selectedDistrict !== "All Districts") {
-      filtered = filtered.filter(place => 
-        place.location && place.location.toLowerCase().includes(selectedDistrict.toLowerCase()) ||
-        place.district && place.district.toLowerCase().includes(selectedDistrict.toLowerCase())
-      );
-      console.log('📍 After district filter:', filtered.length);
+      const searchDistrict = selectedDistrict.toLowerCase();
+      filtered = filtered.filter(place => {
+        const location = (place?.location || '').toLowerCase();
+        const district = (place?.district || '').toLowerCase();
+        return location.includes(searchDistrict) || district.includes(searchDistrict);
+      });
     }
     
     // Filter by type
     if (selectedType !== "all") {
-      filtered = filtered.filter(place => place.type === selectedType);
-      console.log('📂 After type filter:', filtered.length);
+      filtered = filtered.filter(place => place?.type === selectedType);
     }
 
     // Filter by search
     if (searchTerm.trim() !== '') {
       const term = searchTerm.toLowerCase().trim();
-      filtered = filtered.filter(place =>
-        (place.name && place.name.toLowerCase().includes(term)) ||
-        (place.description && place.description.toLowerCase().includes(term)) ||
-        (place.location && place.location.toLowerCase().includes(term)) ||
-        (place.hiddenGem && place.hiddenGem.toLowerCase().includes(term))
-      );
-      console.log('🔍 After search filter:', filtered.length);
+      filtered = filtered.filter(place => {
+        const name = (place?.name || '').toLowerCase();
+        const description = (place?.description || '').toLowerCase();
+        const location = (place?.location || '').toLowerCase();
+        const hiddenGem = (place?.hiddenGem || '').toLowerCase();
+        return name.includes(term) ||
+               description.includes(term) ||
+               location.includes(term) ||
+               hiddenGem.includes(term);
+      });
     }
     
     setFilteredPlaces(filtered);
@@ -451,27 +465,39 @@ export default function CategoryDetail() {
 
   const handleProtectedClick = (path) => {
     if (!isLoggedIn) {
-      alert('⚠️ Login required.');
+      setToast({ type: 'error', message: '⚠️ Login required.' });
       navigate('/login');
     } else {
       navigate(path);
     }
   };
 
-  // ✅ RENDER CHECK
-  console.log('🎨 RENDER STATE:', {
-    loading,
-    placesLength: places.length,
-    suggestionsLength: implementedSuggestions.length,
-    filteredLength: filteredPlaces.length,
-    wishlistLength: wishlist.length,
-    error: error,
-    categoryId: categoryId
-  });
+  const openDetailModal = (place) => {
+    setSelectedPlace(place);
+  };
 
-  // ============================================
-  // BOTTOM NAVIGATION
-  // ============================================
+  const closeDetailModal = () => {
+    setSelectedPlace(null);
+  };
+
+  // Toast Component
+  const Toast = () => {
+    if (!toast) return null;
+    return (
+      <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[10001] transition-all duration-500">
+        <div className={`px-6 py-3 rounded-xl shadow-2xl backdrop-blur-lg flex items-center gap-3 ${
+          toast.type === 'success' 
+            ? 'bg-emerald-500/90 text-white border border-emerald-400/30' 
+            : 'bg-rose-500/90 text-white border border-rose-400/30'
+        }`}>
+          <span className="text-lg">{toast.type === 'success' ? '✅' : '❌'}</span>
+          <span className="font-medium text-sm">{toast.message}</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Bottom Navigation
   const BottomNav = () => (
     <div className={`fixed bottom-6 left-4 right-4 z-50 transition-all duration-500 ${
       scrolled
@@ -536,7 +562,7 @@ export default function CategoryDetail() {
     </div>
   );
 
-  // ✅ LOADING
+  // LOADING
   if (loading) {
     return (
       <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -553,7 +579,7 @@ export default function CategoryDetail() {
     );
   }
 
-  // ✅ ERROR
+  // ERROR
   if (error) {
     return (
       <div style={{ background: "#FBF6EA", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: "20px" }}>
@@ -569,12 +595,12 @@ export default function CategoryDetail() {
     );
   }
 
-  // ✅ RENDER
   const totalPlaces = filteredPlaces.length;
   const suggestionCount = filteredPlaces.filter(p => p.isSuggestion).length;
 
   return (
     <div style={{ background: "#FBF6EA", minHeight: "100vh", paddingBottom: 100, fontFamily: "'Inter','Segoe UI',sans-serif", color: "#0B2422" }}>
+      <Toast />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         .cd-font-display { font-family: 'Fraunces', serif; }
@@ -662,12 +688,18 @@ export default function CategoryDetail() {
         .cd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .cd-place-card { 
           background: #fff; 
-          border-radius: 8px; 
+          border-radius: 12px; 
           overflow: hidden; 
           border: 1px solid rgba(199,154,62,0.15); 
           transition: all 0.3s ease; 
           cursor: pointer; 
           position: relative;
+        }
+        .cd-place-card img {
+          width: 100%;
+          height: 200px;
+          object-fit: cover;
+          display: block;
         }
         
         .search-input {
@@ -693,10 +725,10 @@ export default function CategoryDetail() {
           position: absolute;
           top: 12px;
           right: 12px;
-          width: 36px;
-          height: 36px;
+          width: 38px;
+          height: 38px;
           border-radius: 50%;
-          background: rgba(255,255,255,0.85);
+          background: rgba(255,255,255,0.9);
           backdrop-filter: blur(4px);
           border: 1px solid rgba(199,154,62,0.2);
           display: flex;
@@ -705,8 +737,7 @@ export default function CategoryDetail() {
           cursor: pointer;
           transition: all 0.3s ease;
           z-index: 5;
-          font-size: 18px;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+          box-shadow: 0 2px 12px rgba(0,0,0,0.08);
         }
         .wishlist-btn:hover {
           transform: scale(1.1);
@@ -740,6 +771,141 @@ export default function CategoryDetail() {
           margin-top: 4px;
         }
 
+        /* Modal Styles */
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(7,46,42,0.7);
+          backdrop-filter: blur(12px);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 9999;
+          padding: 20px;
+          animation: modalFade 0.3s ease;
+        }
+        @keyframes modalFade {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .modal-card {
+          width: 100%;
+          max-width: 750px;
+          max-height: 90vh;
+          overflow-y: auto;
+          background: #FBF6EA;
+          border-radius: 20px;
+          box-shadow: 0 40px 80px rgba(7,46,42,0.4);
+          animation: modalSlide 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes modalSlide {
+          from { opacity: 0; transform: translateY(30px) scale(0.95); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .modal-card::-webkit-scrollbar { width: 4px; }
+        .modal-card::-webkit-scrollbar-thumb { background: #C79A3E; border-radius: 4px; }
+        
+        .modal-image {
+          width: 100%;
+          height: 320px;
+          object-fit: cover;
+          display: block;
+        }
+        .modal-body { padding: 28px 32px 32px; }
+        .modal-close {
+          border: none;
+          background: #072E2A;
+          color: #fff;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.3s ease;
+          flex-shrink: 0;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+        .modal-close:hover {
+          transform: rotate(90deg);
+          background: #C79A3E;
+        }
+        .modal-badge {
+          padding: 4px 14px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 500;
+          letter-spacing: 0.03em;
+          font-family: 'IBM Plex Mono', monospace;
+        }
+        .modal-info-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 16px;
+        }
+        .modal-info-item {
+          background: rgba(199,154,62,0.04);
+          padding: 12px 16px;
+          border-radius: 10px;
+          border: 1px solid rgba(199,154,62,0.06);
+        }
+        .modal-info-item label {
+          font-size: 9px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: #8A9A95;
+          font-weight: 500;
+          display: block;
+          margin-bottom: 2px;
+        }
+        .modal-info-item span {
+          font-size: 14px;
+          color: #072E2A;
+          font-weight: 500;
+        }
+        .modal-actions {
+          display: flex;
+          gap: 12px;
+          margin-top: 24px;
+          padding-top: 20px;
+          border-top: 1px solid rgba(199,154,62,0.08);
+        }
+        .modal-btn {
+          padding: 12px 24px;
+          border-radius: 999px;
+          border: none;
+          font-family: 'Inter', sans-serif;
+          font-weight: 600;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 1;
+          justify-content: center;
+        }
+        .modal-btn-primary {
+          background: #C79A3E;
+          color: #fff;
+        }
+        .modal-btn-primary:hover {
+          background: #B0842E;
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(199,154,62,0.3);
+        }
+        .modal-btn-secondary {
+          background: rgba(199,154,62,0.08);
+          color: #C79A3E;
+          border: 1px solid rgba(199,154,62,0.12);
+        }
+        .modal-btn-secondary:hover {
+          background: rgba(199,154,62,0.15);
+        }
+
         @media (min-width: 768px) {
           .cd-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 24px !important; }
           .cd-header-row { flex-direction: row !important; align-items: center !important; }
@@ -749,14 +915,19 @@ export default function CategoryDetail() {
         
         @media (max-width: 767px) {
           .content-wrapper { padding: 0 16px; }
-          .cd-grid { grid-template-columns: 1fr !important; }
+          .cd-grid { grid-template-columns: 1fr !important; gap: 16px !important; }
           .cd-header-row { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
           .filter-group { flex-direction: column !important; gap: 10px !important; }
           .dropdown-wrapper { width: 100% !important; min-width: unset !important; }
           .dropdown-menu { min-width: unset !important; left: 0 !important; right: 0 !important; }
           .dropdown-item { white-space: normal !important; }
           .search-input { min-width: unset !important; }
-          .wishlist-btn { width: 32px; height: 32px; font-size: 15px; top: 8px; right: 8px; }
+          .wishlist-btn { width: 34px; height: 34px; top: 10px; right: 10px; }
+          
+          .modal-image { height: 220px; }
+          .modal-body { padding: 20px; }
+          .modal-info-grid { grid-template-columns: 1fr; }
+          .modal-actions { flex-direction: column; }
         }
       `}</style>
 
@@ -793,7 +964,6 @@ export default function CategoryDetail() {
               </p>
             </div>
             
-            {/* Filter Group */}
             <div className="filter-group" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignSelf: "flex-start", marginTop: "12px", flex: 1 }}>
               <input 
                 type="text"
@@ -803,7 +973,6 @@ export default function CategoryDetail() {
                 className="search-input"
               />
 
-              {/* District Dropdown */}
               <div className="dropdown-wrapper" ref={districtRef}>
                 <button className="dropdown-btn" onClick={() => { setShowDistrictDropdown(!showDistrictDropdown); setShowTypeDropdown(false); }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -828,7 +997,6 @@ export default function CategoryDetail() {
                 )}
               </div>
 
-              {/* Type Dropdown */}
               <div className="dropdown-wrapper" ref={typeRef}>
                 <button className="dropdown-btn" onClick={() => { setShowTypeDropdown(!showTypeDropdown); setShowDistrictDropdown(false); }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -863,7 +1031,6 @@ export default function CategoryDetail() {
               {searchTerm.trim() !== '' && ` matching "${searchTerm}"`}
             </span>
             
-            {/* Toggle suggestions visibility */}
             {implementedSuggestions.length > 0 && (
               <button
                 onClick={() => setShowSuggestions(!showSuggestions)}
@@ -929,34 +1096,35 @@ export default function CategoryDetail() {
         ) : (
           <div className="cd-grid">
             {filteredPlaces.map((place, index) => {
-              const placeId = place.destination_id || place.id;
+              const placeId = getDestinationId(place);
               const inWishlist = isInWishlist(placeId);
               
               return (
                 <div 
-                  key={place.id || index}
+                  key={place?.id || placeId || index}
                   className="cd-place-card"
-                  onClick={() => setSelectedPlace(selectedPlace?.id === place.id ? null : place)}
+                  onClick={() => openDetailModal(place)}
                 >
-                  <button 
-                    className={`wishlist-btn ${inWishlist ? 'active' : ''}`}
-                    onClick={(e) => toggleWishlist(place, e)}
-                    disabled={wishlistLoading}
-                    title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-                    style={{
-                      opacity: wishlistLoading ? 0.5 : 1,
-                      cursor: wishlistLoading ? 'wait' : 'pointer',
-                    }}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill={inWishlist ? "#C79A3E" : "none"} stroke="#C79A3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-                    </svg>
-                  </button>
+                  {placeId && (
+                    <button 
+                      className={`wishlist-btn ${inWishlist ? 'active' : ''}`}
+                      onClick={(e) => toggleWishlist(place, e)}
+                      disabled={wishlistLoading}
+                      title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                      style={{
+                        opacity: wishlistLoading ? 0.5 : 1,
+                        cursor: wishlistLoading ? 'wait' : 'pointer',
+                      }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill={inWishlist ? "#C79A3E" : "none"} stroke="#C79A3E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                      </svg>
+                    </button>
+                  )}
 
                   <img 
-                    src={place.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80'} 
-                    alt={place.name}
-                    style={{ width: "100%", height: 200, objectFit: "cover" }}
+                    src={place?.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80'} 
+                    alt={place?.name || 'Place'}
                     onError={(e) => {
                       e.target.src = 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80';
                     }}
@@ -965,14 +1133,14 @@ export default function CategoryDetail() {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div>
                         <h3 className="cd-font-display" style={{ fontSize: 18, fontWeight: 500, color: "#072E2A", margin: 0 }}>
-                          {place.name}
+                          {place?.name || 'Unknown'}
                         </h3>
                         <p style={{ fontSize: 13, color: "#0E5C53", margin: "4px 0 0" }}>
-                          📍 {place.location}
+                          📍 {place?.location || 'Location not specified'}
                         </p>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                        {place.type && (
+                        {place?.type && (
                           <span style={{ 
                             background: place.type === 'hidden' ? 'rgba(199,154,62,0.15)' : 'rgba(46,125,50,0.1)',
                             color: place.type === 'hidden' ? '#C79A3E' : '#2E7D32',
@@ -988,12 +1156,12 @@ export default function CategoryDetail() {
                             {place.type === 'hidden' ? '✨ Hidden' : '⭐ Well Known'}
                           </span>
                         )}
-                        {place.isSuggestion && (
+                        {place?.isSuggestion && (
                           <span className="suggestion-badge">
                             💡 Suggested
                           </span>
                         )}
-                        {place.rating > 0 && (
+                        {place?.rating > 0 && (
                           <span style={{ fontSize: 12, color: '#FF9800' }}>
                             {'★'.repeat(Math.round(place.rating))}
                           </span>
@@ -1001,98 +1169,42 @@ export default function CategoryDetail() {
                       </div>
                     </div>
                     
-                    <p style={{ fontSize: 14, color: "#3D5A57", lineHeight: 1.6, marginTop: 10 }}>
-                      {place.description}
+                    <p style={{ 
+                      fontSize: 14, 
+                      color: "#3D5A57", 
+                      lineHeight: 1.6, 
+                      marginTop: 10,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden"
+                    }}>
+                      {place?.description || place?.hiddenGem || 'A beautiful place to explore in Kerala.'}
                     </p>
 
-                    {place.difficulty && (
-                      <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
-                        {place.difficulty && (
-                          <div>
-                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Difficulty</span>
-                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.difficulty}</p>
-                          </div>
-                        )}
-                        {place.duration && (
-                          <div>
-                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Duration</span>
-                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.duration}</p>
-                          </div>
-                        )}
-                        {place.bestTime && (
-                          <div>
-                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Best Time</span>
-                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>{place.bestTime}</p>
-                          </div>
-                        )}
-                        {place.implemented_at && (
-                          <div>
-                            <span style={{ fontSize: 10, color: "#8A9A95", textTransform: "uppercase", letterSpacing: 1 }}>Added</span>
-                            <p style={{ fontSize: 13, color: "#072E2A", margin: 0, fontWeight: 500 }}>
-                              {new Date(place.implemented_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {selectedPlace?.id === place.id && place.hiddenGem && (
-                      <div style={{ 
-                        marginTop: 14, 
-                        background: "rgba(199,154,62,0.08)", 
-                        padding: "12px 16px", 
-                        borderRadius: 6,
-                        borderLeft: "3px solid #C79A3E"
-                      }}>
-                        <p style={{ fontSize: 12, color: "#C79A3E", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", margin: "0 0 4px" }}>
-                          ✦ Hidden Gem
-                        </p>
-                        <p style={{ fontSize: 14, color: "#3D5A57", margin: 0, lineHeight: 1.5 }}>
-                          {place.hiddenGem}
-                        </p>
-                      </div>
-                    )}
-
-                    {selectedPlace?.id === place.id && place.admin_notes && place.isSuggestion && (
-                      <div style={{ 
-                        marginTop: 10, 
-                        background: "rgba(45,143,110,0.08)", 
-                        padding: "10px 14px", 
-                        borderRadius: 6,
-                        borderLeft: "3px solid #2D8F6E"
-                      }}>
-                        <p style={{ fontSize: 11, color: "#2D8F6E", fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", margin: "0 0 3px" }}>
-                          📝 Implementation Notes
-                        </p>
-                        <p style={{ fontSize: 13, color: "#3D5A57", margin: 0, lineHeight: 1.4 }}>
-                          {place.admin_notes}
-                        </p>
-                      </div>
-                    )}
-
-                    {selectedPlace?.id !== place.id && place.hiddenGem && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedPlace(place);
-                        }}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#C79A3E",
-                          fontSize: 13,
-                          fontWeight: 500,
-                          cursor: "pointer",
-                          padding: 0,
-                          marginTop: 10,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6
-                        }}
-                      >
-                        Learn more about this hidden gem →
-                      </button>
-                    )}
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDetailModal(place);
+                      }}
+                      style={{
+                        background: "#C79A3E",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 999,
+                        padding: "6px 18px",
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        fontFamily: "'Inter', sans-serif",
+                        transition: "all 0.2s ease",
+                        marginTop: 10
+                      }}
+                      onMouseEnter={(e) => e.target.style.background = "#B0842E"}
+                      onMouseLeave={(e) => e.target.style.background = "#C79A3E"}
+                    >
+                      View Details →
+                    </button>
                   </div>
                 </div>
               );
@@ -1100,6 +1212,196 @@ export default function CategoryDetail() {
           </div>
         )}
       </div>
+
+      {/* DETAIL MODAL */}
+      {selectedPlace && (
+        <div 
+          className="modal-overlay"
+          onClick={closeDetailModal}
+        >
+          <div 
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img 
+              src={selectedPlace?.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800&q=80'} 
+              alt={selectedPlace?.name || 'Place'}
+              className="modal-image"
+              onError={(e) => {
+                e.target.src = 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800&q=80';
+              }}
+            />
+
+            <div className="modal-body">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16 }}>
+                <div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    {selectedPlace?.type && (
+                      <span className="modal-badge" style={{
+                        background: selectedPlace.type === 'hidden' ? 'rgba(199,154,62,0.15)' : 'rgba(46,125,50,0.1)',
+                        color: selectedPlace.type === 'hidden' ? '#C79A3E' : '#2E7D32',
+                        border: selectedPlace.type === 'hidden' ? '1px solid rgba(199,154,62,0.2)' : '1px solid rgba(46,125,50,0.15)'
+                      }}>
+                        {selectedPlace.type === 'hidden' ? '✨ Hidden Gem' : '⭐ Well Known'}
+                      </span>
+                    )}
+                    {selectedPlace?.isSuggestion && (
+                      <span className="modal-badge" style={{
+                        background: 'rgba(45,143,110,0.12)',
+                        color: '#2D8F6E',
+                        border: '1px solid rgba(45,143,110,0.15)'
+                      }}>
+                        💡 Community Suggestion
+                      </span>
+                    )}
+                    {selectedPlace?.rating > 0 && (
+                      <span className="modal-badge" style={{
+                        background: 'rgba(255,152,0,0.1)',
+                        color: '#FF9800',
+                        border: '1px solid rgba(255,152,0,0.15)'
+                      }}>
+                        {'★'.repeat(Math.round(selectedPlace.rating))} {selectedPlace.rating}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="cd-font-display" style={{ fontSize: 28, fontWeight: 500, color: "#072E2A", margin: "0 0 4px" }}>
+                    {selectedPlace?.name || 'Unknown'}
+                  </h2>
+                  <p style={{ fontSize: 15, color: "#0E5C53", margin: 0 }}>
+                    📍 {selectedPlace?.location || 'Location not specified'}
+                  </p>
+                </div>
+                <button 
+                  className="modal-close"
+                  onClick={closeDetailModal}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p style={{ fontSize: 15, color: "#3D5A57", lineHeight: 1.7, marginTop: 16 }}>
+                {selectedPlace?.description || selectedPlace?.hiddenGem || 'A beautiful place to explore in Kerala.'}
+              </p>
+
+              {selectedPlace?.hiddenGem && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(199,154,62,0.08)' }}>
+                  <h4 style={{ fontFamily: "'Fraunces', serif", fontSize: 14, color: "#C79A3E", margin: "0 0 6px" }}>
+                    ✦ Hidden Gem Insight
+                  </h4>
+                  <p style={{ fontSize: 14, color: "#3D5A57", margin: 0, lineHeight: 1.6, background: 'rgba(199,154,62,0.04)', padding: '12px 16px', borderRadius: 10, borderLeft: '3px solid #C79A3E' }}>
+                    {selectedPlace.hiddenGem}
+                  </p>
+                </div>
+              )}
+
+              {selectedPlace?.isSuggestion && selectedPlace?.admin_notes && (
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(199,154,62,0.08)' }}>
+                  <h4 style={{ fontFamily: "'Fraunces', serif", fontSize: 14, color: "#2D8F6E", margin: "0 0 6px" }}>
+                    📝 Implementation Notes
+                  </h4>
+                  <p style={{ fontSize: 13, color: "#3D5A57", margin: 0, background: 'rgba(45,143,110,0.04)', padding: '10px 14px', borderRadius: 8, borderLeft: '3px solid #2D8F6E' }}>
+                    {selectedPlace.admin_notes}
+                  </p>
+                </div>
+              )}
+
+              {(selectedPlace?.difficulty || selectedPlace?.duration || selectedPlace?.bestTime || selectedPlace?.entryFee || selectedPlace?.timings || selectedPlace?.district) && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(199,154,62,0.08)' }}>
+                  <h4 style={{ fontFamily: "'Fraunces', serif", fontSize: 14, color: "#8A9A95", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px" }}>
+                    📋 Details
+                  </h4>
+                  <div className="modal-info-grid">
+                    {selectedPlace?.district && (
+                      <div className="modal-info-item">
+                        <label>District</label>
+                        <span>{selectedPlace.district}</span>
+                      </div>
+                    )}
+                    {selectedPlace?.difficulty && (
+                      <div className="modal-info-item">
+                        <label>Difficulty</label>
+                        <span>{selectedPlace.difficulty}</span>
+                      </div>
+                    )}
+                    {selectedPlace?.duration && (
+                      <div className="modal-info-item">
+                        <label>Duration</label>
+                        <span>{selectedPlace.duration}</span>
+                      </div>
+                    )}
+                    {selectedPlace?.bestTime && (
+                      <div className="modal-info-item">
+                        <label>Best Time</label>
+                        <span>{selectedPlace.bestTime}</span>
+                      </div>
+                    )}
+                    {selectedPlace?.entryFee && (
+                      <div className="modal-info-item">
+                        <label>Entry Fee</label>
+                        <span>{selectedPlace.entryFee}</span>
+                      </div>
+                    )}
+                    {selectedPlace?.timings && (
+                      <div className="modal-info-item">
+                        <label>Timings</label>
+                        <span>{selectedPlace.timings}</span>
+                      </div>
+                    )}
+                    {selectedPlace?.implemented_at && (
+                      <div className="modal-info-item">
+                        <label>Added</label>
+                        <span>{new Date(selectedPlace.implemented_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="modal-actions">
+                {(() => {
+                  const modalId = getDestinationId(selectedPlace);
+                  const inWishlistModal = isInWishlist(modalId);
+                  
+                  return modalId ? (
+                    <button 
+                      className="modal-btn modal-btn-primary"
+                      onClick={(e) => toggleWishlist(selectedPlace, e)}
+                      disabled={wishlistLoading}
+                      style={{ opacity: wishlistLoading ? 0.6 : 1 }}
+                    >
+                      {inWishlistModal ? (
+                        <>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                          </svg>
+                          Remove from Wishlist
+                        </>
+                      ) : (
+                        <>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                          </svg>
+                          Add to Wishlist
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <div style={{ padding: '10px', color: '#8A9A95', fontSize: 13, textAlign: 'center', flex: 1 }}>
+                      ⚠️ Cannot add to wishlist
+                    </div>
+                  );
+                })()}
+                <button 
+                  className="modal-btn modal-btn-secondary"
+                  onClick={closeDetailModal}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BottomNav />
       <div className="fixed bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#051F1C]/10 via-transparent to-transparent pointer-events-none" style={{ zIndex: 0 }} />

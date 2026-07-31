@@ -1,4 +1,5 @@
-// src/pages/AdminDashboard.jsx - COMPLETE FIXED VERSION WITH ALL WORKING CRUD
+// src/pages/AdminDashboard.jsx - COMPLETE FIXED VERSION
+// Items per page: 8 | Profile tab removed | Touristers blocked | Overview tab fully working
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -84,7 +85,7 @@ const FONT = {
 
 const RADIUS = { sm: 8, md: 14, lg: 20 };
 const SIDEBAR_W = 264;
-const ITEMS_PER_PAGE = 6;
+const ITEMS_PER_PAGE = 8; // ✅ Changed from 6 to 8
 
 // ============================================
 // KERALA DISTRICTS
@@ -129,117 +130,10 @@ const Btn = ({ children, variant = 'primary', icon: Icon, size = 'md', style, ..
         </button>
     );
 };
-// ============================================
-// HELPER COMPONENTS FOR OVERVIEW
-// ============================================
 
-const MetricCard = ({ label, value, icon: Icon, color, change, changeType }) => (
-    <Card style={{ padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div>
-                <p style={{
-                    fontSize: 11,
-                    color: C.sageLight,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.06em',
-                    fontFamily: FONT.mono,
-                    margin: 0
-                }}>
-                    {label}
-                </p>
-                <h3 style={{
-                    fontSize: 26,
-                    fontWeight: 600,
-                    color: C.inkSoft,
-                    margin: '4px 0 0',
-                    fontFamily: FONT.display
-                }}>
-                    {value}
-                </h3>
-                {change && (
-                    <p style={{
-                        fontSize: 11,
-                        color: changeType === 'up' ? C.success : C.danger,
-                        margin: '4px 0 0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4
-                    }}>
-                        {changeType === 'up' ? '↑' : '↓'} {change}
-                    </p>
-                )}
-            </div>
-            <div style={{
-                width: 40,
-                height: 40,
-                borderRadius: 10,
-                background: color + '15',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-            }}>
-                <Icon size={18} color={color} />
-            </div>
-        </div>
-    </Card>
-);
 // ============================================
 // OVERVIEW HELPER COMPONENTS
 // ============================================
-
-const StatBox = ({ label, value, icon: Icon, color, bg, change }) => (
-    <div style={{
-        background: '#FFFFFF',
-        borderRadius: 16,
-        padding: '18px 20px',
-        border: '1px solid #EFE6CF',
-        boxShadow: '0 4px 12px rgba(7,46,42,0.04)',
-        transition: 'all 0.2s ease'
-    }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-                <p style={{
-                    fontSize: 11,
-                    color: '#7A7568',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                    margin: 0
-                }}>{label}</p>
-                <p style={{
-                    fontSize: 26,
-                    fontWeight: 700,
-                    color: '#0B2422',
-                    margin: '4px 0 0',
-                    fontFamily: "'Fraunces', Georgia, serif"
-                }}>{value}</p>
-                {change && (
-                    <p style={{
-                        fontSize: 11,
-                        color: '#3F7A5E',
-                        margin: '2px 0 0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4
-                    }}>
-                        ↑ {change} from last month
-                    </p>
-                )}
-            </div>
-            <div style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: bg,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-            }}>
-                <Icon size={20} color={color} />
-            </div>
-        </div>
-    </div>
-);
 
 const StatusProgress = ({ label, value, total, color, bg }) => {
     const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
@@ -390,6 +284,7 @@ const ActionButton = ({ label, icon: Icon, onClick, color }) => (
         <span>{label}</span>
     </button>
 );
+
 const StatusBar = ({ label, count, total, color, bg }) => {
     const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
     return (
@@ -415,127 +310,6 @@ const StatusBar = ({ label, count, total, color, bg }) => {
         </div>
     );
 };
-
-const QuickStat = ({ label, value, icon: Icon, color }) => (
-    <div style={{
-        padding: '12px 14px',
-        background: C.cream,
-        borderRadius: RADIUS.sm,
-        border: `1px solid ${C.line}`,
-        textAlign: 'center'
-    }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 2 }}>
-            <Icon size={14} color={color} />
-            <span style={{ fontSize: 11, color: C.sage }}>{label}</span>
-        </div>
-        <span style={{ fontSize: 18, fontWeight: 600, color: C.inkSoft }}>{value}</span>
-    </div>
-);
-
-const ActivityItem = ({ title, type, status, time }) => {
-    const getIcon = () => {
-        if (type === 'hidden_gem') return '💎';
-        if (type === 'local_insight') return '💡';
-        if (type === 'review') return '⭐';
-        return '📝';
-    };
-    
-    const getStatusColor = () => {
-        if (status === 'implemented') return C.success;
-        if (status === 'rejected') return C.danger;
-        return C.warn;
-    };
-
-    return (
-        <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            padding: '8px 12px',
-            background: C.cream,
-            borderRadius: RADIUS.sm,
-            border: `1px solid ${C.line}`
-        }}>
-            <div style={{ fontSize: 18 }}>{getIcon()}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{
-                    fontSize: 13,
-                    color: C.inkSoft,
-                    margin: 0,
-                    fontWeight: 500,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                }}>
-                    {title}
-                </p>
-                <p style={{
-                    fontSize: 10,
-                    color: C.sage,
-                    margin: '2px 0 0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6
-                }}>
-                    <span>{type?.replace('_', ' ') || 'suggestion'}</span>
-                    <span style={{ width: 3, height: 3, borderRadius: '50%', background: C.sage }} />
-                    <span style={{ color: getStatusColor() }}>{status}</span>
-                </p>
-            </div>
-            {time && (
-                <span style={{ fontSize: 10, color: C.sage, flexShrink: 0 }}>
-                    {new Date(time).toLocaleDateString()}
-                </span>
-            )}
-        </div>
-    );
-};
-
-const QuickAction = ({ label, icon: Icon, onClick, color }) => (
-    <button onClick={onClick} style={{
-        padding: '12px 14px',
-        background: C.cream,
-        borderRadius: RADIUS.sm,
-        border: `1px solid ${C.line}`,
-        cursor: 'pointer',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 4,
-        transition: 'all 0.2s ease',
-        fontFamily: FONT.body,
-        fontSize: 11,
-        color: C.sage
-    }} onMouseEnter={(e) => {
-        e.target.style.background = color + '10';
-        e.target.style.borderColor = color;
-    }} onMouseLeave={(e) => {
-        e.target.style.background = C.cream;
-        e.target.style.borderColor = C.line;
-    }}>
-        <Icon size={18} color={color} />
-        <span>{label}</span>
-    </button>
-);
-
-const SummaryStat = ({ label, value, suffix = '', icon: Icon, color }) => (
-    <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '8px 14px'
-    }}>
-        <Icon size={16} color={color} />
-        <div>
-            <p style={{ fontSize: 10, color: C.sage, margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                {label}
-            </p>
-            <p style={{ fontSize: 16, fontWeight: 600, color: C.inkSoft, margin: 0 }}>
-                {value}{suffix}
-            </p>
-        </div>
-    </div>
-);
 
 const StatusPill = ({ status }) => {
     const map = {
@@ -817,7 +591,7 @@ const AdminDashboard = () => {
     const dataFetchedRef = useRef(false);
 
     // ============================================
-    // NAV ITEMS
+    // NAV ITEMS - PROFILE REMOVED
     // ============================================
     const navItems = [
         { key: 'overview', label: 'Overview', icon: Compass },
@@ -1190,13 +964,35 @@ const AdminDashboard = () => {
     }, []);
 
     // ============================================
-    // useEffect
+    // useEffect - AUTH CHECK & REDIRECT
     // ============================================
     useEffect(() => {
-        if (!user) { navigate('/login'); return; }
-        if (user.role !== 'admin') { navigate('/'); return; }
-        fetchAllData(true);
-        return () => { dataFetchedRef.current = false; };
+        // ✅ Check if user is logged in
+        if (!user) {
+            navigate('/login');
+            return;
+        }
+        
+        // ✅ Only allow ADMIN to access this dashboard
+        if (user.role !== 'admin') {
+            // Redirect based on role
+            const roleRedirects = {
+                'tourister': '/',
+                'guide': '/guide-dashboard',
+                'staff': '/staff-dashboard',
+            };
+            navigate(roleRedirects[user.role] || '/');
+            return;
+        }
+        
+        // ✅ If admin, fetch data
+        if (!dataFetchedRef.current) {
+            fetchAllData(true);
+        }
+        
+        return () => { 
+            dataFetchedRef.current = false; 
+        };
     }, [user, navigate, fetchAllData]);
 
     // ============================================
@@ -1230,7 +1026,7 @@ const AdminDashboard = () => {
     };
 
     // ============================================
-    // TOURISTER CRUD - FIXED
+    // TOURISTER CRUD
     // ============================================
     const openAddTourister = () => {
         setEditingTourister(null);
@@ -1339,7 +1135,7 @@ const AdminDashboard = () => {
     };
 
     // ============================================
-    // STAFF CRUD - FIXED
+    // STAFF CRUD
     // ============================================
     const openAddStaff = () => {
         setEditingStaff(null);
@@ -1435,7 +1231,7 @@ const AdminDashboard = () => {
     };
 
     // ============================================
-    // GUIDE CRUD - FIXED
+    // GUIDE CRUD
     // ============================================
     const handleAddGuide = async (e) => {
         e.preventDefault();
@@ -1555,62 +1351,37 @@ const AdminDashboard = () => {
         }
     };
 
-// ============================================
-// GUIDE DELETE - COMPLETE FIXED VERSION
-// ============================================
-const deleteGuide = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this guide? This action cannot be undone.')) {
-        return;
-    }
-    
-    try {
-        setLoading(true);
-        console.log(`🗑️ Attempting to delete guide with ID: ${id}`);
-        console.log('📊 Current guides before delete:', guides.map(g => g.id));
-        
-        const response = await api.delete(`/admin/guides/${id}/delete/`);
-        console.log('📊 Delete response status:', response.status);
-        console.log('📊 Delete response data:', response.data);
-        
-        // ✅ Check if deletion was successful
-        if (response.status === 200 || response.status === 204 || response?.data?.success) {
-            showToast('✅ Guide deleted successfully!');
-            
-            // ✅ CRITICAL FIX: Filter out the deleted guide from ALL guide-related states
-            const updatedGuides = guides.filter(g => g.id !== id);
-            console.log(`📊 Guides before: ${guides.length}, after: ${updatedGuides.length}`);
-            
-            // ✅ Update all guide-related states
-            setGuides(updatedGuides);
-            
-            // ✅ Update filtered guides as well
-            const updatedFilteredGuides = filteredGuides.filter(g => g.id !== id);
-            setFilteredGuides(updatedFilteredGuides);
-            
-            // ✅ Update stats
-            setStats(prev => ({ 
-                ...prev, 
-                totalGuides: Math.max(0, prev.totalGuides - 1) 
-            }));
-            
-            // ✅ Force a refresh from server to ensure consistency
-            await fetchAllData(true);
-            
-            // ✅ Force a re-render by updating a dummy state if needed
-            // This ensures the UI updates immediately
-            setGuides([...updatedGuides]);
-            
-        } else {
-            showToast(response?.data?.error || 'Failed to delete guide', 'error');
+    const deleteGuide = async (id) => {
+        if (!window.confirm('Are you sure you want to delete this guide? This action cannot be undone.')) {
+            return;
         }
-    } catch (error) {
-        console.error('❌ Error deleting guide:', error);
-        console.error('❌ Error response:', error.response?.data);
-        showToast(error.response?.data?.error || 'Failed to delete guide', 'error');
-    } finally {
-        setLoading(false);
-    }
-};
+        
+        try {
+            setLoading(true);
+            console.log(`🗑️ Attempting to delete guide with ID: ${id}`);
+            
+            const response = await api.delete(`/admin/guides/${id}/delete/`);
+            console.log('📊 Delete response:', response.data);
+            
+            if (response.status === 200 || response.status === 204 || response?.data?.success) {
+                showToast('✅ Guide deleted successfully!');
+                setGuides(prev => prev.filter(g => g.id !== id));
+                setStats(prev => ({ 
+                    ...prev, 
+                    totalGuides: Math.max(0, prev.totalGuides - 1) 
+                }));
+                await fetchAllData(true);
+            } else {
+                showToast(response?.data?.error || 'Failed to delete guide', 'error');
+            }
+        } catch (error) {
+            console.error('❌ Error deleting guide:', error);
+            showToast(error.response?.data?.error || 'Failed to delete guide', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const openEditGuide = (guide) => {
         setEditingGuide(guide);
         const profilePic = guide.profile_image || guide.image || guide.avatar;
@@ -1653,7 +1424,7 @@ const deleteGuide = async (id) => {
     };
 
     // ============================================
-    // CATEGORY CRUD - FIXED
+    // CATEGORY CRUD
     // ============================================
     const handleAddCategory = async (e) => {
         e.preventDefault();
@@ -1736,7 +1507,7 @@ const deleteGuide = async (id) => {
     };
 
     // ============================================
-    // PLACE CRUD - FIXED
+    // PLACE CRUD
     // ============================================
     const handleAddPlace = async (e) => {
         e.preventDefault();
@@ -1827,7 +1598,7 @@ const deleteGuide = async (id) => {
     };
 
     // ============================================
-    // SUGGESTION PROCESSING - FIXED
+    // SUGGESTION PROCESSING
     // ============================================
     const processSuggestion = async (id, action, type = 'suggestion') => {
         setActionLoading(true);
@@ -1867,7 +1638,6 @@ const deleteGuide = async (id) => {
                 }
             }
 
-            // ✅ CORRECTED ENDPOINTS - Using admin endpoints
             let endpoint = '';
             if (action === 'implement') {
                 endpoint = `/admin/suggestions/${id}/implement/`;
@@ -1888,14 +1658,6 @@ const deleteGuide = async (id) => {
                 const response = await api.post(endpoint, { notes, reason: notes });
                 if (response?.data?.success) {
                     showToast(`✅ ${type} ${action}ed successfully!`);
-                    // Update local state
-                    const updateStatus = (items) => items.map(s => 
-                        s.id === id ? { ...s, status: action === 'implement' ? 'implemented' : 'rejected' } : s
-                    );
-                    setAllSuggestions(updateStatus);
-                    setHiddenGems(updateStatus);
-                    setLocalInsights(updateStatus);
-                    setReviews(updateStatus);
                     await fetchAllData(true);
                     if (showSuggestionModal) {
                         setShowSuggestionModal(false);
@@ -2049,7 +1811,7 @@ const deleteGuide = async (id) => {
     useEffect(() => { setPlacesPage(1); }, [placesFilter, placesSearch]);
 
     // ============================================
-    // OVERVIEW-ONLY DERIVED DATA (presentational, read-only — no CRUD/state touched)
+    // OVERVIEW-ONLY DERIVED DATA
     // ============================================
     const topGuidesByRating = useMemo(() => {
         return [...guides]
@@ -2375,144 +2137,143 @@ const deleteGuide = async (id) => {
         </div>
     );
 
-   const renderGuideCard = (guide) => {
-    // ✅ Add safety check
-    if (!guide || !guide.id) {
-        console.warn('⚠️ Invalid guide data:', guide);
-        return null;
-    }
-    
-    const guideImageUrl = guide.profile_image || guide.image || guide.avatar;
-    const imageUrl = guideImageUrl ? getProfileImageUrl(guideImageUrl) : null;
+    const renderGuideCard = (guide) => {
+        if (!guide || !guide.id) {
+            console.warn('⚠️ Invalid guide data:', guide);
+            return null;
+        }
+        
+        const guideImageUrl = guide.profile_image || guide.image || guide.avatar;
+        const imageUrl = guideImageUrl ? getProfileImageUrl(guideImageUrl) : null;
 
-    return (
-        <div key={guide.id} style={{ 
-            display: 'flex', 
-            gap: 14, 
-            padding: 14, 
-            background: C.cream, 
-            borderRadius: RADIUS.md, 
-            border: `1px solid ${guide.is_verified ? C.success : C.warn}44`, 
-            alignItems: 'flex-start', 
-            transition: 'all 0.2s ease' 
-        }}>
-            <div style={{ 
-                width: 60, 
-                height: 60, 
-                borderRadius: '50%', 
-                background: guide.is_verified ? `linear-gradient(135deg, ${C.gold}, ${C.goldLight})` : C.line, 
+        return (
+            <div key={guide.id} style={{ 
                 display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                flexShrink: 0, 
-                overflow: 'hidden', 
-                fontSize: 20, 
-                fontWeight: 600, 
-                color: C.ink, 
-                border: `2px solid ${guide.is_verified ? C.gold : C.sage}44` 
+                gap: 14, 
+                padding: 14, 
+                background: C.cream, 
+                borderRadius: RADIUS.md, 
+                border: `1px solid ${guide.is_verified ? C.success : C.warn}44`, 
+                alignItems: 'flex-start', 
+                transition: 'all 0.2s ease' 
             }}>
-                {imageUrl ? (
-                    <img 
-                        src={imageUrl} 
-                        alt={guide.full_name} 
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                        onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.parentElement.textContent = guide.full_name?.charAt(0)?.toUpperCase() || 'G';
-                        }}
-                    /> 
-                ) : guide.full_name?.charAt(0)?.toUpperCase() || 'G'}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                    <div>
-                        <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
-                            {guide.full_name}
-                        </h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
-                            <span style={{ fontSize: 11, color: C.sage }}>
-                                <Mail size={11} style={{ display: 'inline', marginRight: 4 }} />
-                                {guide.email}
-                            </span>
-                            <span style={{ fontSize: 11, color: C.sage }}>
-                                · {guide.primary_district || guide.district || 'N/A'}
-                            </span>
-                            {guide.rating > 0 && (
-                                <span style={{ fontSize: 11, color: C.gold }}>
-                                    {'★'.repeat(Math.round(guide.rating))} {guide.rating}
+                <div style={{ 
+                    width: 60, 
+                    height: 60, 
+                    borderRadius: '50%', 
+                    background: guide.is_verified ? `linear-gradient(135deg, ${C.gold}, ${C.goldLight})` : C.line, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    flexShrink: 0, 
+                    overflow: 'hidden', 
+                    fontSize: 20, 
+                    fontWeight: 600, 
+                    color: C.ink, 
+                    border: `2px solid ${guide.is_verified ? C.gold : C.sage}44` 
+                }}>
+                    {imageUrl ? (
+                        <img 
+                            src={imageUrl} 
+                            alt={guide.full_name} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.parentElement.textContent = guide.full_name?.charAt(0)?.toUpperCase() || 'G';
+                            }}
+                        /> 
+                    ) : guide.full_name?.charAt(0)?.toUpperCase() || 'G'}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                        <div>
+                            <h4 style={{ fontSize: 14.5, color: C.inkSoft, margin: 0, fontWeight: 600 }}>
+                                {guide.full_name}
+                            </h4>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+                                <span style={{ fontSize: 11, color: C.sage }}>
+                                    <Mail size={11} style={{ display: 'inline', marginRight: 4 }} />
+                                    {guide.email}
                                 </span>
-                            )}
+                                <span style={{ fontSize: 11, color: C.sage }}>
+                                    · {guide.primary_district || guide.district || 'N/A'}
+                                </span>
+                                {guide.rating > 0 && (
+                                    <span style={{ fontSize: 11, color: C.gold }}>
+                                        {'★'.repeat(Math.round(guide.rating))} {guide.rating}
+                                    </span>
+                                )}
+                            </div>
                         </div>
+                        <StatusPill status={guide.is_verified ? 'verified' : 'unverified'} />
                     </div>
-                    <StatusPill status={guide.is_verified ? 'verified' : 'unverified'} />
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: C.sage }}>
-                    <span>💼 {guide.experience_years || 0} years</span>
-                    <span>💰 ₹{guide.price_per_day || 0}/day</span>
-                    <span>📚 {guide.languages || 'N/A'}</span>
-                    {guide.phone && <span>📱 {guide.phone}</span>}
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    <button 
-                        onClick={() => openViewGuide(guide)} 
-                        style={{ 
-                            padding: '4px 12px', 
-                            borderRadius: 999, 
-                            border: `1px solid ${C.gold}`, 
-                            background: 'transparent', 
-                            color: C.gold, 
-                            fontSize: 11, 
-                            cursor: 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 4 
-                        }}
-                    >
-                        <Eye size={11} /> View Profile
-                    </button>
-                    <button 
-                        onClick={() => openEditGuide(guide)} 
-                        style={{ 
-                            padding: '4px 12px', 
-                            borderRadius: 999, 
-                            border: `1px solid ${C.line}`, 
-                            background: 'transparent', 
-                            color: C.sage, 
-                            fontSize: 11, 
-                            cursor: 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 4 
-                        }}
-                    >
-                        <Edit2 size={11} /> Edit
-                    </button>
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            console.log(`🖱️ Delete button clicked for guide ID: ${guide.id}`);
-                            deleteGuide(guide.id);
-                        }} 
-                        style={{ 
-                            padding: '4px 12px', 
-                            borderRadius: 999, 
-                            border: `1px solid #EFCBB5`, 
-                            background: C.dangerBg, 
-                            color: C.danger, 
-                            fontSize: 11, 
-                            cursor: 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 4 
-                        }}
-                    >
-                        <Trash2 size={11} /> Delete
-                    </button>
+                    <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: C.sage }}>
+                        <span>💼 {guide.experience_years || 0} years</span>
+                        <span>💰 ₹{guide.price_per_day || 0}/day</span>
+                        <span>📚 {guide.languages || 'N/A'}</span>
+                        {guide.phone && <span>📱 {guide.phone}</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        <button 
+                            onClick={() => openViewGuide(guide)} 
+                            style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                border: `1px solid ${C.gold}`, 
+                                background: 'transparent', 
+                                color: C.gold, 
+                                fontSize: 11, 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                            }}
+                        >
+                            <Eye size={11} /> View Profile
+                        </button>
+                        <button 
+                            onClick={() => openEditGuide(guide)} 
+                            style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                border: `1px solid ${C.line}`, 
+                                background: 'transparent', 
+                                color: C.sage, 
+                                fontSize: 11, 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                            }}
+                        >
+                            <Edit2 size={11} /> Edit
+                        </button>
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                deleteGuide(guide.id);
+                            }} 
+                            style={{ 
+                                padding: '4px 12px', 
+                                borderRadius: 999, 
+                                border: `1px solid #EFCBB5`, 
+                                background: C.dangerBg, 
+                                color: C.danger, 
+                                fontSize: 11, 
+                                cursor: 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 4 
+                            }}
+                        >
+                            <Trash2 size={11} /> Delete
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
-    );
-};
+        );
+    };
+
     const renderCategoryCard = (cat) => {
         const places = cat.places || [];
         const imageUrl = cat.image || 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&q=80';
@@ -2596,6 +2357,12 @@ const deleteGuide = async (id) => {
                 <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
         );
+    }
+
+    // ✅ SAFETY CHECK - Redirect non-admin users
+    if (!user || user.role !== 'admin') {
+        navigate('/');
+        return null;
     }
 
     const activeNavItem = navItems.find(n => n.key === activeTab);
@@ -2697,752 +2464,755 @@ const deleteGuide = async (id) => {
                             <StatChip label="Reviews" value={stats.totalReviews} icon={Star} tone="gold" />
                         </div>
 
-{activeTab === 'overview' && (
-    <div style={{ padding: '0 4px' }}>
+                        {/* ============================================================ */}
+                        {/* OVERVIEW TAB */}
+                        {/* ============================================================ */}
+                        {activeTab === 'overview' && (
+                            <div style={{ padding: '0 4px' }}>
 
-        {/* ===== HERO HEADER ===== */}
-        <div style={{
-            background: 'linear-gradient(145deg, #0B2422 0%, #072E2A 100%)',
-            borderRadius: 24,
-            padding: '32px 36px',
-            marginBottom: 24,
-            position: 'relative',
-            overflow: 'hidden',
-            boxShadow: '0 20px 60px rgba(7,46,42,0.25)'
-        }}>
-            <div style={{
-                position: 'absolute',
-                top: -80,
-                right: -60,
-                width: 300,
-                height: 300,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(199,154,62,0.08) 0%, transparent 70%)',
-                pointerEvents: 'none'
-            }} />
-            <div style={{
-                position: 'absolute',
-                bottom: -100,
-                left: '30%',
-                width: 250,
-                height: 250,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(199,154,62,0.05) 0%, transparent 70%)',
-                pointerEvents: 'none'
-            }} />
-
-            <div style={{ position: 'relative', zIndex: 1 }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 16
-                }}>
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
-                            <div style={{
-                                width: 48,
-                                height: 48,
-                                borderRadius: 14,
-                                background: 'rgba(199,154,62,0.15)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: '1px solid rgba(199,154,62,0.2)'
-                            }}>
-                                <span style={{ fontSize: 24 }}>🏠</span>
-                            </div>
-                            <div>
-                                <h1 style={{
-                                    fontFamily: "'Fraunces', Georgia, serif",
-                                    fontStyle: 'italic',
-                                    fontSize: 26,
-                                    fontWeight: 600,
-                                    color: '#FFFFFF',
-                                    margin: 0,
-                                    letterSpacing: '-0.5px'
+                                {/* ===== HERO HEADER ===== */}
+                                <div style={{
+                                    background: 'linear-gradient(145deg, #0B2422 0%, #072E2A 100%)',
+                                    borderRadius: 24,
+                                    padding: '32px 36px',
+                                    marginBottom: 24,
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                    boxShadow: '0 20px 60px rgba(7,46,42,0.25)'
                                 }}>
-                                    Dashboard
-                                </h1>
-                                <p style={{
-                                    fontSize: 14,
-                                    color: 'rgba(255,255,255,0.6)',
-                                    margin: '2px 0 0'
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: -80,
+                                        right: -60,
+                                        width: 300,
+                                        height: 300,
+                                        borderRadius: '50%',
+                                        background: 'radial-gradient(circle, rgba(199,154,62,0.08) 0%, transparent 70%)',
+                                        pointerEvents: 'none'
+                                    }} />
+                                    <div style={{
+                                        position: 'absolute',
+                                        bottom: -100,
+                                        left: '30%',
+                                        width: 250,
+                                        height: 250,
+                                        borderRadius: '50%',
+                                        background: 'radial-gradient(circle, rgba(199,154,62,0.05) 0%, transparent 70%)',
+                                        pointerEvents: 'none'
+                                    }} />
+
+                                    <div style={{ position: 'relative', zIndex: 1 }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            flexWrap: 'wrap',
+                                            gap: 16
+                                        }}>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+                                                    <div style={{
+                                                        width: 48,
+                                                        height: 48,
+                                                        borderRadius: 14,
+                                                        background: 'rgba(199,154,62,0.15)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        border: '1px solid rgba(199,154,62,0.2)'
+                                                    }}>
+                                                        <span style={{ fontSize: 24 }}>🏠</span>
+                                                    </div>
+                                                    <div>
+                                                        <h1 style={{
+                                                            fontFamily: "'Fraunces', Georgia, serif",
+                                                            fontStyle: 'italic',
+                                                            fontSize: 26,
+                                                            fontWeight: 600,
+                                                            color: '#FFFFFF',
+                                                            margin: 0,
+                                                            letterSpacing: '-0.5px'
+                                                        }}>
+                                                            Dashboard
+                                                        </h1>
+                                                        <p style={{
+                                                            fontSize: 14,
+                                                            color: 'rgba(255,255,255,0.6)',
+                                                            margin: '2px 0 0'
+                                                        }}>
+                                                            Welcome back, {profile?.full_name || 'Admin'} 👋
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 16,
+                                                flexWrap: 'wrap'
+                                            }}>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 8,
+                                                    padding: '6px 14px',
+                                                    background: 'rgba(255,255,255,0.06)',
+                                                    borderRadius: 20,
+                                                    border: '1px solid rgba(255,255,255,0.06)'
+                                                }}>
+                                                    <div style={{
+                                                        width: 8,
+                                                        height: 8,
+                                                        borderRadius: '50%',
+                                                        background: '#4CAF50',
+                                                        animation: 'pulse 2s infinite'
+                                                    }} />
+                                                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                                                        All systems go
+                                                    </span>
+                                                </div>
+                                                <div style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 8,
+                                                    padding: '6px 14px',
+                                                    background: 'rgba(255,255,255,0.06)',
+                                                    borderRadius: 20,
+                                                    border: '1px solid rgba(255,255,255,0.06)'
+                                                }}>
+                                                    <Calendar size={14} color="rgba(255,255,255,0.5)" />
+                                                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                                                        {new Date().toLocaleDateString('en-US', {
+                                                            month: 'short',
+                                                            day: 'numeric',
+                                                            year: 'numeric'
+                                                        })}
+                                                    </span>
+                                                </div>
+                                                <Btn
+                                                    variant="ghost"
+                                                    icon={RefreshCw}
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        dataFetchedRef.current = false;
+                                                        setRefreshing(true);
+                                                        fetchAllData(true).finally(() => setRefreshing(false));
+                                                    }}
+                                                    disabled={refreshing}
+                                                    style={{
+                                                        borderColor: 'rgba(255,255,255,0.15)',
+                                                        color: 'rgba(255,255,255,0.7)',
+                                                        padding: '6px 14px'
+                                                    }}
+                                                >
+                                                    {refreshing ? 'Refreshing...' : 'Refresh'}
+                                                </Btn>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <style>{`
+                                        @keyframes pulse {
+                                            0%, 100% { opacity: 1; }
+                                            50% { opacity: 0.4; }
+                                        }
+                                    `}</style>
+                                </div>
+
+                                {/* ===== ATTENTION STRIP ===== */}
+                                {(stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews + unverifiedGuidesCount) > 0 && (
+                                    <div style={{
+                                        display: 'flex',
+                                        flexWrap: 'wrap',
+                                        gap: 10,
+                                        marginBottom: 24,
+                                        padding: '14px 18px',
+                                        background: C.warnBg,
+                                        border: `1px solid ${C.gold}30`,
+                                        borderRadius: 16,
+                                        alignItems: 'center'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#8A6A1F' }}>
+                                            <Flame size={16} color={C.gold} /> Needs your attention
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+                                            {(stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews) > 0 && (
+                                                <button onClick={() => setActiveTab('hidden-gems')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
+                                                    <Clock size={12} color={C.warn} /> {stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews} suggestions pending review
+                                                </button>
+                                            )}
+                                            {unverifiedGuidesCount > 0 && (
+                                                <button onClick={() => setActiveTab('guides')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
+                                                    <UserCheck size={12} color={C.warn} /> {unverifiedGuidesCount} guide{unverifiedGuidesCount === 1 ? '' : 's'} awaiting verification
+                                                </button>
+                                            )}
+                                            {inactiveStaffCount > 0 && (
+                                                <button onClick={() => setActiveTab('staff')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
+                                                    <Shield size={12} color={C.warn} /> {inactiveStaffCount} inactive staff account{inactiveStaffCount === 1 ? '' : 's'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ===== TWO COLUMN LAYOUT ===== */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+                                    gap: 24,
+                                    marginBottom: 24
                                 }}>
-                                    Welcome back, {profile?.full_name || 'Admin'} 👋
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 16,
-                        flexWrap: 'wrap'
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '6px 14px',
-                            background: 'rgba(255,255,255,0.06)',
-                            borderRadius: 20,
-                            border: '1px solid rgba(255,255,255,0.06)'
-                        }}>
-                            <div style={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                background: '#4CAF50',
-                                animation: 'pulse 2s infinite'
-                            }} />
-                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-                                All systems go
-                            </span>
-                        </div>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '6px 14px',
-                            background: 'rgba(255,255,255,0.06)',
-                            borderRadius: 20,
-                            border: '1px solid rgba(255,255,255,0.06)'
-                        }}>
-                            <Calendar size={14} color="rgba(255,255,255,0.5)" />
-                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-                                {new Date().toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    year: 'numeric'
-                                })}
-                            </span>
-                        </div>
-                        <Btn
-                            variant="ghost"
-                            icon={RefreshCw}
-                            size="sm"
-                            onClick={() => {
-                                dataFetchedRef.current = false;
-                                setRefreshing(true);
-                                fetchAllData(true).finally(() => setRefreshing(false));
-                            }}
-                            disabled={refreshing}
-                            style={{
-                                borderColor: 'rgba(255,255,255,0.15)',
-                                color: 'rgba(255,255,255,0.7)',
-                                padding: '6px 14px'
-                            }}
-                        >
-                            {refreshing ? 'Refreshing...' : 'Refresh'}
-                        </Btn>
-                    </div>
-                </div>
-            </div>
-            <style>{`
-                @keyframes pulse {
-                    0%, 100% { opacity: 1; }
-                    50% { opacity: 0.4; }
-                }
-            `}</style>
-        </div>
 
-        {/* ===== ATTENTION STRIP — things that need admin action right now ===== */}
-        {(stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews + unverifiedGuidesCount) > 0 && (
-            <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 10,
-                marginBottom: 24,
-                padding: '14px 18px',
-                background: C.warnBg,
-                border: `1px solid ${C.gold}30`,
-                borderRadius: 16,
-                alignItems: 'center'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#8A6A1F' }}>
-                    <Flame size={16} color={C.gold} /> Needs your attention
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
-                    {(stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews) > 0 && (
-                        <button onClick={() => setActiveTab('hidden-gems')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
-                            <Clock size={12} color={C.warn} /> {stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews} suggestions pending review
-                        </button>
-                    )}
-                    {unverifiedGuidesCount > 0 && (
-                        <button onClick={() => setActiveTab('guides')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
-                            <UserCheck size={12} color={C.warn} /> {unverifiedGuidesCount} guide{unverifiedGuidesCount === 1 ? '' : 's'} awaiting verification
-                        </button>
-                    )}
-                    {inactiveStaffCount > 0 && (
-                        <button onClick={() => setActiveTab('staff')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: `1px solid ${C.gold}40`, background: C.paper, color: C.inkSoft, fontSize: 12, cursor: 'pointer' }}>
-                            <Shield size={12} color={C.warn} /> {inactiveStaffCount} inactive staff account{inactiveStaffCount === 1 ? '' : 's'}
-                        </button>
-                    )}
-                </div>
-            </div>
-        )}
+                                    {/* ===== LEFT COLUMN: Suggestions Status ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            marginBottom: 20
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div style={{
+                                                    width: 36,
+                                                    height: 36,
+                                                    borderRadius: 10,
+                                                    background: '#FBF6EA',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}>
+                                                    <MessageSquare size={16} color="#C79A3E" />
+                                                </div>
+                                                <div>
+                                                    <h3 style={{
+                                                        fontFamily: "'Fraunces', Georgia, serif",
+                                                        fontStyle: 'italic',
+                                                        fontSize: 17,
+                                                        fontWeight: 600,
+                                                        color: '#0B2422',
+                                                        margin: 0
+                                                    }}>Suggestion Status</h3>
+                                                    <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Real-time overview</p>
+                                                </div>
+                                            </div>
+                                            <span style={{
+                                                fontSize: 12,
+                                                fontWeight: 600,
+                                                color: '#C79A3E',
+                                                background: '#FBF6EA',
+                                                padding: '4px 12px',
+                                                borderRadius: 20
+                                            }}>
+                                                {stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews} total
+                                            </span>
+                                        </div>
 
-        {/* ===== TWO COLUMN LAYOUT ===== */}
-        <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-            gap: 24,
-            marginBottom: 24
-        }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                            <StatusProgress
+                                                label="Pending"
+                                                value={stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews}
+                                                total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
+                                                color="#B4791F"
+                                                bg="#FBF1DC"
+                                            />
+                                            <StatusProgress
+                                                label="Implemented"
+                                                value={stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews}
+                                                total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
+                                                color="#3F7A5E"
+                                                bg="#EAF3EE"
+                                            />
+                                            <StatusProgress
+                                                label="Rejected"
+                                                value={(() => {
+                                                    const total = stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews;
+                                                    const pending = stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews;
+                                                    const implemented = stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews;
+                                                    return total - pending - implemented;
+                                                })()}
+                                                total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
+                                                color="#B4472A"
+                                                bg="#FDF1EC"
+                                            />
 
-            {/* ===== LEFT COLUMN: Suggestions Status ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 20
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            background: '#FBF6EA',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}>
-                            <MessageSquare size={16} color="#C79A3E" />
-                        </div>
-                        <div>
-                            <h3 style={{
-                                fontFamily: "'Fraunces', Georgia, serif",
-                                fontStyle: 'italic',
-                                fontSize: 17,
-                                fontWeight: 600,
-                                color: '#0B2422',
-                                margin: 0
-                            }}>Suggestion Status</h3>
-                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Real-time overview</p>
-                        </div>
-                    </div>
-                    <span style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: '#C79A3E',
-                        background: '#FBF6EA',
-                        padding: '4px 12px',
-                        borderRadius: 20
-                    }}>
-                        {stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews} total
-                    </span>
-                </div>
+                                            {/* Per-type breakdown */}
+                                            <div style={{ marginTop: 4, paddingTop: 14, borderTop: '1px solid #EFE6CF', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>💎 Hidden Gems</span>
+                                                    <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedHiddenGems}/{stats.totalHiddenGems} live · <span style={{ color: C.warn }}>{stats.pendingHiddenGems} pending</span></span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>💡 Local Insights</span>
+                                                    <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedLocalInsights}/{stats.totalLocalInsights} live · <span style={{ color: C.warn }}>{stats.pendingLocalInsights} pending</span></span>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                    <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>⭐ Reviews</span>
+                                                    <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedReviews}/{stats.totalReviews} live · <span style={{ color: C.warn }}>{stats.pendingReviews} pending</span></span>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    <StatusProgress
-                        label="Pending"
-                        value={stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews}
-                        total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
-                        color="#B4791F"
-                        bg="#FBF1DC"
-                    />
-                    <StatusProgress
-                        label="Implemented"
-                        value={stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews}
-                        total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
-                        color="#3F7A5E"
-                        bg="#EAF3EE"
-                    />
-                    <StatusProgress
-                        label="Rejected"
-                        value={(() => {
-                            const total = stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews;
-                            const pending = stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews;
-                            const implemented = stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews;
-                            return total - pending - implemented;
-                        })()}
-                        total={stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews}
-                        color="#B4472A"
-                        bg="#FDF1EC"
-                    />
+                                        <div style={{
+                                            marginTop: 18,
+                                            paddingTop: 16,
+                                            borderTop: '1px solid #EFE6CF',
+                                            display: 'flex',
+                                            justifyContent: 'space-around'
+                                        }}>
+                                            <div style={{ textAlign: 'center' }}>
+                                                <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Pending</p>
+                                                <p style={{ fontSize: 20, fontWeight: 700, color: '#B4791F', margin: 0 }}>
+                                                    {stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews}
+                                                </p>
+                                            </div>
+                                            <div style={{ textAlign: 'center' }}>
+                                                <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Implemented</p>
+                                                <p style={{ fontSize: 20, fontWeight: 700, color: '#3F7A5E', margin: 0 }}>
+                                                    {stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews}
+                                                </p>
+                                            </div>
+                                            <div style={{ textAlign: 'center' }}>
+                                                <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Rate</p>
+                                                <p style={{ fontSize: 20, fontWeight: 700, color: '#C79A3E', margin: 0 }}>
+                                                    {(() => {
+                                                        const total = stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews;
+                                                        const implemented = stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews;
+                                                        return total > 0 ? Math.round((implemented / total) * 100) : 0;
+                                                    })()}%
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
 
-                    {/* Per-type breakdown */}
-                    <div style={{ marginTop: 4, paddingTop: 14, borderTop: '1px solid #EFE6CF', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>💎 Hidden Gems</span>
-                            <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedHiddenGems}/{stats.totalHiddenGems} live · <span style={{ color: C.warn }}>{stats.pendingHiddenGems} pending</span></span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>💡 Local Insights</span>
-                            <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedLocalInsights}/{stats.totalLocalInsights} live · <span style={{ color: C.warn }}>{stats.pendingLocalInsights} pending</span></span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}>⭐ Reviews</span>
-                            <span style={{ fontSize: 12, color: C.inkSoft }}>{stats.implementedReviews}/{stats.totalReviews} live · <span style={{ color: C.warn }}>{stats.pendingReviews} pending</span></span>
-                        </div>
-                    </div>
-                </div>
+                                    {/* ===== RIGHT COLUMN: Quick Stats ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 10,
+                                            marginBottom: 20
+                                        }}>
+                                            <div style={{
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: 10,
+                                                background: '#F5F3FF',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}>
+                                                <LayoutGrid size={16} color="#8B5CF6" />
+                                            </div>
+                                            <div>
+                                                <h3 style={{
+                                                    fontFamily: "'Fraunces', Georgia, serif",
+                                                    fontStyle: 'italic',
+                                                    fontSize: 17,
+                                                    fontWeight: 600,
+                                                    color: '#0B2422',
+                                                    margin: 0
+                                                }}>Platform Overview</h3>
+                                                <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>All your content at a glance</p>
+                                            </div>
+                                        </div>
 
-                <div style={{
-                    marginTop: 18,
-                    paddingTop: 16,
-                    borderTop: '1px solid #EFE6CF',
-                    display: 'flex',
-                    justifyContent: 'space-around'
-                }}>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Pending</p>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: '#B4791F', margin: 0 }}>
-                            {stats.pendingHiddenGems + stats.pendingLocalInsights + stats.pendingReviews}
-                        </p>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Implemented</p>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: '#3F7A5E', margin: 0 }}>
-                            {stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews}
-                        </p>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                        <p style={{ fontSize: 10, color: '#7A7568', margin: 0, textTransform: 'uppercase' }}>Rate</p>
-                        <p style={{ fontSize: 20, fontWeight: 700, color: '#C79A3E', margin: 0 }}>
-                            {(() => {
-                                const total = stats.totalHiddenGems + stats.totalLocalInsights + stats.totalReviews;
-                                const implemented = stats.implementedHiddenGems + stats.implementedLocalInsights + stats.implementedReviews;
-                                return total > 0 ? Math.round((implemented / total) * 100) : 0;
-                            })()}%
-                        </p>
-                    </div>
-                </div>
-            </div>
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '1fr 1fr',
+                                            gap: 12
+                                        }}>
+                                            <OverviewTile
+                                                label="Touristers"
+                                                value={stats.totalUsers}
+                                                icon={Users}
+                                                color="#3B82F6"
+                                                bg="#EFF6FF"
+                                            />
+                                            <OverviewTile
+                                                label="Staff"
+                                                value={stats.totalStaff}
+                                                icon={Shield}
+                                                color="#8B5CF6"
+                                                bg="#F5F3FF"
+                                            />
+                                            <OverviewTile
+                                                label="Guides"
+                                                value={stats.totalGuides}
+                                                icon={UserCheck}
+                                                color="#C79A3E"
+                                                bg="#FBF6EA"
+                                            />
+                                            <OverviewTile
+                                                label="Categories"
+                                                value={stats.totalCategories}
+                                                icon={LayoutGrid}
+                                                color="#10B981"
+                                                bg="#ECFDF5"
+                                            />
+                                            <OverviewTile
+                                                label="Hidden Gems"
+                                                value={stats.totalHiddenGems}
+                                                icon={Sparkles}
+                                                color="#C79A3E"
+                                                bg="#FBF6EA"
+                                            />
+                                            <OverviewTile
+                                                label="Local Insights"
+                                                value={stats.totalLocalInsights}
+                                                icon={Lightbulb}
+                                                color="#B4791F"
+                                                bg="#FBF1DC"
+                                            />
+                                        </div>
 
-            {/* ===== RIGHT COLUMN: Quick Stats ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    marginBottom: 20
-                }}>
-                    <div style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        background: '#F5F3FF',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}>
-                        <LayoutGrid size={16} color="#8B5CF6" />
-                    </div>
-                    <div>
-                        <h3 style={{
-                            fontFamily: "'Fraunces', Georgia, serif",
-                            fontStyle: 'italic',
-                            fontSize: 17,
-                            fontWeight: 600,
-                            color: '#0B2422',
-                            margin: 0
-                        }}>Platform Overview</h3>
-                        <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>All your content at a glance</p>
-                    </div>
-                </div>
-
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 12
-                }}>
-                    <OverviewTile
-                        label="Touristers"
-                        value={stats.totalUsers}
-                        icon={Users}
-                        color="#3B82F6"
-                        bg="#EFF6FF"
-                    />
-                    <OverviewTile
-                        label="Staff"
-                        value={stats.totalStaff}
-                        icon={Shield}
-                        color="#8B5CF6"
-                        bg="#F5F3FF"
-                    />
-                    <OverviewTile
-                        label="Guides"
-                        value={stats.totalGuides}
-                        icon={UserCheck}
-                        color="#C79A3E"
-                        bg="#FBF6EA"
-                    />
-                    <OverviewTile
-                        label="Categories"
-                        value={stats.totalCategories}
-                        icon={LayoutGrid}
-                        color="#10B981"
-                        bg="#ECFDF5"
-                    />
-                    <OverviewTile
-                        label="Hidden Gems"
-                        value={stats.totalHiddenGems}
-                        icon={Sparkles}
-                        color="#C79A3E"
-                        bg="#FBF6EA"
-                    />
-                    <OverviewTile
-                        label="Local Insights"
-                        value={stats.totalLocalInsights}
-                        icon={Lightbulb}
-                        color="#B4791F"
-                        bg="#FBF1DC"
-                    />
-                </div>
-
-                {/* Guide verification split */}
-                <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid #EFE6CF' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}><Award size={13} color={C.gold} /> Guide verification</span>
-                        <span style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>{stats.totalGuides - unverifiedGuidesCount}/{stats.totalGuides} verified</span>
-                    </div>
-                    <StatusBar label="Verified" count={stats.totalGuides - unverifiedGuidesCount} total={stats.totalGuides} color={C.success} bg={C.successBg} />
-                </div>
-            </div>
-        </div>
-
-        {/* ===== THIRD ROW: Top Guides + Top Categories ===== */}
-        <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-            gap: 24,
-            marginBottom: 24
-        }}>
-            {/* ===== Top Performing Guides ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#FBF6EA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Award size={16} color="#C79A3E" />
-                        </div>
-                        <div>
-                            <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Top Guides</h3>
-                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Ranked by rating</p>
-                        </div>
-                    </div>
-                    <button onClick={() => setActiveTab('guides')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                        View all <ArrowUpRight size={13} />
-                    </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {topGuidesByRating.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
-                            <div style={{ fontSize: 28, marginBottom: 6 }}>🧭</div>
-                            <p style={{ margin: 0, fontSize: 13 }}>No guides yet</p>
-                        </div>
-                    ) : topGuidesByRating.map((g, idx) => (
-                        <div key={g.id} onClick={() => openViewGuide(g)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: C.cream, borderRadius: 12, border: `1px solid ${C.line}`, cursor: 'pointer' }}>
-                            <span style={{ fontFamily: FONT.mono, fontSize: 11, color: C.sageLight, width: 14 }}>#{idx + 1}</span>
-                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: C.ink, flexShrink: 0, overflow: 'hidden' }}>
-                                {g.full_name?.charAt(0)?.toUpperCase() || 'G'}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.full_name}</p>
-                                <p style={{ fontSize: 10.5, color: C.sage, margin: 0 }}>{g.primary_district || 'N/A'}</p>
-                            </div>
-                            <span style={{ fontSize: 12, color: C.gold, fontWeight: 600, flexShrink: 0 }}>{g.rating > 0 ? `★ ${g.rating}` : '— new'}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* ===== Top Categories ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <TrendingUp size={16} color="#10B981" />
-                        </div>
-                        <div>
-                            <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Top Categories</h3>
-                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>By number of places</p>
-                        </div>
-                    </div>
-                    <button onClick={() => setActiveTab('categories')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                        View all <ArrowUpRight size={13} />
-                    </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {topCategoriesByPlaces.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
-                            <div style={{ fontSize: 28, marginBottom: 6 }}>📂</div>
-                            <p style={{ margin: 0, fontSize: 13 }}>No categories yet</p>
-                        </div>
-                    ) : topCategoriesByPlaces.map((cat) => {
-                        const maxCount = topCategoriesByPlaces[0]?.count || 1;
-                        return (
-                            <div key={cat.key}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                                    <span style={{ fontSize: 12.5, color: C.inkSoft }}>{cat.title || cat.key}</span>
-                                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.gold }}>{cat.count}</span>
+                                        {/* Guide verification split */}
+                                        <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid #EFE6CF' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                                <span style={{ fontSize: 12, color: C.sage, display: 'flex', alignItems: 'center', gap: 6 }}><Award size={13} color={C.gold} /> Guide verification</span>
+                                                <span style={{ fontSize: 12, color: C.inkSoft, fontWeight: 600 }}>{stats.totalGuides - unverifiedGuidesCount}/{stats.totalGuides} verified</span>
+                                            </div>
+                                            <StatusBar label="Verified" count={stats.totalGuides - unverifiedGuidesCount} total={stats.totalGuides} color={C.success} bg={C.successBg} />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style={{ height: 6, borderRadius: 3, background: C.line, overflow: 'hidden' }}>
-                                    <div style={{ width: `${maxCount > 0 ? Math.max(4, (cat.count / maxCount) * 100) : 0}%`, height: '100%', borderRadius: 3, background: C.gold, transition: 'width 1s ease' }} />
+
+                                {/* ===== THIRD ROW: Top Guides + Top Categories ===== */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+                                    gap: 24,
+                                    marginBottom: 24
+                                }}>
+                                    {/* ===== Top Performing Guides ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#FBF6EA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <Award size={16} color="#C79A3E" />
+                                                </div>
+                                                <div>
+                                                    <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Top Guides</h3>
+                                                    <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Ranked by rating</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setActiveTab('guides')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                                                View all <ArrowUpRight size={13} />
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {topGuidesByRating.length === 0 ? (
+                                                <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
+                                                    <div style={{ fontSize: 28, marginBottom: 6 }}>🧭</div>
+                                                    <p style={{ margin: 0, fontSize: 13 }}>No guides yet</p>
+                                                </div>
+                                            ) : topGuidesByRating.map((g, idx) => (
+                                                <div key={g.id} onClick={() => openViewGuide(g)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: C.cream, borderRadius: 12, border: `1px solid ${C.line}`, cursor: 'pointer' }}>
+                                                    <span style={{ fontFamily: FONT.mono, fontSize: 11, color: C.sageLight, width: 14 }}>#{idx + 1}</span>
+                                                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: C.ink, flexShrink: 0, overflow: 'hidden' }}>
+                                                        {g.full_name?.charAt(0)?.toUpperCase() || 'G'}
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.full_name}</p>
+                                                        <p style={{ fontSize: 10.5, color: C.sage, margin: 0 }}>{g.primary_district || 'N/A'}</p>
+                                                    </div>
+                                                    <span style={{ fontSize: 12, color: C.gold, fontWeight: 600, flexShrink: 0 }}>{g.rating > 0 ? `★ ${g.rating}` : '— new'}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* ===== Top Categories ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <TrendingUp size={16} color="#10B981" />
+                                                </div>
+                                                <div>
+                                                    <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Top Categories</h3>
+                                                    <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>By number of places</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setActiveTab('categories')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                                                View all <ArrowUpRight size={13} />
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                            {topCategoriesByPlaces.length === 0 ? (
+                                                <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
+                                                    <div style={{ fontSize: 28, marginBottom: 6 }}>📂</div>
+                                                    <p style={{ margin: 0, fontSize: 13 }}>No categories yet</p>
+                                                </div>
+                                            ) : topCategoriesByPlaces.map((cat) => {
+                                                const maxCount = topCategoriesByPlaces[0]?.count || 1;
+                                                return (
+                                                    <div key={cat.key}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                                                            <span style={{ fontSize: 12.5, color: C.inkSoft }}>{cat.title || cat.key}</span>
+                                                            <span style={{ fontSize: 12.5, fontWeight: 600, color: C.gold }}>{cat.count}</span>
+                                                        </div>
+                                                        <div style={{ height: 6, borderRadius: 3, background: C.line, overflow: 'hidden' }}>
+                                                            <div style={{ width: `${maxCount > 0 ? Math.max(4, (cat.count / maxCount) * 100) : 0}%`, height: '100%', borderRadius: 3, background: C.gold, transition: 'width 1s ease' }} />
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* ===== BOTTOM ROW: Recent Activity, New Touristers, Quick Actions ===== */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                                    gap: 24
+                                }}>
+
+                                    {/* ===== Recent Activity ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            marginBottom: 16
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div style={{
+                                                    width: 36,
+                                                    height: 36,
+                                                    borderRadius: 10,
+                                                    background: '#EAF3EE',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}>
+                                                    <RefreshCw size={16} color="#3F7A5E" />
+                                                </div>
+                                                <div>
+                                                    <h3 style={{
+                                                        fontFamily: "'Fraunces', Georgia, serif",
+                                                        fontStyle: 'italic',
+                                                        fontSize: 17,
+                                                        fontWeight: 600,
+                                                        color: '#0B2422',
+                                                        margin: 0
+                                                    }}>Recent Activity</h3>
+                                                    <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Latest updates</p>
+                                                </div>
+                                            </div>
+                                            <span style={{ fontSize: 11, color: '#7A7568' }}>Last 5</span>
+                                        </div>
+
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {allSuggestions.slice(0, 5).map((s, idx) => (
+                                                <div key={s.id || idx} onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }} style={{ cursor: 'pointer' }}>
+                                                    <ActivityRow
+                                                        title={s.name || 'Untitled'}
+                                                        type={s.suggestion_type || 'suggestion'}
+                                                        status={s.status || 'pending'}
+                                                    />
+                                                </div>
+                                            ))}
+                                            {allSuggestions.length === 0 && (
+                                                <div style={{
+                                                    textAlign: 'center',
+                                                    padding: '30px 0',
+                                                    color: '#7A7568'
+                                                }}>
+                                                    <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+                                                    <p style={{ margin: 0, fontSize: 13 }}>No recent activity</p>
+                                                    <p style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>Suggestions will appear here</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* ===== Newest Touristers ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <Users size={16} color="#3B82F6" />
+                                                </div>
+                                                <div>
+                                                    <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Newest Touristers</h3>
+                                                    <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Recently joined</p>
+                                                </div>
+                                            </div>
+                                            <button onClick={() => setActiveTab('touristers')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                                                View all <ArrowUpRight size={13} />
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {recentTouristers.length === 0 ? (
+                                                <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
+                                                    <div style={{ fontSize: 28, marginBottom: 6 }}>👥</div>
+                                                    <p style={{ margin: 0, fontSize: 13 }}>No touristers yet</p>
+                                                </div>
+                                            ) : recentTouristers.map((u) => (
+                                                <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: C.cream, borderRadius: 12, border: `1px solid ${C.line}` }}>
+                                                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: C.ink, flexShrink: 0, overflow: 'hidden' }}>
+                                                        {u.profile_image ? <img src={u.profile_image} alt={u.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (u.first_name?.charAt(0)?.toUpperCase() || u.username?.charAt(0)?.toUpperCase() || 'T')}
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.first_name || ''} {u.last_name || ''}</p>
+                                                        <p style={{ fontSize: 10.5, color: C.sage, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</p>
+                                                    </div>
+                                                    <StatusPill status={u.is_active !== false ? 'active' : 'inactive'} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* ===== Quick Actions ===== */}
+                                    <div style={{
+                                        background: '#FFFFFF',
+                                        borderRadius: 20,
+                                        padding: 24,
+                                        border: '1px solid #EFE6CF',
+                                        boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 10,
+                                            marginBottom: 16
+                                        }}>
+                                            <div style={{
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: 10,
+                                                background: '#FBF6EA',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}>
+                                                <PlusCircle size={16} color="#C79A3E" />
+                                            </div>
+                                            <div>
+                                                <h3 style={{
+                                                    fontFamily: "'Fraunces', Georgia, serif",
+                                                    fontStyle: 'italic',
+                                                    fontSize: 17,
+                                                    fontWeight: 600,
+                                                    color: '#0B2422',
+                                                    margin: 0
+                                                }}>Quick Actions</h3>
+                                                <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Common tasks</p>
+                                            </div>
+                                        </div>
+
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '1fr 1fr',
+                                            gap: 10
+                                        }}>
+                                            <ActionButton
+                                                label="Add Tourister"
+                                                icon={Users}
+                                                onClick={openAddTourister}
+                                                color="#3B82F6"
+                                            />
+                                            <ActionButton
+                                                label="Add Staff"
+                                                icon={Shield}
+                                                onClick={openAddStaff}
+                                                color="#8B5CF6"
+                                            />
+                                            <ActionButton
+                                                label="Add Guide"
+                                                icon={UserCheck}
+                                                onClick={() => { resetGuideForm(); setEditingGuide(null); setShowGuideModal(true); }}
+                                                color="#C79A3E"
+                                            />
+                                            <ActionButton
+                                                label="Add Category"
+                                                icon={FolderPlus}
+                                                onClick={() => { setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); setShowCategoryModal(true); }}
+                                                color="#10B981"
+                                            />
+                                            <ActionButton
+                                                label="Add Hidden Gem"
+                                                icon={Sparkles}
+                                                onClick={() => { setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null }); setShowAddHiddenGemModal(true); }}
+                                                color="#C79A3E"
+                                            />
+                                            <ActionButton
+                                                label="Add Insight"
+                                                icon={Lightbulb}
+                                                onClick={() => { setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null }); setShowAddInsightModal(true); }}
+                                                color="#B4791F"
+                                            />
+                                        </div>
+
+                                        <div style={{
+                                            marginTop: 16,
+                                            paddingTop: 16,
+                                            borderTop: '1px solid #EFE6CF',
+                                            display: 'flex',
+                                            justifyContent: 'center'
+                                        }}>
+                                            <button onClick={() => setActiveTab('hidden-gems')} style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 8,
+                                                padding: '8px 20px',
+                                                background: '#FBF6EA',
+                                                border: '1px solid #EFE6CF',
+                                                borderRadius: 12,
+                                                cursor: 'pointer',
+                                                fontSize: 12,
+                                                color: '#0B2422',
+                                                transition: 'all 0.2s ease'
+                                            }} onMouseEnter={(e) => {
+                                                e.target.style.background = '#F5EDD6';
+                                            }} onMouseLeave={(e) => {
+                                                e.target.style.background = '#FBF6EA';
+                                            }}>
+                                                <Sparkles size={14} color="#C79A3E" />
+                                                View All Suggestions
+                                                <ChevronRight size={14} color="#C79A3E" />
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        );
-                    })}
-                </div>
-            </div>
-        </div>
-
-        {/* ===== BOTTOM ROW: Recent Activity, New Touristers, Quick Actions ===== */}
-        <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            gap: 24
-        }}>
-
-            {/* ===== Recent Activity ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 16
-                }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 10,
-                            background: '#EAF3EE',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}>
-                            <RefreshCw size={16} color="#3F7A5E" />
-                        </div>
-                        <div>
-                            <h3 style={{
-                                fontFamily: "'Fraunces', Georgia, serif",
-                                fontStyle: 'italic',
-                                fontSize: 17,
-                                fontWeight: 600,
-                                color: '#0B2422',
-                                margin: 0
-                            }}>Recent Activity</h3>
-                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Latest updates</p>
-                        </div>
-                    </div>
-                    <span style={{ fontSize: 11, color: '#7A7568' }}>Last 5</span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {allSuggestions.slice(0, 5).map((s, idx) => (
-                        <div key={s.id || idx} onClick={() => { setSelectedSuggestion(s); setShowSuggestionModal(true); }} style={{ cursor: 'pointer' }}>
-                            <ActivityRow
-                                title={s.name || 'Untitled'}
-                                type={s.suggestion_type || 'suggestion'}
-                                status={s.status || 'pending'}
-                            />
-                        </div>
-                    ))}
-                    {allSuggestions.length === 0 && (
-                        <div style={{
-                            textAlign: 'center',
-                            padding: '30px 0',
-                            color: '#7A7568'
-                        }}>
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
-                            <p style={{ margin: 0, fontSize: 13 }}>No recent activity</p>
-                            <p style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>Suggestions will appear here</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* ===== Newest Touristers ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Users size={16} color="#3B82F6" />
-                        </div>
-                        <div>
-                            <h3 style={{ fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontSize: 17, fontWeight: 600, color: '#0B2422', margin: 0 }}>Newest Touristers</h3>
-                            <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Recently joined</p>
-                        </div>
-                    </div>
-                    <button onClick={() => setActiveTab('touristers')} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', color: C.gold, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                        View all <ArrowUpRight size={13} />
-                    </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {recentTouristers.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#7A7568' }}>
-                            <div style={{ fontSize: 28, marginBottom: 6 }}>👥</div>
-                            <p style={{ margin: 0, fontSize: 13 }}>No touristers yet</p>
-                        </div>
-                    ) : recentTouristers.map((u) => (
-                        <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', background: C.cream, borderRadius: 12, border: `1px solid ${C.line}` }}>
-                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: `linear-gradient(135deg, ${C.gold}, ${C.goldLight})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: C.ink, flexShrink: 0, overflow: 'hidden' }}>
-                                {u.profile_image ? <img src={u.profile_image} alt={u.username} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (u.first_name?.charAt(0)?.toUpperCase() || u.username?.charAt(0)?.toUpperCase() || 'T')}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ fontSize: 13, color: C.inkSoft, margin: 0, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.first_name || ''} {u.last_name || ''}</p>
-                                <p style={{ fontSize: 10.5, color: C.sage, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</p>
-                            </div>
-                            <StatusPill status={u.is_active !== false ? 'active' : 'inactive'} />
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* ===== Quick Actions ===== */}
-            <div style={{
-                background: '#FFFFFF',
-                borderRadius: 20,
-                padding: 24,
-                border: '1px solid #EFE6CF',
-                boxShadow: '0 4px 20px rgba(7,46,42,0.04)'
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    marginBottom: 16
-                }}>
-                    <div style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: 10,
-                        background: '#FBF6EA',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}>
-                        <PlusCircle size={16} color="#C79A3E" />
-                    </div>
-                    <div>
-                        <h3 style={{
-                            fontFamily: "'Fraunces', Georgia, serif",
-                            fontStyle: 'italic',
-                            fontSize: 17,
-                            fontWeight: 600,
-                            color: '#0B2422',
-                            margin: 0
-                        }}>Quick Actions</h3>
-                        <p style={{ fontSize: 12, color: '#7A7568', margin: 0 }}>Common tasks</p>
-                    </div>
-                </div>
-
-                <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: 10
-                }}>
-                    <ActionButton
-                        label="Add Tourister"
-                        icon={Users}
-                        onClick={openAddTourister}
-                        color="#3B82F6"
-                    />
-                    <ActionButton
-                        label="Add Staff"
-                        icon={Shield}
-                        onClick={openAddStaff}
-                        color="#8B5CF6"
-                    />
-                    <ActionButton
-                        label="Add Guide"
-                        icon={UserCheck}
-                        onClick={() => { resetGuideForm(); setEditingGuide(null); setShowGuideModal(true); }}
-                        color="#C79A3E"
-                    />
-                    <ActionButton
-                        label="Add Category"
-                        icon={FolderPlus}
-                        onClick={() => { setCategoryForm({ key: '', label: '', description: '', image: '', type: 'Nature & Outdoor' }); setShowCategoryModal(true); }}
-                        color="#10B981"
-                    />
-                    <ActionButton
-                        label="Add Hidden Gem"
-                        icon={Sparkles}
-                        onClick={() => { setHiddenGemForm({ name: '', description: '', district: '', category: 'hidden', image: null, imagePreview: null }); setShowAddHiddenGemModal(true); }}
-                        color="#C79A3E"
-                    />
-                    <ActionButton
-                        label="Add Insight"
-                        icon={Lightbulb}
-                        onClick={() => { setInsightForm({ name: '', description: '', district: '', category: 'general', image: null, imagePreview: null }); setShowAddInsightModal(true); }}
-                        color="#B4791F"
-                    />
-                </div>
-
-                <div style={{
-                    marginTop: 16,
-                    paddingTop: 16,
-                    borderTop: '1px solid #EFE6CF',
-                    display: 'flex',
-                    justifyContent: 'center'
-                }}>
-                    <button onClick={() => setActiveTab('hidden-gems')} style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '8px 20px',
-                        background: '#FBF6EA',
-                        border: '1px solid #EFE6CF',
-                        borderRadius: 12,
-                        cursor: 'pointer',
-                        fontSize: 12,
-                        color: '#0B2422',
-                        transition: 'all 0.2s ease'
-                    }} onMouseEnter={(e) => {
-                        e.target.style.background = '#F5EDD6';
-                    }} onMouseLeave={(e) => {
-                        e.target.style.background = '#FBF6EA';
-                    }}>
-                        <Sparkles size={14} color="#C79A3E" />
-                        View All Suggestions
-                        <ChevronRight size={14} color="#C79A3E" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-)}
+                        )}
 
                         {/* CATEGORIES TAB */}
                         {activeTab === 'categories' && (
@@ -3975,304 +3745,302 @@ const deleteGuide = async (id) => {
             )}
 
             {/* Add Insight Modal */}
-{showAddInsightModal && (
-    <ModalShell 
-        onClose={() => { 
-            setShowAddInsightModal(false); 
-            setInsightForm({ 
-                name: '', 
-                description: '', 
-                district: '', 
-                category: 'general', 
-                image: null, 
-                imagePreview: null 
-            }); 
-        }}
-        title="💡 Add Local Insight" 
-        subtitle="Will be automatically implemented" 
-        icon={Lightbulb}
-        footer={
-            <>
-                <Btn variant="ghost" onClick={() => { 
-                    setShowAddInsightModal(false); 
-                    setInsightForm({ 
-                        name: '', 
-                        description: '', 
-                        district: '', 
-                        category: 'general', 
-                        image: null, 
-                        imagePreview: null 
-                    }); 
-                }}>Cancel</Btn>
-                <Btn variant="primary" icon={Plus} onClick={handleAddInsight} disabled={insightLoading}>
-                    {insightLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                    {insightLoading ? 'Adding...' : 'Add & Implement'}
-                </Btn>
-            </>
-        }
-    >
-        <form onSubmit={handleAddInsight} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Name <span style={{ color: C.danger }}>*</span>
-                </label>
-                <input 
-                    type="text" 
-                    value={insightForm.name} 
-                    onChange={(e) => setInsightForm({ ...insightForm, name: e.target.value })} 
-                    style={inputStyle} 
-                    required 
-                    placeholder="e.g., Best Time to Visit Munnar" 
-                />
-            </div>
-            
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Description <span style={{ color: C.danger }}>*</span>
-                </label>
-                <textarea 
-                    value={insightForm.description} 
-                    onChange={(e) => setInsightForm({ ...insightForm, description: e.target.value })} 
-                    style={{ ...inputStyle, resize: 'vertical' }} 
-                    rows={3} 
-                    required 
-                    placeholder="Share your local insight..." 
-                />
-            </div>
-            
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    District <span style={{ color: C.danger }}>*</span>
-                </label>
-                <select 
-                    value={insightForm.district} 
-                    onChange={(e) => setInsightForm({ ...insightForm, district: e.target.value })} 
-                    style={selectStyle} 
-                    required
+            {showAddInsightModal && (
+                <ModalShell 
+                    onClose={() => { 
+                        setShowAddInsightModal(false); 
+                        setInsightForm({ 
+                            name: '', 
+                            description: '', 
+                            district: '', 
+                            category: 'general', 
+                            image: null, 
+                            imagePreview: null 
+                        }); 
+                    }}
+                    title="💡 Add Local Insight" 
+                    subtitle="Will be automatically implemented" 
+                    icon={Lightbulb}
+                    footer={
+                        <>
+                            <Btn variant="ghost" onClick={() => { 
+                                setShowAddInsightModal(false); 
+                                setInsightForm({ 
+                                    name: '', 
+                                    description: '', 
+                                    district: '', 
+                                    category: 'general', 
+                                    image: null, 
+                                    imagePreview: null 
+                                }); 
+                            }}>Cancel</Btn>
+                            <Btn variant="primary" icon={Plus} onClick={handleAddInsight} disabled={insightLoading}>
+                                {insightLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                                {insightLoading ? 'Adding...' : 'Add & Implement'}
+                            </Btn>
+                        </>
+                    }
                 >
-                    <option value="">Select District</option>
-                    {KERALA_DISTRICTS.map(d => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                    ))}
-                </select>
-            </div>
-            
-            {/* ✅ CATEGORY DROPDOWN - ADDED */}
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Category <span style={{ color: C.danger }}>*</span>
-                </label>
-                <select 
-                    value={insightForm.category} 
-                    onChange={(e) => setInsightForm({ ...insightForm, category: e.target.value })} 
-                    style={selectStyle} 
-                    required
-                >
-                    <option value="general">General</option>
-                    <option value="beach">🏖️ Beach</option>
-                    <option value="backwater">🚣 Backwater</option>
-                    <option value="hill_station">⛰️ Hill Station</option>
-                    <option value="waterfall">💧 Waterfall</option>
-                    <option value="temple">🛕 Temple</option>
-                    <option value="fort">🏰 Fort</option>
-                    <option value="wildlife">🐘 Wildlife</option>
-                    <option value="adventure">🧗 Adventure</option>
-                    <option value="heritage">🏛️ Heritage</option>
-                    <option value="natures">🌿natures</option>
-                    <option value="culture">🎭 Culture</option>
-                    <option value="zoo">🐘zoo</option>
-                    <option value="parks">🚣parks</option>
-                    <option value="sacred">🏛️ sacred</option>
-                    <option value="other">other</option>
-                </select>
-            </div>
-            
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Image (optional)
-                </label>
-                <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={(e) => {
-                        const file = e.target.files[0];
-                        if (file) {
-                            setInsightForm({ ...insightForm, image: file });
-                            const reader = new FileReader();
-                            reader.onloadend = () => setInsightForm(prev => ({ ...prev, imagePreview: reader.result }));
-                            reader.readAsDataURL(file);
-                        }
-                    }} 
-                    style={{ ...inputStyle, padding: '8px' }} 
-                />
-                {insightForm.imagePreview && (
-                    <img 
-                        src={insightForm.imagePreview} 
-                        alt="Preview" 
-                        style={{ 
-                            width: '100%', 
-                            maxHeight: 200, 
-                            objectFit: 'cover', 
-                            borderRadius: RADIUS.sm, 
-                            marginTop: 8, 
-                            border: `1px solid ${C.line}` 
-                        }} 
-                    />
-                )}
-            </div>
-        </form>
-    </ModalShell>
-)}
+                    <form onSubmit={handleAddInsight} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Name <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                value={insightForm.name} 
+                                onChange={(e) => setInsightForm({ ...insightForm, name: e.target.value })} 
+                                style={inputStyle} 
+                                required 
+                                placeholder="e.g., Best Time to Visit Munnar" 
+                            />
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Description <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <textarea 
+                                value={insightForm.description} 
+                                onChange={(e) => setInsightForm({ ...insightForm, description: e.target.value })} 
+                                style={{ ...inputStyle, resize: 'vertical' }} 
+                                rows={3} 
+                                required 
+                                placeholder="Share your local insight..." 
+                            />
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                District <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <select 
+                                value={insightForm.district} 
+                                onChange={(e) => setInsightForm({ ...insightForm, district: e.target.value })} 
+                                style={selectStyle} 
+                                required
+                            >
+                                <option value="">Select District</option>
+                                {KERALA_DISTRICTS.map(d => (
+                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Category <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <select 
+                                value={insightForm.category} 
+                                onChange={(e) => setInsightForm({ ...insightForm, category: e.target.value })} 
+                                style={selectStyle} 
+                                required
+                            >
+                                <option value="general">General</option>
+                                <option value="beach">🏖️ Beach</option>
+                                <option value="backwater">🚣 Backwater</option>
+                                <option value="hill_station">⛰️ Hill Station</option>
+                                <option value="waterfall">💧 Waterfall</option>
+                                <option value="temple">🛕 Temple</option>
+                                <option value="fort">🏰 Fort</option>
+                                <option value="wildlife">🐘 Wildlife</option>
+                                <option value="adventure">🧗 Adventure</option>
+                                <option value="heritage">🏛️ Heritage</option>
+                                <option value="natures">🌿natures</option>
+                                <option value="culture">🎭 Culture</option>
+                                <option value="zoo">🐘zoo</option>
+                                <option value="parks">🚣parks</option>
+                                <option value="sacred">🏛️ sacred</option>
+                                <option value="other">other</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Image (optional)
+                            </label>
+                            <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) {
+                                        setInsightForm({ ...insightForm, image: file });
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => setInsightForm(prev => ({ ...prev, imagePreview: reader.result }));
+                                        reader.readAsDataURL(file);
+                                    }
+                                }} 
+                                style={{ ...inputStyle, padding: '8px' }} 
+                            />
+                            {insightForm.imagePreview && (
+                                <img 
+                                    src={insightForm.imagePreview} 
+                                    alt="Preview" 
+                                    style={{ 
+                                        width: '100%', 
+                                        maxHeight: 200, 
+                                        objectFit: 'cover', 
+                                        borderRadius: RADIUS.sm, 
+                                        marginTop: 8, 
+                                        border: `1px solid ${C.line}` 
+                                    }} 
+                                />
+                            )}
+                        </div>
+                    </form>
+                </ModalShell>
+            )}
 
-           {/* Add Hidden Gem Modal */}
-{showAddHiddenGemModal && (
-    <ModalShell 
-        onClose={() => { 
-            setShowAddHiddenGemModal(false); 
-            setHiddenGemForm({ 
-                name: '', 
-                description: '', 
-                district: '', 
-                category: 'hidden', 
-                image: null, 
-                imagePreview: null 
-            }); 
-        }}
-        title="💎 Add Hidden Gem" 
-        subtitle="Will be automatically implemented" 
-        icon={Sparkles}
-        footer={
-            <>
-                <Btn variant="ghost" onClick={() => { 
-                    setShowAddHiddenGemModal(false); 
-                    setHiddenGemForm({ 
-                        name: '', 
-                        description: '', 
-                        district: '', 
-                        category: 'hidden', 
-                        image: null, 
-                        imagePreview: null 
-                    }); 
-                }}>Cancel</Btn>
-                <Btn variant="gold" icon={Plus} onClick={handleAddHiddenGem} disabled={hiddenGemLoading}>
-                    {hiddenGemLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                    {hiddenGemLoading ? 'Adding...' : 'Add & Implement'}
-                </Btn>
-            </>
-        }
-    >
-        <form onSubmit={handleAddHiddenGem} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Name <span style={{ color: C.danger }}>*</span>
-                </label>
-                <input 
-                    type="text" 
-                    value={hiddenGemForm.name} 
-                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, name: e.target.value })} 
-                    style={inputStyle} 
-                    required 
-                    placeholder="e.g., Secret Waterfall Near Munnar" 
-                />
-            </div>
-            
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Description <span style={{ color: C.danger }}>*</span>
-                </label>
-                <textarea 
-                    value={hiddenGemForm.description} 
-                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, description: e.target.value })} 
-                    style={{ ...inputStyle, resize: 'vertical' }} 
-                    rows={3} 
-                    required 
-                    placeholder="Describe this hidden gem..." 
-                />
-            </div>
-            
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    District <span style={{ color: C.danger }}>*</span>
-                </label>
-                <select 
-                    value={hiddenGemForm.district} 
-                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, district: e.target.value })} 
-                    style={selectStyle} 
-                    required
+            {/* Add Hidden Gem Modal */}
+            {showAddHiddenGemModal && (
+                <ModalShell 
+                    onClose={() => { 
+                        setShowAddHiddenGemModal(false); 
+                        setHiddenGemForm({ 
+                            name: '', 
+                            description: '', 
+                            district: '', 
+                            category: 'hidden', 
+                            image: null, 
+                            imagePreview: null 
+                        }); 
+                    }}
+                    title="💎 Add Hidden Gem" 
+                    subtitle="Will be automatically implemented" 
+                    icon={Sparkles}
+                    footer={
+                        <>
+                            <Btn variant="ghost" onClick={() => { 
+                                setShowAddHiddenGemModal(false); 
+                                setHiddenGemForm({ 
+                                    name: '', 
+                                    description: '', 
+                                    district: '', 
+                                    category: 'hidden', 
+                                    image: null, 
+                                    imagePreview: null 
+                                }); 
+                            }}>Cancel</Btn>
+                            <Btn variant="gold" icon={Plus} onClick={handleAddHiddenGem} disabled={hiddenGemLoading}>
+                                {hiddenGemLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                                {hiddenGemLoading ? 'Adding...' : 'Add & Implement'}
+                            </Btn>
+                        </>
+                    }
                 >
-                    <option value="">Select District</option>
-                    {KERALA_DISTRICTS.map(d => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                    ))}
-                </select>
-            </div>
-            
-            {/* ✅ CATEGORY DROPDOWN - ADDED */}
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Category <span style={{ color: C.danger }}>*</span>
-                </label>
-                <select 
-                    value={hiddenGemForm.category} 
-                    onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, category: e.target.value })} 
-                    style={selectStyle} 
-                    required
-                >
-                   <option value="general">General</option>
-                    <option value="beach">🏖️ Beach</option>
-                    <option value="backwater">🚣 Backwater</option>
-                    <option value="hill_station">⛰️ Hill Station</option>
-                    <option value="waterfall">💧 Waterfall</option>
-                    <option value="temple">🛕 Temple</option>
-                    <option value="fort">🏰 Fort</option>
-                    <option value="wildlife">🐘 Wildlife</option>
-                    <option value="adventure">🧗 Adventure</option>
-                    <option value="heritage">🏛️ Heritage</option>
-                    <option value="natures">🌿natures</option>
-                    <option value="culture">🎭 Culture</option>
-                    <option value="zoo">🐘zoo</option>
-                    <option value="parks">🚣parks</option>
-                    <option value="sacred">🏛️ sacred</option>
-                    <option value="other">other</option>
-                </select>
-            </div>
-            
-            <div>
-                <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Image (optional)
-                </label>
-                <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={(e) => {
-                        const file = e.target.files[0];
-                        if (file) {
-                            setHiddenGemForm({ ...hiddenGemForm, image: file });
-                            const reader = new FileReader();
-                            reader.onloadend = () => setHiddenGemForm(prev => ({ ...prev, imagePreview: reader.result }));
-                            reader.readAsDataURL(file);
-                        }
-                    }} 
-                    style={{ ...inputStyle, padding: '8px' }} 
-                />
-                {hiddenGemForm.imagePreview && (
-                    <img 
-                        src={hiddenGemForm.imagePreview} 
-                        alt="Preview" 
-                        style={{ 
-                            width: '100%', 
-                            maxHeight: 200, 
-                            objectFit: 'cover', 
-                            borderRadius: RADIUS.sm, 
-                            marginTop: 8, 
-                            border: `1px solid ${C.line}` 
-                        }} 
-                    />
-                )}
-            </div>
-        </form>
-    </ModalShell>
-)}
+                    <form onSubmit={handleAddHiddenGem} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Name <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                value={hiddenGemForm.name} 
+                                onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, name: e.target.value })} 
+                                style={inputStyle} 
+                                required 
+                                placeholder="e.g., Secret Waterfall Near Munnar" 
+                            />
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Description <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <textarea 
+                                value={hiddenGemForm.description} 
+                                onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, description: e.target.value })} 
+                                style={{ ...inputStyle, resize: 'vertical' }} 
+                                rows={3} 
+                                required 
+                                placeholder="Describe this hidden gem..." 
+                            />
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                District <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <select 
+                                value={hiddenGemForm.district} 
+                                onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, district: e.target.value })} 
+                                style={selectStyle} 
+                                required
+                            >
+                                <option value="">Select District</option>
+                                {KERALA_DISTRICTS.map(d => (
+                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Category <span style={{ color: C.danger }}>*</span>
+                            </label>
+                            <select 
+                                value={hiddenGemForm.category} 
+                                onChange={(e) => setHiddenGemForm({ ...hiddenGemForm, category: e.target.value })} 
+                                style={selectStyle} 
+                                required
+                            >
+                               <option value="general">General</option>
+                                <option value="beach">🏖️ Beach</option>
+                                <option value="backwater">🚣 Backwater</option>
+                                <option value="hill_station">⛰️ Hill Station</option>
+                                <option value="waterfall">💧 Waterfall</option>
+                                <option value="temple">🛕 Temple</option>
+                                <option value="fort">🏰 Fort</option>
+                                <option value="wildlife">🐘 Wildlife</option>
+                                <option value="adventure">🧗 Adventure</option>
+                                <option value="heritage">🏛️ Heritage</option>
+                                <option value="natures">🌿natures</option>
+                                <option value="culture">🎭 Culture</option>
+                                <option value="zoo">🐘zoo</option>
+                                <option value="parks">🚣parks</option>
+                                <option value="sacred">🏛️ sacred</option>
+                                <option value="other">other</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: 11, color: C.sageLight, display: 'block', marginBottom: 4, fontFamily: FONT.mono, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Image (optional)
+                            </label>
+                            <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) {
+                                        setHiddenGemForm({ ...hiddenGemForm, image: file });
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => setHiddenGemForm(prev => ({ ...prev, imagePreview: reader.result }));
+                                        reader.readAsDataURL(file);
+                                    }
+                                }} 
+                                style={{ ...inputStyle, padding: '8px' }} 
+                            />
+                            {hiddenGemForm.imagePreview && (
+                                <img 
+                                    src={hiddenGemForm.imagePreview} 
+                                    alt="Preview" 
+                                    style={{ 
+                                        width: '100%', 
+                                        maxHeight: 200, 
+                                        objectFit: 'cover', 
+                                        borderRadius: RADIUS.sm, 
+                                        marginTop: 8, 
+                                        border: `1px solid ${C.line}` 
+                                    }} 
+                                />
+                            )}
+                        </div>
+                    </form>
+                </ModalShell>
+            )}
 
             {/* Category Modal - Add */}
             {showCategoryModal && (

@@ -1,4 +1,4 @@
-// pages/Wishlist.jsx - FIXED VERSION with proper detail navigation
+// pages/Wishlist.jsx - REMOVED View Details button
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -171,6 +171,7 @@ export default function Wishlist() {
     const [activeNav, setActiveNav] = useState('wishlist');
     const [error, setError] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
+    const [toast, setToast] = useState(null);
 
     const fetchWishlist = useCallback(async () => {
         if (!isLoggedIn) {
@@ -258,6 +259,13 @@ export default function Wishlist() {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
+
     const removeFromWishlist = useCallback(async (placeId, wishlistId) => {
         const idToDelete = wishlistId || placeId;
 
@@ -268,20 +276,22 @@ export default function Wishlist() {
         try {
             await api.delete(`/destinations/wishlist/${idToDelete}/`);
             setWishlist((prev) => prev.filter((item) => item.id !== placeId && item.wishlistId !== wishlistId));
+            setToast({ type: 'success', message: `💔 "${placeId}" removed from wishlist` });
         } catch (error) {
             console.error('Error removing from wishlist:', error);
             if (placeId) {
                 try {
                     await api.post('/destinations/wishlist/toggle/', { destination_id: placeId });
                     setWishlist((prev) => prev.filter((item) => item.id !== placeId));
+                    setToast({ type: 'success', message: `💔 Removed from wishlist` });
                 } catch (e) {
                     console.error('Toggle fallback also failed:', e);
+                    setToast({ type: 'error', message: 'Failed to remove from wishlist' });
                 }
             }
         }
     }, []);
 
-    // ✅ FIXED: Find guides for specific district
     const handleFindGuides = useCallback(
         (place) => {
             let districtToUse = null;
@@ -315,37 +325,6 @@ export default function Wishlist() {
         [navigate],
     );
 
-    // ✅ FIXED: View details - Navigate to destination detail page
-    const handleViewDetails = useCallback(
-        (place) => {
-            console.log('🔍 Viewing details for:', place);
-            
-            // Try to navigate using slug first
-            if (place.slug) {
-                navigate(`/destination/${place.slug}`);
-                return;
-            }
-            
-            // If we have an ID, try to find the destination by ID
-            if (place.id) {
-                // Try to navigate using ID
-                navigate(`/destination/${place.id}`);
-                return;
-            }
-            
-            // If we have a name, try to search for it
-            if (place.name) {
-                // Navigate to destinations page with search
-                navigate(`/destinations?search=${encodeURIComponent(place.name)}`);
-                return;
-            }
-            
-            // Fallback: go to categories
-            navigate('/categories');
-        },
-        [navigate],
-    );
-
     const handleRefresh = useCallback(() => {
         if (!refreshing) {
             setWishlist([]);
@@ -364,6 +343,23 @@ export default function Wishlist() {
         },
         [isLoggedIn, navigate],
     );
+
+    // Toast Component
+    const Toast = () => {
+        if (!toast) return null;
+        return (
+            <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[10001] transition-all duration-500">
+                <div className={`px-6 py-3 rounded-xl shadow-2xl backdrop-blur-lg flex items-center gap-3 ${
+                    toast.type === 'success' 
+                        ? 'bg-emerald-500/90 text-white border border-emerald-400/30' 
+                        : 'bg-rose-500/90 text-white border border-rose-400/30'
+                }`}>
+                    <span className="text-lg">{toast.type === 'success' ? '✅' : '❌'}</span>
+                    <span className="font-medium text-sm">{toast.message}</span>
+                </div>
+            </div>
+        );
+    };
 
     const BottomNav = useCallback(
         () => (
@@ -509,12 +505,13 @@ export default function Wishlist() {
                 fontFamily: "'Inter','Segoe UI',sans-serif",
                 color: '#0B2422',
             }}>
+            <Toast />
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
                 .wl-font-display { font-family: 'Fraunces', serif; }
                 .wl-font-mono { font-family: 'IBM Plex Mono', monospace; }
                 .wl-place-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(7,46,42,0.15); }
-                .wl-place-card { transition: all 0.3s ease; cursor: pointer; }
+                .wl-place-card { transition: all 0.3s ease; cursor: default; }
                 .wl-remove-btn {
                     position: absolute;
                     top: 12px;
@@ -555,24 +552,6 @@ export default function Wishlist() {
                 .wl-find-guides-btn:hover {
                     background: #072E2A;
                     transform: scale(1.02);
-                }
-                .wl-view-btn {
-                    color: #C79A3E;
-                    text-decoration: none;
-                    font-size: 13px;
-                    font-weight: 500;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 8px 16px;
-                    border-radius: 999px;
-                    border: 1px solid rgba(199,154,62,0.3);
-                    background: transparent;
-                    cursor: pointer;
-                    transition: all 0.3s ease;
-                }
-                .wl-view-btn:hover {
-                    background: rgba(199,154,62,0.1);
                 }
                 .wl-book-guide-btn {
                     background: linear-gradient(135deg, #C79A3E, #E4C77B);
@@ -620,6 +599,7 @@ export default function Wishlist() {
                 .wl-refresh-btn:hover {
                     transform: rotate(180deg);
                 }
+
                 @media (min-width: 768px) {
                     .wl-grid { grid-template-columns: repeat(2, 1fr); }
                 }
@@ -913,33 +893,22 @@ export default function Wishlist() {
                                             {place.description?.length > 120 && '...'}
                                         </p>
 
-                                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleFindGuides(place);
-                                                }}
-                                                className="wl-find-guides-btn"
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 6,
-                                                }}>
-                                                <span>🧭</span>
-                                                {districtForGuides && districtForGuides !== 'Location not specified'
-                                                    ? `Find Guides in ${districtForGuides}`
-                                                    : 'Find Guides'}
-                                            </button>
-
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleViewDetails(place);
-                                                }}
-                                                className="wl-view-btn">
-                                                View Details →
-                                            </button>
-                                        </div>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleFindGuides(place);
+                                            }}
+                                            className="wl-find-guides-btn"
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                            }}>
+                                            <span>🧭</span>
+                                            {districtForGuides && districtForGuides !== 'Location not specified'
+                                                ? `Find Guides in ${districtForGuides}`
+                                                : 'Find Guides'}
+                                        </button>
                                     </div>
                                 </div>
                             );
