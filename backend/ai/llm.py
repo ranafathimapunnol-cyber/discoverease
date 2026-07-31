@@ -33,18 +33,169 @@ class LLMService:
             'thiruvananthapuram': ['thiruvananthapuram', 'trivandrum', 'tvm', 'thiruvananthapuram district']
         }
         
-        # Category keywords for type detection
+        # Category keywords for type detection - FIXED INDENTATION
         self.category_keywords = {
-            'beach': ['beach', 'coast', 'sea', 'shore', 'coastal', 'sand', 'surf'],
-            'mountain': ['mountain', 'hill', 'peak', 'valley', 'hill station', 'high range', 'mountain range'],
-            'waterfall': ['waterfall', 'falls', 'cascade', 'water fall', 'rapids'],
-            'backwater': ['backwater', 'houseboat', 'backwaters', 'lake', 'canal', 'lagoon', 'kayak'],
-            'wildlife': ['wildlife', 'sanctuary', 'animal', 'safari', 'tiger', 'elephant', 'bird', 'national park', 'reserve'],
-            'heritage': ['heritage', 'fort', 'palace', 'historical', 'museum', 'history', 'monument', 'architecture'],
-            'temple': ['temple', 'church', 'mosque', 'sacred', 'spiritual', 'pilgrimage', 'worship'],
-            'trekking': ['trek', 'hike', 'walk', 'trail', 'adventure', 'climb', 'trekking'],
-            'park': ['park', 'garden', 'amusement', 'botanical', 'plantation', 'estate'],
-            'water': ['water', 'river', 'stream', 'pond', 'reservoir', 'dam']
+            # Beaches & Coastal
+            'beach': [
+                'beach', 'coast', 'coastal', 'shore', 'shoreline', 'sea',
+                'ocean', 'seaside', 'sand', 'sandy', 'waves', 'surf',
+                'surfing', 'bay', 'cove', 'marine', 'beachside'
+            ],
+            # Mountains & Hills
+            'mountain': [
+                'mountain', 'mountains', 'hill', 'hills', 'hill station',
+                'peak', 'summit', 'ridge', 'cliff', 'highland',
+                'high range', 'mountain range', 'valley', 'viewpoint'
+            ],
+            # Waterfalls
+            'waterfall': [
+                'waterfall', 'waterfalls', 'falls', 'cascade',
+                'cataract', 'rapids', 'water fall'
+            ],
+            # Backwaters
+            'backwater': [
+                'backwater', 'backwaters', 'houseboat', 'house boat',
+                'boating', 'boat', 'kayak', 'canoe', 'cruise',
+                'lake', 'lagoon', 'canal', 'river cruise'
+            ],
+            # Rivers & Water Bodies
+            'water': [
+                'river', 'stream', 'brook', 'pond', 'dam',
+                'reservoir', 'spring', 'lake', 'water', 'canal'
+            ],
+            # Nature
+            'nature': [
+                'nature', 'natural', 'greenery', 'forest',
+                'woods', 'jungle', 'landscape', 'scenery',
+                'scenic', 'eco', 'ecotourism', 'eco tourism',
+                'flora', 'fauna', 'nature park'
+            ],
+            # Wildlife
+            'wildlife': [
+                'wildlife', 'wild life', 'sanctuary',
+                'national park', 'reserve', 'biosphere',
+                'animal', 'animals', 'bird', 'birds',
+                'elephant', 'tiger', 'deer', 'monkey',
+                'leopard', 'lion', 'bear', 'safari'
+            ],
+            # Zoo
+            'zoo': [
+                'zoo', 'zoological park', 'animal park',
+                'bird park', 'aquarium', 'aviary',
+                'reptile park', 'butterfly park'
+            ],
+            # Parks & Gardens
+            'park': [
+                'park', 'garden', 'botanical garden',
+                'botanical', 'flower garden',
+                'eco park', 'children park',
+                'theme park', 'amusement park',
+                'recreation park', 'green park',
+                'plantation', 'estate'
+            ],
+            # Heritage
+            'heritage': [
+                'heritage', 'historical', 'history',
+                'monument', 'memorial', 'fort',
+                'palace', 'castle', 'museum',
+                'ruins', 'architecture',
+                'archaeological', 'colonial'
+            ],
+            # Sacred Places
+            'sacred': [
+                'sacred', 'holy', 'spiritual',
+                'religious', 'pilgrimage',
+                'pilgrim', 'divine', 'devotional',
+                'faith', 'worship', 'blessed'
+            ],
+            # Temples & Religious
+            'temple': [
+                'temple', 'church', 'mosque',
+                'shrine', 'ashram', 'monastery',
+                'cathedral', 'chapel', 'dargah',
+                'synagogue', 'gurudwara'
+            ],
+            # Trekking & Hiking
+            'trekking': [
+                'trek', 'trekking', 'hike', 'hiking',
+                'trail', 'nature walk', 'mountaineering',
+                'climb', 'climbing', 'backpacking'
+            ],
+            # Adventure
+            'adventure': [
+                'adventure', 'rafting', 'kayaking',
+                'zipline', 'zip lining', 'rock climbing',
+                'bungee', 'paragliding', 'camping',
+                'offroad', 'jeep safari',
+                'cycling', 'mountain biking'
+            ],
+            # Camping
+            'camping': [
+                'camp', 'camping', 'campfire',
+                'tent', 'forest camp',
+                'night camping'
+            ],
+            # Resorts & Stay
+            'resort': [
+                'resort', 'hotel', 'villa',
+                'homestay', 'home stay',
+                'guest house', 'lodge',
+                'hostel', 'stay',
+                'luxury stay', 'eco resort',
+                'spa', 'retreat'
+            ],
+            # Cultural
+            'cultural': [
+                'culture', 'cultural',
+                'festival', 'dance',
+                'music', 'art', 'craft',
+                'traditional', 'folk',
+                'performance', 'theatre'
+            ],
+            # Photography
+            'photography': [
+                'photography', 'photo',
+                'photoshoot', 'selfie',
+                'instagram', 'picture',
+                'viewpoint', 'sunrise',
+                'sunset'
+            ],
+            # Islands
+            'island': [
+                'island', 'islands',
+                'islet', 'marine island'
+            ],
+            # Caves
+            'cave': [
+                'cave', 'caves',
+                'cavern', 'grotto',
+                'rock shelter'
+            ],
+            # Fort
+            'fort': [
+                'fort', 'fortress',
+                'citadel', 'stronghold',
+                'bastion'
+            ],
+            # Palace
+            'palace': [
+                'palace', 'royal palace',
+                'king palace', 'queen palace',
+                'mahal'
+            ],
+            # Museum
+            'museum': [
+                'museum', 'gallery',
+                'art gallery',
+                'science museum',
+                'history museum'
+            ],
+            # Dam
+            'dam': [
+                'dam', 'reservoir',
+                'hydel project',
+                'hydroelectric'
+            ]
         }
         
         # Intent keywords
@@ -700,7 +851,7 @@ class LLMService:
             parts.append(f"   🎯 Activities: {activity_str}")
         
         return "\n".join(parts)
-    
+    #Adds travel advice
     def _get_smart_tips(self, intent: Dict, destinations: List[Dict], query: str) -> str:
         """Generate smart, contextual tips"""
         tips = ["💡 **Tips & Recommendations:**"]

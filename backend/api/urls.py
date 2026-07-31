@@ -1,7 +1,7 @@
 # api/urls.py
 
 from django.urls import path
-from django.http import JsonResponse
+from django.http import JsonResponse #Without JsonResponse: Can't return JSON responses from health check
 from .views.ai_views import AIChatView
 
 def health_check(request):

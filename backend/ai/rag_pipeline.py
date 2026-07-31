@@ -1,45 +1,235 @@
-# ai/rag_pipeline.py - FIXED VERSION
+# ai/rag_pipeline.py - FIXED TO WORK WITHOUT QDRANT
 
 import logging
 from typing import List, Dict, Optional
-from .vector_store import vector_store
-from .embeddings import embedding_service
+import json
+import os
+import requests
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+# Try to import vector_store, but handle if it's None
+try:
+    from .vector_store import vector_store
+except ImportError:
+    vector_store = None
+    logger.warning("⚠️ vector_store not available")
+
+from .embeddings import embedding_service
+
+__all__ = ['RAGPipeline', 'rag_pipeline']
+
+
 class RAGPipeline:
-    """RAG Pipeline for AI chat and search"""
+    """
+    RAG Pipeline for AI chat and search - Works with or without Qdrant
+    """
     
     def __init__(self):
         self.vector_store = vector_store
         self.embedding_service = embedding_service
-        logger.info("✅ RAG Pipeline initialized")
+        self._api_data_cache = None
+        self._api_data_cache_time = None
+        self.CACHE_DURATION = 300  # 5 minutes
+        
+        # Check if vector store is available
+        if self.vector_store:
+            logger.info("✅ RAG Pipeline initialized with Qdrant vector store")
+        else:
+            logger.info("🔄 RAG Pipeline initialized in API-only mode (Qdrant disabled)")
+    
+    def _fetch_api_data(self) -> List[Dict]:
+        """Fetch destination data from API endpoints"""
+        import time
+        
+        # Check cache
+        if self._api_data_cache and self._api_data_cache_time:
+            if time.time() - self._api_data_cache_time < self.CACHE_DURATION:
+                logger.debug(f"📦 Using cached API data: {len(self._api_data_cache)} items")
+                return self._api_data_cache
+        
+        destinations = []
+        api_base = getattr(settings, 'API_BASE_URL', 'http://localhost:8000/api')
+        
+        try:
+            # Try destinations endpoint
+            dest_url = f"{api_base}/destinations/"
+            logger.info(f"📡 Fetching from: {dest_url}")
+            
+            response = requests.get(dest_url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(f"✅ Destinations response received")
+                
+                # Parse response
+                if isinstance(data, dict):
+                    if data.get('results') and isinstance(data['results'], list):
+                        destinations = data['results']
+                    elif data.get('data') and isinstance(data['data'], list):
+                        destinations = data['data']
+                    elif data.get('destinations') and isinstance(data['destinations'], list):
+                        destinations = data['destinations']
+                elif isinstance(data, list):
+                    destinations = data
+                
+                logger.info(f"📊 Found {len(destinations)} destinations")
+                
+        except Exception as e:
+            logger.error(f"❌ Error fetching destinations: {e}")
+        
+        # If no destinations, try suggestions endpoint
+        if not destinations:
+            try:
+                sugg_url = f"{api_base}/suggestions/implemented/"
+                logger.info(f"📡 Fetching from: {sugg_url}")
+                
+                response = requests.get(sugg_url, params={'limit': 200}, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.info(f"✅ Suggestions response received")
+                    
+                    if isinstance(data, dict):
+                        if data.get('data') and isinstance(data['data'], list):
+                            destinations = data['data']
+                        elif data.get('results') and isinstance(data['results'], list):
+                            destinations = data['results']
+                        
+                logger.info(f"📊 Found {len(destinations)} suggestions")
+                
+            except Exception as e:
+                logger.error(f"❌ Error fetching suggestions: {e}")
+        
+        # Format destinations
+        formatted = []
+        for d in destinations:
+            # Get the name
+            name = d.get('name') or d.get('title') or d.get('destination_name') or 'Unknown'
+            
+            # Get district
+            district = d.get('district') or d.get('location') or d.get('destination_district') or ''
+            
+            # Get description
+            description = d.get('description') or d.get('destination_description') or d.get('review_text') or ''
+            
+            formatted.append({
+                'id': d.get('id') or d.get('destination_id'),
+                'name': name,
+                'district': district.title() if district else '',
+                'location': district,
+                'description': description[:300] if description else '',
+                'category': d.get('category') or d.get('destination_category') or 'General',
+                'category_title': d.get('category_title') or d.get('category') or 'General',
+                'type': d.get('type') or d.get('suggestion_type') or 'well-known',
+                'rating': float(d.get('rating') or d.get('destination_rating') or 0),
+                'image': d.get('image') or d.get('destination_image') or d.get('image_url') or '',
+                'tags': d.get('tags') or d.get('activities') or [],
+                'full_text': f"{name} {district} {description}"
+            })
+        
+        # Cache
+        self._api_data_cache = formatted
+        self._api_data_cache_time = time.time()
+        
+        logger.info(f"✅ Total {len(formatted)} destinations loaded from API")
+        return formatted
     
     def search(self, query: str, top_k: int = 20, filters: Dict = None) -> List[Dict]:
         """
-        Search for destinations using vector similarity
-        
-        Args:
-            query: Search query
-            top_k: Number of results
-            filters: Optional filters (district, category, etc.)
-            
-        Returns:
-            List of destination results with scores
+        Search for destinations using vector similarity or keyword matching
         """
+        if not query:
+            logger.warning("Empty query provided")
+            return []
+        
         try:
-            # Use vector store search
-            results = self.vector_store.search(query, top_k=top_k, filters=filters)
+            results = []
             
-            if not results:
-                logger.warning(f"No results found for query: {query}")
+            # Try vector search first if available
+            if self.vector_store:
+                try:
+                    results = self.vector_store.search(query, top_k=top_k, filters=filters)
+                    if results:
+                        logger.info(f"✅ Vector search found {len(results)} results")
+                        return results
+                except Exception as e:
+                    logger.warning(f"⚠️ Vector search failed: {e}, falling back to API")
+            
+            # Fallback: Use API data with keyword matching
+            api_data = self._fetch_api_data()
+            
+            if not api_data:
+                logger.warning("⚠️ No API data available for search")
                 return []
             
-            logger.info(f"Found {len(results)} results for query: {query}")
+            # Apply filters
+            filtered_data = api_data
+            if filters:
+                if filters.get('district'):
+                    district = filters['district'].lower()
+                    filtered_data = [
+                        d for d in filtered_data 
+                        if district in d.get('district', '').lower() 
+                        or district in d.get('location', '').lower()
+                    ]
+                
+                if filters.get('category'):
+                    category = filters['category'].lower()
+                    filtered_data = [
+                        d for d in filtered_data 
+                        if category in d.get('category', '').lower()
+                        or category in d.get('category_title', '').lower()
+                    ]
+                
+                if filters.get('type'):
+                    type_val = filters['type'].lower()
+                    filtered_data = [
+                        d for d in filtered_data 
+                        if type_val in d.get('type', '').lower()
+                    ]
+            
+            # Keyword search
+            query_lower = query.lower()
+            scored = []
+            
+            for item in filtered_data:
+                score = 0
+                search_text = ' '.join([
+                    item.get('name', ''),
+                    item.get('district', ''),
+                    item.get('location', ''),
+                    item.get('description', ''),
+                    item.get('category', ''),
+                    ' '.join(item.get('tags', []))
+                ]).lower()
+                
+                # Exact phrase match
+                if query_lower in search_text:
+                    score += 10
+                
+                # Word matches
+                for word in query_lower.split():
+                    if len(word) < 2:
+                        continue
+                    if word in search_text:
+                        score += 2
+                    if word in item.get('name', '').lower():
+                        score += 3
+                    if word in item.get('district', '').lower():
+                        score += 2
+                
+                if score > 0:
+                    scored.append({**item, 'score': min(score / 10, 1.0)})
+            
+            # Sort by score
+            scored.sort(key=lambda x: x.get('score', 0), reverse=True)
+            results = scored[:top_k]
+            
+            logger.info(f"🔍 Keyword search found {len(results)} results")
             return results
             
         except Exception as e:
-            logger.error(f"Search failed: {e}", exc_info=True)
+            logger.error(f"❌ Search failed: {e}", exc_info=True)
             return []
     
     def answer(self, query: str) -> Dict:
@@ -55,52 +245,23 @@ class RAGPipeline:
         
         # Build context from results
         context = "\n\n".join([
-            f"Name: {r['name']}\n"
-            f"District: {r['district']}\n"
-            f"Description: {r['description']}\n"
-            f"Category: {r['category_title']}\n"
-            f"Tags: {', '.join(r.get('tags', []))}\n"
-            f"Hidden Gem: {r.get('hidden_gem', 'N/A')}"
+            f"Name: {r.get('name', 'Unknown')}\n"
+            f"District: {r.get('district', 'Unknown')}\n"
+            f"Description: {r.get('description', '')[:150]}\n"
+            f"Category: {r.get('category_title', '')}\n"
+            f"Tags: {', '.join(r.get('tags', [])[:3])}"
             for r in results[:3]
         ])
         
-        # Generate answer (you can use LLM here)
-        answer = self._generate_answer(query, context, results)
+        # Generate answer
+        from .llm import llm_service
+        answer = llm_service.generate_response(query, context)
         
         return {
             'answer': answer,
             'sources': results[:5],
             'count': len(results)
         }
-    
-    def _generate_answer(self, query: str, context: str, results: List[Dict]) -> str:
-        """Generate a natural language answer from context"""
-        # Simple fallback - you can replace with LLM
-        if not results:
-            return "🔍 I couldn't find any destinations matching your query. Please try different keywords."
-        
-        if len(results) == 1:
-            return f"Based on your query '{query}', I found **{results[0]['name']}** in {results[0]['district']}. {results[0]['description']}"
-        
-        # Group results by category
-        categories = {}
-        for r in results:
-            cat = r.get('category_title', 'Other')
-            if cat not in categories:
-                categories[cat] = []
-            categories[cat].append(r)
-        
-        answer = f"Based on your query '{query}', I found **{len(results)}** destinations:\n\n"
-        
-        for category, items in categories.items():
-            answer += f"**{category}** ({len(items)}):\n"
-            for item in items[:3]:
-                answer += f"  • {item['name']} ({item['district']})\n"
-            if len(items) > 3:
-                answer += f"  • ... and {len(items) - 3} more\n"
-            answer += "\n"
-        
-        return answer.strip()
     
     def plan_trip(self, query: str) -> Dict:
         """Plan a trip based on the query"""
@@ -113,30 +274,14 @@ class RAGPipeline:
                 'destinations': []
             }
         
-        # Group by district for better planning
-        districts = {}
-        for r in results:
-            district = r.get('district', 'Unknown')
-            if district not in districts:
-                districts[district] = []
-            districts[district].append(r)
-        
-        # Build itinerary
-        itinerary = f"🏖️ **Trip Plan based on your query:**\n\n"
-        itinerary += f"Found {len(results)} destinations across {len(districts)} districts.\n\n"
-        
-        for district, places in districts.items():
-            itinerary += f"**📍 {district} District** ({len(places)} places):\n"
-            for place in places[:3]:
-                itinerary += f"  • {place['name']} - {place.get('description', '')[:50]}...\n"
-            if len(places) > 3:
-                itinerary += f"  • ... and {len(places) - 3} more places\n"
-            itinerary += "\n"
+        # Generate itinerary using LLM
+        from .llm import llm_service
+        itinerary = llm_service.generate_itinerary(query, results)
         
         return {
             'itinerary': itinerary,
             'destinations': results[:10],
-            'districts': list(districts.keys())
+            'districts': list(set(r.get('district') for r in results if r.get('district')))
         }
 
 

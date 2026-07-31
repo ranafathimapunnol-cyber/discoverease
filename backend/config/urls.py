@@ -11,8 +11,8 @@ urlpatterns = [
     path('api/guides/', include('guides.urls')),
     path('api/staff/', include('staff.urls')),
     path('api/admin/', include('admin_dashboard.urls')),
-    path('api/suggestions/', include('suggestions.urls')),  # ✅ This is correct
-    path('api/', include('api.urls')),  # ✅ Keep this for any additional API endpoints
+    path('api/suggestions/', include('suggestions.urls')),  
+    path('api/', include('api.urls')),  
 ]
 
 if settings.DEBUG:

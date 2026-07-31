@@ -45,11 +45,10 @@ class CategoryData(models.Model):
 
 
 class CategoryPlace(models.Model):
-    """Individual places within categories - From your frontend data"""
     category = models.CharField(max_length=100, db_index=True)
     name = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
-    district = models.CharField(max_length=100, blank=True, null=True, help_text="District where this place is located")
+    district = models.CharField(max_length=100, blank=True, null=True)
     description = models.TextField()
     difficulty = models.CharField(max_length=50, blank=True, null=True)
     duration = models.CharField(max_length=100, blank=True, null=True)
@@ -62,7 +61,7 @@ class CategoryPlace(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # Link to Destination model
+    # ✅ destination = ForeignKey creates destination_id automatically
     destination = models.ForeignKey(
         'Destination',
         on_delete=models.SET_NULL,
