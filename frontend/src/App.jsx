@@ -123,14 +123,14 @@ const DashboardRedirect = () => {
     }
 
     const redirectMap = {
-        'tourister': '/',
+        'tourister': '/home', // ✅ CHANGED: Now redirects to /home instead of /
         'guide': '/guide-dashboard',
         'staff': '/staff-dashboard',
         'staff_admin': '/staff-dashboard',
         'admin': '/admin-dashboard'
     };
     
-    return <Navigate to={redirectMap[role || 'tourister'] || '/'} replace />;
+    return <Navigate to={redirectMap[role || 'tourister'] || '/login'} replace />;
 };
 
 // ============================================
@@ -155,6 +155,7 @@ function App() {
                     {/* ========================================== */}
                     {/* PUBLIC ROUTES - No login required          */}
                     {/* ========================================== */}
+                    <Route path="/" element={<Home />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/verify-email" element={<VerifyEmail />} />
@@ -165,9 +166,9 @@ function App() {
                     {/* PROTECTED ROUTES - Login required          */}
                     {/* ========================================== */}
                     
-                    {/* Home - Tourister only */}
+                    {/* ✅ CHANGED: Home is now at /home instead of / */}
                     <Route
-                        path="/"
+                        path="/home"
                         element={
                             <ProtectedRoute allowedRoles={['tourister']}>
                                 <Home />

@@ -393,9 +393,9 @@ const handleSuggestionSubmit = async (e) => {
     {
       id: 3,
       image: "/explore4.png",
-      title: "Athirappilly Falls",
-      location: "Thrissur, Kerala",
-      description: "Majestic waterfall often called the Niagara of India",
+      title: "muzhappilangad Beach",
+      location: "Kannur, Kerala",
+      description: "Scenic beach with clear waters and a relaxed atmosphere",
       rating: 4.7,
       reviews: 156,
     }
